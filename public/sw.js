@@ -1,6 +1,9 @@
 const CACHE_NAME = "amardip-pwa-v1";
 const STATIC_ASSETS = [
   "/adlogo.png",
+  "/adlogo-pwa.png",
+  "/adlogo-pwa-192.png",
+  "/adlogo-pwa-512.png",
   "/manifest.webmanifest"
 ];
 

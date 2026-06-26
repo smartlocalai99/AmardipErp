@@ -198,7 +198,7 @@ export default function AdminAmcTable({ user, embedded = false }) {
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 placeholder="Search ID, name, mobile, city, address"
-                className="h-11 flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base font-semibold text-slate-800 outline-none focus:border-[#0a649d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(10,100,157,0.10)]"
+                className="amardip-search-field flex-1"
               />
 
               <select
@@ -207,7 +207,7 @@ export default function AdminAmcTable({ user, embedded = false }) {
                   setPage(1);
                   setPageSize(Number(event.target.value));
                 }}
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+                className="amardip-field text-sm"
               >
                 <option value={10}>10 / page</option>
                 <option value={25}>25 / page</option>

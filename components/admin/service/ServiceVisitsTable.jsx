@@ -252,33 +252,33 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
                 placeholder="Search visits"
-                className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base font-semibold text-slate-800 outline-none focus:border-[#0a649d] lg:col-span-2"
+                className="amardip-search-field lg:col-span-2"
               />
               <input
                 type="text"
                 value={filters.serviceType}
                 onChange={(event) => updateFilter("serviceType", event.target.value)}
                 placeholder="Service type"
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field"
               />
               <input
                 type="text"
                 value={filters.technician}
                 onChange={(event) => updateFilter("technician", event.target.value)}
                 placeholder="Technician"
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field"
               />
               <input
                 type="date"
                 value={filters.fromDate}
                 onChange={(event) => updateFilter("fromDate", event.target.value)}
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+                className="amardip-field text-sm"
               />
               <input
                 type="date"
                 value={filters.toDate}
                 onChange={(event) => updateFilter("toDate", event.target.value)}
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+                className="amardip-field text-sm"
               />
             </div>
 
@@ -288,7 +288,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
                 setPage(1);
                 setPageSize(Number(event.target.value));
               }}
-              className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d] sm:w-auto"
+              className="amardip-field w-full text-sm sm:w-auto"
             >
               <option value={10}>10 / page</option>
               <option value={25}>25 / page</option>

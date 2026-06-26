@@ -287,7 +287,7 @@ export default function AdminCustomersTable({ user, embedded = false }) {
                   value={searchInput}
                   onChange={(event) => setSearchInput(event.target.value)}
                   placeholder="Search name, ID, mobile, city, status"
-                  className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 pr-10 text-base font-semibold text-slate-800 outline-none transition focus:border-[#0a649d] focus:bg-white focus:shadow-[0_0_0_3px_rgba(10,100,157,0.10)]"
+                  className="amardip-search-field w-full pr-10"
                 />
 
                 {searchInput && (
@@ -307,7 +307,7 @@ export default function AdminCustomersTable({ user, embedded = false }) {
                   setPage(1);
                   setPageSize(Number(event.target.value));
                 }}
-                className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+                className="amardip-field text-sm"
               >
                 <option value={10}>10 / page</option>
                 <option value={25}>25 / page</option>

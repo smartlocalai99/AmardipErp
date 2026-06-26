@@ -286,7 +286,7 @@ export default function AdminReportsPage({ user }) {
           value={searchInput}
           onChange={(event) => setSearchInput(event.target.value)}
           placeholder="Search report rows"
-          className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-base font-semibold text-slate-800 outline-none focus:border-[#0a649d]"
+          className="amardip-search-field w-full"
         />
 
         {error && (

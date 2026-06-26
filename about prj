@@ -46,6 +46,7 @@ Always keep the app feel first. Avoid desktop-style redesigns, wide dashboard-fi
 Logo Rule
 - Login pages continue using /logo.png.
 - Logged-in app shell uses /adlogo.png.
+- PWA/mobile app icon uses padded white-background /adlogo-pwa assets so the logo is not cropped.
 - Do not replace login-page logo unless explicitly requested.
 
 Authentication / Login
@@ -164,6 +165,9 @@ PWA files:
 - public/manifest.webmanifest
 - public/sw.js
 - public/adlogo.png
+- public/adlogo-pwa.png
+- public/adlogo-pwa-192.png
+- public/adlogo-pwa-512.png
 
 Admin Dashboard KPI Behavior
 DashboardKpiGrid.jsx controls KPI cards.
@@ -1038,7 +1042,10 @@ PWA behavior:
 - Start URL: /Admindashboard.
 - Display mode: standalone.
 - Theme/background color: Amardip blue #0a649d.
-- PWA icons use /adlogo.png.
+- PWA icons use padded white-background adlogo assets:
+  - /adlogo-pwa-192.png
+  - /adlogo-pwa-512.png
+- /adlogo-pwa.png is the 1024px source padded icon.
 - Service worker caches only static app assets like adlogo and manifest.
 - API routes are network-only and are not cached by the service worker.
 
@@ -1046,6 +1053,15 @@ Logo behavior:
 - Login pages still use /logo.png.
 - Admin dashboard app header uses /adlogo.png instead of initials.
 - Admin profile avatar uses /adlogo.png instead of initials.
+
+Latest Mobile Polish Upgrade
+- App icon now has a white background and padding so adlogo fits better on mobile home screens.
+- Admin bottom navigation is taller and uses iPhone safe-area padding through .amardip-bottom-nav.
+- Admin main content bottom padding was increased through .amardip-app-main so content does not sit under the bottom nav.
+- Shared admin search fields now use .amardip-search-field with larger height, bigger text, rounded app styling, and a built-in search icon.
+- Shared admin filter/select/date controls now use .amardip-field for one consistent size and style.
+- Complaint status filters now use larger .amardip-filter-chip pill styling.
+- The goal is one common mobile app format for search and filter controls across admin modules.
 
 Follow-up UX Correction
 Dashboard cards must not open new tabs. Customers, AMC, and Service Visits are available as embedded More subtabs in /Admindashboard. The standalone /admin/customers, /admin/amc, and /admin/service-visits routes remain available for direct access, but the primary experience is the single mobile admin app.

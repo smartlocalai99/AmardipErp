@@ -922,7 +922,7 @@ function AdmindashboardShell({ user }) {
                 )}
 
                 {/* MAIN CONTENT AREA */}
-                <main className="flex-1 overflow-y-auto bg-[#f1f5f9] pb-24">
+                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {moduleOpening ? (
                         <ModuleOpenSkeleton />
@@ -1077,19 +1077,19 @@ function AdmindashboardShell({ user }) {
                                         placeholder="Search complaints..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="h-11 w-full pl-10 pr-4 rounded-xl bg-white border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
+                                        className="amardip-search-field w-full"
                                     />
                                     <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                                         <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
                                     </div>
                                 </div>
 
-                                <div className="flex gap-1.5 p-1 bg-slate-200/50 rounded-xl">
+                                <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
                                     {["all", "Open", "In Progress", "Resolved"].map(status => (
                                         <button
                                             key={status}
                                             onClick={() => setStatusFilter(status)}
-                                            className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition capitalize ${statusFilter === status ? "bg-[#0a649d] text-white shadow-sm" : "text-slate-500 hover:text-slate-700"
+                                            className={`amardip-filter-chip shrink-0 capitalize ${statusFilter === status ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"
                                                 }`}
                                         >
                                             {status === "all" ? "All Tickets" : status}
@@ -1419,7 +1419,7 @@ function AdmindashboardShell({ user }) {
                                             placeholder="Search parts..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="h-11 w-full pl-10 pr-4 rounded-xl bg-white border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
+                                            className="amardip-search-field w-full"
                                         />
                                         <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                                             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -1469,7 +1469,7 @@ function AdmindashboardShell({ user }) {
                                             placeholder="Search staff..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="h-11 w-full pl-10 pr-4 rounded-xl bg-white border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
+                                            className="amardip-search-field w-full"
                                         />
                                         <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                                             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -1732,7 +1732,7 @@ function AdmindashboardShell({ user }) {
                                             placeholder="Search parts requested..."
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="h-11 w-full pl-10 pr-4 rounded-xl bg-white border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
+                                            className="amardip-search-field w-full"
                                         />
                                         <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
                                             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -2038,10 +2038,10 @@ function AdmindashboardShell({ user }) {
                 </main>
 
                 {/* BOTTOM NAVIGATION BAR */}
-                <div className="absolute bottom-0 left-0 right-0 h-16 bg-[#0a2540] border-t border-slate-800 text-white flex justify-around items-center z-50 px-1 pb-safe">
+                <div className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a2540] border-t border-slate-800 text-white flex justify-around items-start z-50 px-1 pt-2.5">
                     <button
                         onClick={() => openTab("dashboard")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "dashboard" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 ${activeTab === "dashboard" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
                     >
                         <OverviewIcon className="h-5 w-5 mb-0.5" />
                         <span className="text-[9px] font-bold tracking-tight">Dashboard</span>
@@ -2049,7 +2049,7 @@ function AdmindashboardShell({ user }) {
 
                     <button
                         onClick={() => openTab("complaints")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 relative ${activeTab === "complaints" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 relative ${activeTab === "complaints" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
                     >
                         <AlertIcon className="h-5 w-5 mb-0.5" />
                         <span className="text-[9px] font-bold tracking-tight">Complaints</span>
@@ -2062,7 +2062,7 @@ function AdmindashboardShell({ user }) {
 
                     <button
                         onClick={() => openTab("service")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 relative ${activeTab === "service" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 relative ${activeTab === "service" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
                     >
                         <ServiceIcon className="h-5 w-5 mb-0.5" />
                         <span className="text-[9px] font-bold tracking-tight">Service</span>
@@ -2075,7 +2075,7 @@ function AdmindashboardShell({ user }) {
 
                     <button
                         onClick={() => openTab("technicians")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "technicians" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 ${activeTab === "technicians" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
                     >
                         <TechniciansIcon className="h-5 w-5 mb-0.5" />
                         <span className="text-[9px] font-bold tracking-tight">Techs</span>
@@ -2083,7 +2083,7 @@ function AdmindashboardShell({ user }) {
 
                     <button
                         onClick={() => openTab("more")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "more" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 ${activeTab === "more" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
                     >
                         <MoreIcon className="h-5 w-5 mb-0.5" />
                         <span className="text-[9px] font-bold tracking-tight">More</span>

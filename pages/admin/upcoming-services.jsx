@@ -331,7 +331,7 @@ export default function UpcomingServicesPage({ user }) {
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
               placeholder="Search customer, mobile, city"
-              className="h-11 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-base font-semibold text-slate-800 outline-none focus:border-[#0a649d] lg:col-span-2"
+              className="amardip-search-field lg:col-span-2"
             />
             <select
               value={mode}
@@ -339,7 +339,7 @@ export default function UpcomingServicesPage({ user }) {
                 setPage(1);
                 setMode(event.target.value);
               }}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+              className="amardip-field text-sm"
             >
               <option value="all">All</option>
               <option value="scheduled">Scheduled</option>
@@ -351,7 +351,7 @@ export default function UpcomingServicesPage({ user }) {
                 setPage(1);
                 setStatus(event.target.value);
               }}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+              className="amardip-field text-sm"
             >
               <option value="ALL">All Status</option>
               <option value="SCHEDULED">SCHEDULED</option>
@@ -366,7 +366,7 @@ export default function UpcomingServicesPage({ user }) {
                 setPage(1);
                 setPageSize(Number(event.target.value));
               }}
-              className="h-11 rounded-2xl border border-slate-200 bg-white px-3 text-xs font-black text-slate-700 outline-none focus:border-[#0a649d]"
+              className="amardip-field text-sm"
             >
               <option value={10}>10 / page</option>
               <option value={25}>25 / page</option>
@@ -542,26 +542,26 @@ export default function UpcomingServicesPage({ user }) {
                 type="date"
                 value={scheduleForm.scheduledDate}
                 onChange={(event) => setScheduleForm((current) => ({ ...current, scheduledDate: event.target.value }))}
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field w-full"
               />
               <input
                 type="text"
                 value={scheduleForm.preferredTime}
                 onChange={(event) => setScheduleForm((current) => ({ ...current, preferredTime: event.target.value }))}
                 placeholder="Preferred time"
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field w-full"
               />
               <input
                 type="text"
                 value={scheduleForm.assignedTechnicianName}
                 onChange={(event) => setScheduleForm((current) => ({ ...current, assignedTechnicianName: event.target.value }))}
                 placeholder="Technician name"
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field w-full"
               />
               <select
                 value={scheduleForm.priority}
                 onChange={(event) => setScheduleForm((current) => ({ ...current, priority: event.target.value }))}
-                className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field w-full"
               >
                 <option value="LOW">LOW</option>
                 <option value="NORMAL">NORMAL</option>
@@ -573,7 +573,7 @@ export default function UpcomingServicesPage({ user }) {
                 onChange={(event) => setScheduleForm((current) => ({ ...current, notes: event.target.value }))}
                 placeholder="Notes"
                 rows={3}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:border-[#0a649d]"
+                className="amardip-field min-h-28 w-full py-3"
               />
             </div>
 
