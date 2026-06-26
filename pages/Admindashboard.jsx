@@ -1,6 +1,11 @@
 import { getUserFromRequest } from "@/lib/auth";
 import DashboardKpiGrid from "@/components/admin/dashboard/DashboardKpiGrid";
+import { AdminAppDataProvider, useAdminAppData } from "@/components/admin/AdminAppDataProvider";
 import AdminCustomersTable from "@/components/admin/customers/AdminCustomersTable";
+import AdminAmcTable from "@/components/admin/amc/AdminAmcTable";
+import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
+import { clearSessionCache } from "@/lib/adminCache";
+import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import { useRouter } from "next/router";
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
@@ -49,6 +54,14 @@ export async function getServerSideProps(context) {
             user,
         },
     };
+}
+
+export default function Admindashboard({ user }) {
+    return (
+        <AdminAppDataProvider user={user}>
+            <AdmindashboardShell user={user} />
+        </AdminAppDataProvider>
+    );
 }
 
 // SVGs for modern Material Design look
@@ -194,10 +207,22 @@ function formatGroupDate(dateStr) {
     }
 }
 
-export default function Admindashboard({ user }) {
+function ModuleOpenSkeleton() {
+    return (
+        <div className="p-4 space-y-4 animate-in fade-in duration-150">
+            <MetricSkeletonGrid count={4} />
+            <DataListSkeleton columns={6} rows={5} minWidth="980px" />
+        </div>
+    );
+}
+
+function AdmindashboardShell({ user }) {
     const router = useRouter();
+    const adminAppData = useAdminAppData();
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState("dashboard"); // bottom tabs: dashboard, customers, service, technicians, more
+    const [moduleOpening, setModuleOpening] = useState(false);
+    const moduleOpeningTimer = useRef(null);
 
     // Modals
     const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -304,30 +329,58 @@ export default function Admindashboard({ user }) {
         totalTechnicians: 4
     });
 
-    const [customerStats, setCustomerStats] = useState({
+    const fallbackCustomerStats = {
         totalCustomers: 0,
         activeAmc: 0,
         activeEmc: 0,
         warrantyCount: 0,
         outOfWarrantyCount: 0,
         missingMobileCount: 0,
-    });
+    };
+    const fallbackServiceStats = {
+        totalServiceVisits: 0,
+        linkedServiceVisits: 0,
+        unlinkedServiceVisits: 0,
+        scheduledUpcomingServices: 0,
+        toBeScheduledServices: 0,
+        upcomingServicesTotal: 0,
+    };
+    const customerStats = adminAppData.customerStats || fallbackCustomerStats;
+    const serviceStats = adminAppData.serviceStats || fallbackServiceStats;
+    const dashboardStatsLoading = adminAppData.loading && !adminAppData.customerStats && !adminAppData.serviceStats;
+
+    function showModuleSkeleton() {
+        if (moduleOpeningTimer.current) {
+            clearTimeout(moduleOpeningTimer.current);
+        }
+        setModuleOpening(true);
+        moduleOpeningTimer.current = setTimeout(() => {
+            setModuleOpening(false);
+        }, 240);
+    }
+
+    function openTab(tab) {
+        showModuleSkeleton();
+        setActiveTab(tab);
+        if (tab !== "more") setMoreSubTab(null);
+        setSearchQuery("");
+        setStatusFilter("all");
+    }
+
+    function openMoreSubTab(tab) {
+        showModuleSkeleton();
+        setActiveTab("more");
+        setMoreSubTab(tab);
+        setSearchQuery("");
+        setStatusFilter("all");
+    }
 
     useEffect(() => {
-        async function loadCustomerStats() {
-            try {
-                const response = await fetch("/api/elevator-customers/stats");
-                const data = await response.json();
-
-                if (response.ok && data.success) {
-                    setCustomerStats(data.stats);
-                }
-            } catch (error) {
-                console.error("Failed to load customer stats:", error);
+        return () => {
+            if (moduleOpeningTimer.current) {
+                clearTimeout(moduleOpeningTimer.current);
             }
-        }
-
-        loadCustomerStats();
+        };
     }, []);
 
     // Today's Activities
@@ -451,6 +504,7 @@ export default function Admindashboard({ user }) {
     async function handleLogout() {
         setLoading(true);
         try {
+            clearSessionCache("amardip_admin_cache");
             await fetch("/api/auth/logout", { method: "POST" });
             router.push("/Adminlogin");
         } catch (err) {
@@ -863,6 +917,10 @@ export default function Admindashboard({ user }) {
                 {/* MAIN CONTENT AREA */}
                 <main className="flex-1 overflow-y-auto bg-[#f1f5f9] pb-24">
 
+                    {moduleOpening ? (
+                        <ModuleOpenSkeleton />
+                    ) : (
+                    <>
                     {/* TAB: DASHBOARD */}
                     {activeTab === "dashboard" && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
@@ -870,8 +928,10 @@ export default function Admindashboard({ user }) {
                             <DashboardKpiGrid
                                 kpiCounts={kpiCounts}
                                 customerStats={customerStats}
-                                setActiveTab={setActiveTab}
-                                setMoreSubTab={setMoreSubTab}
+                                serviceStats={serviceStats}
+                                statsLoading={dashboardStatsLoading}
+                                setActiveTab={openTab}
+                                setMoreSubTab={openMoreSubTab}
                             />
 
                             {/* Section 1: Today's Activities */}
@@ -1283,7 +1343,7 @@ export default function Admindashboard({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => setMoreSubTab(null)}
+                                            onClick={() => openMoreSubTab(null)}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1296,11 +1356,45 @@ export default function Admindashboard({ user }) {
 
                                     <AdminCustomersTable user={user} embedded />
                                 </div>
+                            ) : moreSubTab === "amc" ? (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openMoreSubTab(null)}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Active AMCs</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Real AMC customer records.</p>
+                                        </div>
+                                    </div>
+
+                                    <AdminAmcTable user={user} embedded />
+                                </div>
+                            ) : moreSubTab === "serviceVisits" ? (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openMoreSubTab(null)}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Service Visits</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Real service ledger and visit history.</p>
+                                        </div>
+                                    </div>
+
+                                    <ServiceVisitsTable user={user} embedded />
+                                </div>
                             ) : moreSubTab === "inventory" ? (
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => setMoreSubTab(null)}
+                                            onClick={() => openMoreSubTab(null)}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1350,7 +1444,7 @@ export default function Admindashboard({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => setMoreSubTab(null)}
+                                            onClick={() => openMoreSubTab(null)}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1403,7 +1497,7 @@ export default function Admindashboard({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => setMoreSubTab(null)}
+                                            onClick={() => openMoreSubTab(null)}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1499,7 +1593,7 @@ export default function Admindashboard({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => setMoreSubTab(null)}
+                                            onClick={() => openMoreSubTab(null)}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1563,7 +1657,7 @@ export default function Admindashboard({ user }) {
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <button
-                                                onClick={() => setMoreSubTab(null)}
+                                                onClick={() => openMoreSubTab(null)}
                                                 className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                             >
                                                 <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1607,7 +1701,7 @@ export default function Admindashboard({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => setMoreSubTab(null)}
+                                            onClick={() => openMoreSubTab(null)}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1726,7 +1820,7 @@ export default function Admindashboard({ user }) {
                                     <div className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
                                         {/* Manage Leads Button */}
                                         <button
-                                            onClick={() => { setMoreSubTab("customers"); setSearchQuery(""); }}
+                                            onClick={() => openMoreSubTab("customers")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1741,9 +1835,26 @@ export default function Admindashboard({ user }) {
                                             <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
                                         </button>
 
+                                        {/* Upcoming Services Button */}
+                                        <button
+                                            onClick={() => router.push("/admin/upcoming-services")}
+                                            className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="h-9 w-9 rounded-xl bg-sky-50 text-[#0a649d] flex items-center justify-center">
+                                                    <svg className="h-5 w-5 text-[#0a649d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                                </div>
+                                                <div>
+                                                    <p className="text-xs font-bold text-slate-800">Upcoming Services</p>
+                                                    <p className="text-[9px] text-slate-400 mt-0.5">Plan monthly AMC, EMC, and warranty visits</p>
+                                                </div>
+                                            </div>
+                                            <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
+                                        </button>
+
                                         {/* Inventory Stock Button */}
                                         <button
-                                            onClick={() => { setMoreSubTab("inventory"); setSearchQuery(""); }}
+                                            onClick={() => openMoreSubTab("inventory")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1760,7 +1871,7 @@ export default function Admindashboard({ user }) {
 
                                         {/* Staff Directory Button */}
                                         <button
-                                            onClick={() => { setMoreSubTab("staff"); setSearchQuery(""); }}
+                                            onClick={() => openMoreSubTab("staff")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1777,7 +1888,7 @@ export default function Admindashboard({ user }) {
 
                                         {/* System Reports Button */}
                                         <button
-                                            onClick={() => setMoreSubTab("reports")}
+                                            onClick={() => router.push("/admin/reports")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1786,7 +1897,7 @@ export default function Admindashboard({ user }) {
                                                 </div>
                                                 <div>
                                                     <p className="text-xs font-bold text-slate-800">System Reports</p>
-                                                    <p className="text-[9px] text-slate-400 mt-0.5">Complaints load and team analytics reports</p>
+                                                    <p className="text-[9px] text-slate-400 mt-0.5">AMC, service and data quality reports</p>
                                                 </div>
                                             </div>
                                             <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
@@ -1794,7 +1905,7 @@ export default function Admindashboard({ user }) {
 
                                         {/* My Profile Button */}
                                         <button
-                                            onClick={() => setMoreSubTab("profile")}
+                                            onClick={() => openMoreSubTab("profile")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1811,7 +1922,7 @@ export default function Admindashboard({ user }) {
 
                                         {/* Alert Notifications Button */}
                                         <button
-                                            onClick={() => setMoreSubTab("notifications")}
+                                            onClick={() => openMoreSubTab("notifications")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1828,7 +1939,7 @@ export default function Admindashboard({ user }) {
 
                                         {/* Spare Parts Approvals Button */}
                                         <button
-                                            onClick={() => { setMoreSubTab("approvals"); setSearchQuery(""); }}
+                                            onClick={() => openMoreSubTab("approvals")}
                                             className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
                                         >
                                             <div className="flex items-center gap-3">
@@ -1908,13 +2019,15 @@ export default function Admindashboard({ user }) {
                             )}
                         </div>
                     )}
+                    </>
+                    )}
 
                 </main>
 
                 {/* BOTTOM NAVIGATION BAR */}
                 <div className="absolute bottom-0 left-0 right-0 h-16 bg-[#0a2540] border-t border-slate-800 text-white flex justify-around items-center z-50 px-1 pb-safe">
                     <button
-                        onClick={() => { setActiveTab("dashboard"); setSearchQuery(""); setStatusFilter("all"); }}
+                        onClick={() => openTab("dashboard")}
                         className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "dashboard" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <OverviewIcon className="h-5 w-5 mb-0.5" />
@@ -1922,7 +2035,7 @@ export default function Admindashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => { setActiveTab("complaints"); setSearchQuery(""); setStatusFilter("all"); }}
+                        onClick={() => openTab("complaints")}
                         className={`flex flex-col items-center justify-center flex-1 py-1 relative ${activeTab === "complaints" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <AlertIcon className="h-5 w-5 mb-0.5" />
@@ -1935,7 +2048,7 @@ export default function Admindashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => { setActiveTab("service"); setSearchQuery(""); setStatusFilter("all"); }}
+                        onClick={() => openTab("service")}
                         className={`flex flex-col items-center justify-center flex-1 py-1 relative ${activeTab === "service" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <ServiceIcon className="h-5 w-5 mb-0.5" />
@@ -1948,7 +2061,7 @@ export default function Admindashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => { setActiveTab("technicians"); setSearchQuery(""); setStatusFilter("all"); }}
+                        onClick={() => openTab("technicians")}
                         className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "technicians" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <TechniciansIcon className="h-5 w-5 mb-0.5" />
@@ -1956,7 +2069,7 @@ export default function Admindashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => { setActiveTab("more"); setSearchQuery(""); setStatusFilter("all"); }}
+                        onClick={() => openTab("more")}
                         className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "more" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <MoreIcon className="h-5 w-5 mb-0.5" />

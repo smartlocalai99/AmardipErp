@@ -42,15 +42,16 @@ export default async function handler(req, res) {
     const pageSize = cleanNumber(req.query.pageSize, 25, 10, 100);
     const offset = (page - 1) * pageSize;
     const search = String(req.query.search || "").trim();
+    const status = String(req.query.status || "").trim();
 
     const params = [];
-    let whereSql = "";
+    const whereParts = [];
 
     if (search) {
       params.push(`%${search}%`);
 
-      whereSql = `
-        WHERE concat_ws(
+      whereParts.push(`
+        concat_ws(
           ' ',
           record_no::text,
           customer_code,
@@ -76,9 +77,16 @@ export default async function handler(req, res) {
           elevator_type,
           door_make,
           remarks
-        ) ILIKE $1
-      `;
+        ) ILIKE $${params.length}
+      `);
     }
+
+    if (status) {
+      params.push(status.toUpperCase());
+      whereParts.push(`UPPER(TRIM(customer_status)) = $${params.length}`);
+    }
+
+    const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
 
     const countResult = await query(
       `

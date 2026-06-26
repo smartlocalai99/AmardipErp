@@ -1,0 +1,1206 @@
+AMARDIP LIFTS / AMARDIP ELEVATORS - PROJECT NOTES
+
+Project Summary
+This project is Amardip Lifts, also named Amardip Elevators in the UI. It is a Next.js 16 Pages Router app for elevator service operations. The product scope is an elevator service CRM/ERP with four main portals:
+
+1. Admin office dashboard
+2. Customer portal
+3. Technician field-service app
+4. Store/inventory app
+
+The app already has role-based login, PostgreSQL-backed users, a real elevator customer database, real AMC listing, and real service-visit listing. Many workflow modules still use React state/localStorage demo data and should later be converted to DB-backed modules.
+
+Tech Stack
+Next.js version: 16.2.9
+Router: Pages Router
+React: 19
+Database: PostgreSQL through pg
+DB helper: lib/db.js
+Auth: custom JWT cookie auth
+Session cookie: auth_token
+Styling: Tailwind utility classes
+
+Important Project Rules
+This project uses Next.js 16. Before changing Next.js APIs or route conventions, read the local Next docs under node_modules/next/dist/docs/.
+
+Always use the existing DB helper:
+
+import { query } from "@/lib/db";
+
+Do not create neonPool.js or a second DB client.
+
+Do not break:
+- Login/auth
+- JWT cookie flow
+- Existing role redirects
+- The Amardip blue mobile dashboard style
+- Existing customer page/list
+
+Mobile App UX Rule
+The admin dashboard is a mobile application shell, not a normal multi-page desktop website. Prefer opening modules inside the same app shell using dashboard tabs/subtabs. Do not use window.open or new browser tabs from dashboard cards unless the user explicitly asks for it. The standalone /admin/* pages can exist for direct access, but primary dashboard navigation should feel like one mobile app.
+
+Always keep the app feel first. Avoid desktop-style redesigns, wide dashboard-first layouts, or opening separate tabs for normal workflows. Pages can support desktop/tablet with horizontal tables, but the primary experience should feel like a mobile admin app.
+
+Authentication / Login
+Login pages:
+- /Adminlogin
+- /Customerlogin
+- /Technicianlogin
+- /Storelogin
+
+Auth APIs:
+- /api/auth/login
+- /api/auth/logout
+- /api/auth/demo
+
+Backend auth behavior:
+- pages/api/auth/login.js checks the users table by username.
+- Passwords are stored as bcrypt hashes in users.password_hash.
+- A signed JWT is stored in the auth_token HttpOnly cookie.
+- lib/auth.js reads and verifies auth_token.
+
+Role Redirect Rules
+superadmin, admin, manager:
+- Admin dashboard /Admindashboard
+- Admin routes under /admin/*
+
+customer:
+- /Customerdashboard
+
+worker:
+- /Techniciandashboard
+
+storekeeper:
+- /Storedashboard
+
+Seeded Login Accounts From scripts/setup-db.js
+These are default seeded accounts if the DB was initialized from the script:
+- superadmin / superadmin123
+- 9999999999 / customer123
+- tech50 / tech123
+- store50 / store123
+
+If passwords were changed, plaintext cannot be recovered from DB hashes. Use superadmin password reset flow.
+
+Database
+DB connection file:
+- lib/db.js
+
+Seed/setup file:
+- scripts/setup-db.js
+
+Known real DB tables:
+- users
+- elevator_service_customers
+- elevator_service_visits
+- service_schedules
+
+Current DB counts verified on 2026-06-26:
+- elevator_service_customers: 308 customers
+- Active AMC customers: 113
+- elevator_service_visits: 6072 service records
+- Linked service visits: 6002
+- Unlinked service visits: 70
+- service_schedules: 1 ASSIGNED schedule after smoke test
+
+Important: the 70 unlinked service records are intentionally left as-is for now. Do not fix or hide them unless specifically asked.
+
+Admin Module
+Main admin page:
+- pages/Admindashboard.jsx
+- route: /Admindashboard
+
+Admin UI style:
+- Mobile app style
+- Amardip blue header
+- Bottom-tab dashboard navigation
+- Keep this style when adding new admin features
+
+Admin dashboard tabs/sections currently available:
+- Dashboard KPIs
+- Recent complaints
+- Today activity list
+- Complaint management
+- Service schedules
+- Technicians
+- More section
+- Customers
+- Inventory
+- Staff
+- Reports
+- Profile
+- Notifications
+- Material approvals
+- Leads/inquiries
+
+Admin Routes Under pages/admin
+- /admin/customers
+- /admin/customers/[id]
+- /admin/amc
+- /admin/reports
+- /admin/service-visits
+- /admin/upcoming-services
+
+Admin Components
+- components/admin/AdminAppDataProvider.jsx
+- components/admin/dashboard/DashboardKpiGrid.jsx
+- components/admin/customers/AdminCustomersTable.jsx
+- components/admin/amc/AdminAmcTable.jsx
+- components/admin/service/ServiceVisitsTable.jsx
+- components/ui/SkeletonLoaders.jsx
+
+Admin cache helpers:
+- lib/adminCache.js
+- lib/cachedFetch.js
+
+Admin Dashboard KPI Behavior
+DashboardKpiGrid.jsx controls KPI cards.
+
+Current important card behavior:
+- Total Customers shows real count from /api/elevator-customers/stats.
+- Total Customers opens the embedded Customers section inside the same Admin mobile app shell.
+- Active AMCs shows real activeAmc count from /api/elevator-customers/stats.
+- Active AMCs opens the embedded AMC section inside the same Admin mobile app shell.
+- Today's Services card was removed.
+- Total Services shows total completed service visits from /api/elevator-service-visits/stats.
+- Total Services opens the embedded Service Visits section inside the same Admin mobile app shell.
+- Upcoming Services shows Scheduled and To Be Scheduled counts from /api/elevator-service-visits/stats.
+- To Be Scheduled means AMC/EMC/WARRANTY customers without a linked service visit in the current month and without an active schedule for the current month.
+- Upcoming Services routes to /admin/upcoming-services with router.push.
+- Reports Quality opens /admin/reports with router.push and does not call the heavy reports summary API on dashboard load.
+- Dashboard KPI cards show skeleton placeholders while real stats load so users do not briefly see false zeroes.
+- Opening any dashboard tab, KPI card, or More-section card shows a short app-shell skeleton transition.
+- Open Complaints opens the existing in-dashboard complaints tab.
+- Technician Status opens the existing in-dashboard technicians tab.
+
+Customers Module
+Route:
+- /admin/customers
+- /admin/customers/[id]
+
+Page:
+- pages/admin/customers.jsx
+- pages/admin/customers/[id].jsx
+
+Component:
+- components/admin/customers/AdminCustomersTable.jsx
+
+API:
+- /api/elevator-customers
+- /api/elevator-customers/[id]
+- /api/elevator-customers/[id]/service-visits
+- /api/elevator-customers/stats
+
+DB table:
+- elevator_service_customers
+- elevator_service_visits for customer service history
+
+Status:
+- Real DB-backed.
+
+Features:
+- Fetches real customer records.
+- Search.
+- Pagination.
+- Page size 10, 25, 50, 100.
+- Mobile card view.
+- Desktop/tablet horizontal table.
+- Customer detail page.
+- Status badges.
+- Customer cards/table rows navigate to /admin/customers/[id] with router.push.
+- No window.open is used for customer clicks.
+- Loading state uses mobile card skeletons and desktop/table skeletons.
+
+Customer fields used:
+- record_no
+- customer_code
+- customer_name
+- address
+- city
+- mobile_no
+- hoc_date
+- customer_status
+- amc_warranty_due
+- amc_starting_date
+- amc_ending_date
+- no_of_passenger
+- door_type
+- cabin
+- no_of_floors
+- motor_make
+- controller_make
+- drive_make
+- ard_make
+- drive_model_no
+- motor_model_no
+- elevator_type
+- door_make
+- remarks
+
+Customer API Notes
+pages/api/elevator-customers/index.js supports:
+- page
+- pageSize
+- search
+- status
+
+Example:
+/api/elevator-customers?page=1&pageSize=25&search=&status=AMC
+
+The status filter is used by the AMC page.
+
+Customer Detail API
+pages/api/elevator-customers/[id].js returns one customer by id.
+
+Auth behavior:
+- Uses getUserFromRequest.
+- Returns 401 if unauthenticated.
+- Blocks customer, worker, and storekeeper.
+- Allows admin, superadmin, and manager.
+
+Fields returned:
+- id
+- record_no
+- customer_code
+- customer_name
+- address
+- city
+- mobile_no
+- hoc_date
+- customer_status
+- amc_warranty_due
+- amc_starting_date
+- amc_ending_date
+- no_of_passenger
+- door_type
+- cabin
+- no_of_floors
+- motor_make
+- controller_make
+- drive_make
+- ard_make
+- drive_model_no
+- motor_model_no
+- elevator_type
+- door_make
+- location
+- remarks
+
+Customer Service History API
+pages/api/elevator-customers/[id]/service-visits.js returns visits for one customer using WHERE customer_id = $customerId.
+
+It supports:
+- page
+- pageSize
+- search
+- serviceType
+- fromDate
+- toDate
+
+It returns:
+- service_date
+- customer_code
+- customer_name_snapshot
+- city_snapshot
+- mobile_no_snapshot
+- customer_status_snapshot
+- ard_condition
+- motor_condition
+- gear_oil_condition
+- brake_condition
+- rope_condition
+- rail_clips_condition
+- limit_switch_condition
+- gate_locks_condition
+- rcr_condition
+- sensors_condition
+- osg_condition
+- remarks
+- service_type
+- payment_amount
+- technician_1
+- technician_2
+- amc_warranty_due_snapshot
+- source_row_no
+- source_sno
+
+Customer Detail Page
+pages/admin/customers/[id].jsx is a mobile-friendly customer profile page.
+
+It shows:
+- Header with back button, customer name, customer id, and status badge.
+- Customer summary cards for mobile, city, AMC/Warranty due, AMC dates, floors, passenger capacity, and HOC date.
+- Lift technical details including door type, cabin, motor, controller, drive, ARD, model numbers, elevator type, and door make.
+- Service history fetched from /api/elevator-customers/[id]/service-visits.
+- Search, service type filter, date filters, page size, and pagination.
+- Mobile service-history cards.
+- Desktop/tablet horizontal service-history table.
+- Technician, checklist values, payment, source info, and remarks.
+
+Latest verified detail test customer:
+- id: df445b84-c1cd-4a0e-8481-d9de42d4d906
+- code: 157MT6
+- name: HIMALAYA HOSPITALS
+- linked visits: 111
+
+Customer Stats API
+pages/api/elevator-customers/stats.js returns:
+- totalCustomers
+- activeAmc
+- activeEmc
+- warrantyCount
+- outOfWarrantyCount
+- missingMobileCount
+
+AMC Module
+Route:
+- /admin/amc
+
+Page:
+- pages/admin/amc.jsx
+
+Component:
+- components/admin/amc/AdminAmcTable.jsx
+
+API used:
+- /api/elevator-customers?status=AMC
+
+DB table:
+- elevator_service_customers
+
+Status:
+- Real DB-backed.
+
+Features:
+- Fetches only customers where customer_status = AMC.
+- Shows total AMC count through pagination total.
+- Search by ID/name/mobile/city/address because the customer API search scans the customer row text.
+- Pagination Previous/Next.
+- Page size 10, 25, 50, 100.
+- Mobile cards.
+- Desktop/tablet horizontal scroll table.
+- AMC badge.
+- AMC cards/table rows navigate to /admin/customers/[id] with router.push.
+- No window.open is used for AMC clicks.
+- Loading state uses mobile card skeletons and desktop/table skeletons.
+
+AMC fields shown:
+- record_no
+- customer_code
+- customer_name
+- address
+- city
+- mobile_no
+- customer_status
+- amc_warranty_due
+- amc_starting_date
+- amc_ending_date
+- no_of_passenger
+- door_type
+- cabin
+- no_of_floors
+- motor_make
+- controller_make
+- drive_make
+- elevator_type
+- door_make
+
+Service Visits Module
+Route:
+- /admin/service-visits
+
+Page:
+- pages/admin/service-visits.jsx
+
+Component:
+- components/admin/service/ServiceVisitsTable.jsx
+
+APIs:
+- /api/elevator-service-visits
+- /api/elevator-service-visits/stats
+
+DB table:
+- elevator_service_visits
+
+Join:
+- LEFT JOIN elevator_service_customers c ON v.customer_id = c.id
+
+Status:
+- Real DB-backed.
+
+Important behavior:
+- The API returns all service visits, including rows where customer_id IS NULL.
+- Unlinked records are not hidden.
+
+Service visits API supports:
+- page
+- pageSize
+- search
+- customerCode
+- serviceType
+- technician
+- fromDate
+- toDate
+
+Example:
+/api/elevator-service-visits?page=1&pageSize=25&search=&customerCode=&serviceType=&technician=&fromDate=&toDate=
+
+Service visits page features:
+- Search with debounce.
+- Pagination.
+- Page size 10, 25, 50, 100.
+- Filters for service type, technician, from date, to date.
+- Mobile cards.
+- Desktop/tablet horizontal scroll table.
+- Link status badge:
+  - Linked if customer_id is not null
+  - Unlinked if customer_id is null
+- Stats and service ledger loading states use skeleton loaders.
+
+Service visit fields shown:
+- service_date
+- customer_code
+- customer_name_snapshot
+- mobile_no_snapshot
+- city_snapshot
+- service_type
+- technician_1
+- technician_2
+- ard_condition
+- motor_condition
+- gear_oil_condition
+- brake_condition
+- rope_condition
+- rail_clips_condition
+- limit_switch_condition
+- gate_locks_condition
+- rcr_condition
+- sensors_condition
+- osg_condition
+- payment_amount
+- remarks
+- link_status
+
+Service Visit Stats API
+pages/api/elevator-service-visits/stats.js returns:
+- totalServiceVisits
+- linkedServiceVisits
+- unlinkedServiceVisits
+- lastServiceDate
+- totalBreakdowns where service_type ILIKE '%breakdown%'
+- totalMonthlyServices where service_type ILIKE '%month%' or '%monthly%'
+- totalPaymentsCollected where payment_amount is not null
+- uniqueTechnicians from technician_1 and technician_2
+- scheduledUpcomingServices
+- toBeScheduledServices
+- upcomingServicesTotal
+- currentMonthStart
+- currentMonthEnd
+
+Current verified service stats:
+- totalServiceVisits: 6072
+- linkedServiceVisits: 6002
+- unlinkedServiceVisits: 70
+- totalPaymentsCollected: 92
+- uniqueTechnicians: 29
+- scheduledUpcomingServices: 1
+- toBeScheduledServices: 67
+- upcomingServicesTotal: 68
+
+Service Schedules Module
+Route:
+- /admin/upcoming-services
+
+APIs:
+- /api/service-schedules
+- /api/service-schedules/upcoming
+
+DB table:
+- service_schedules
+
+Status:
+- Real DB-backed base module.
+
+Purpose:
+- Tracks monthly service planning.
+- Scheduled services are future/planned work.
+- elevator_service_visits remains completed service history.
+- To Be Scheduled customers are calculated from active AMC/EMC/WARRANTY customers who have not received current-month service and do not already have an active current-month schedule.
+
+Features:
+- Upcoming services dashboard KPI.
+- Scheduled count.
+- To Be Scheduled count.
+- Customer-wise upcoming service list.
+- Schedule Service action.
+- Prevents duplicate monthly schedule for the same customer.
+- Mobile card list with search, mode filter, status filter, page size, loading, error, and empty states.
+- Desktop/tablet support uses horizontal table only as a responsive fallback.
+- Summary counts and service-planning rows use skeleton loaders.
+
+service_schedules table fields:
+- id UUID primary key
+- customer_id UUID references elevator_service_customers(id)
+- schedule_month date
+- scheduled_date date
+- preferred_time text
+- status text
+- priority text
+- service_type text
+- assigned_technician_user_id integer references users(id)
+- assigned_technician_name text
+- notes text
+- admin_notes text
+- created_by_user_id integer references users(id)
+- completed_service_visit_id UUID references elevator_service_visits(id)
+- created_at timestamptz
+- updated_at timestamptz
+
+Note:
+- The requested sample schema used UUID user references, but this repo's users.id column is integer. The implemented table uses integer user references for assigned_technician_user_id and created_by_user_id so it matches the real database.
+
+Allowed schedule statuses:
+- SCHEDULED
+- ASSIGNED
+- IN_PROGRESS
+- COMPLETED
+- CANCELLED
+- MISSED
+
+Allowed priorities:
+- LOW
+- NORMAL
+- HIGH
+- EMERGENCY
+
+Upcoming Services API
+pages/api/service-schedules/upcoming.js returns a unified list of:
+- SCHEDULED rows from service_schedules
+- TO_BE_SCHEDULED customers from elevator_service_customers
+
+It supports:
+- page
+- pageSize
+- search
+- status
+- mode: all, scheduled, to_be_scheduled
+
+Unified row shape:
+- rowType
+- scheduleId
+- customerId
+- customerCode
+- customerName
+- mobileNo
+- city
+- address
+- customerStatus
+- amcWarrantyDue
+- amcStartingDate
+- amcEndingDate
+- lastServiceDate
+- daysSinceLastService
+- scheduleMonth
+- scheduledDate
+- scheduleStatus
+- assignedTechnicianName
+- serviceType
+
+Schedule Action API
+pages/api/service-schedules/index.js supports:
+- GET simple paginated list
+- POST schedule monthly service
+
+POST body:
+- customerId
+- scheduledDate
+- preferredTime
+- assignedTechnicianUserId
+- assignedTechnicianName
+- priority
+- notes
+
+POST behavior:
+- Auth admin/superadmin/manager only.
+- Validates customer exists.
+- schedule_month is first day of current month.
+- service_type is MONTHLY_SERVICE.
+- status is ASSIGNED when technician info exists, otherwise SCHEDULED.
+- Duplicate customer/month/service_type active schedules return 409 with: This customer is already scheduled for this month.
+
+Admin Reports Module
+Route:
+- /admin/reports
+
+API:
+- /api/admin/reports/summary
+
+DB tables used:
+- elevator_service_customers
+- elevator_service_visits
+- service_schedules
+
+Status:
+- Partially real DB-backed using customers, service visits, and service schedules.
+- Does not use fake technician/staff data.
+- Does not build technician assignment or completion workflow.
+
+Purpose:
+- Gives admin operational reports that work before real technician/staff data is available.
+- Focuses on AMC/Warranty expiry, monthly service due planning, customer data quality, and service data quality.
+
+Report sections:
+- AMC / Warranty Expiry Report
+- Monthly Service Due Report
+- Customer Data Quality Report
+- Service Data Quality Report
+- Quick action buttons
+
+AMC / Warranty Expiry Report shows:
+- AMC/Warranty due this month
+- AMC/Warranty due next 30 days
+- AMC/Warranty expired
+- Customer name, code, mobile, city, due date, and status
+
+Monthly Service Due Report shows:
+- To Be Scheduled customers
+- Scheduled services
+- Missed services
+- Completed current-month services
+
+Customer Data Quality Report shows:
+- Missing mobile number
+- Missing city
+- Missing AMC/Warranty due date
+- Missing customer status
+- Duplicate customer_code groups
+- Blank customer_code
+- Customers with no linked service history
+
+Service Data Quality Report shows:
+- Total service visits
+- Linked visits
+- Unlinked visits
+- Service visits without service_date
+- Service visits without service_type
+- Service visits without technician name
+- Payment collected count
+
+Quick action buttons:
+- View Customers -> /admin/customers
+- View AMC -> /admin/amc
+- View Service Visits -> /admin/service-visits
+- View Upcoming Services -> /admin/upcoming-services
+
+Implementation notes:
+- /Admindashboard More section Reports button routes to /admin/reports using router.push.
+- /Admindashboard KPI grid has a Reports Quality card that routes to /admin/reports using router.push.
+- No window.open is used.
+- The reports page is mobile-card-first with desktop/tablet horizontal table fallback.
+- The reports page loading state uses metric, mobile-card, and desktop-table skeletons that match the report data shape.
+- The dashboard does not fetch /api/admin/reports/summary. Report DB queries run only when the reports page opens.
+- /api/admin/reports/summary has a short in-memory cache so repeat opens/refreshes do not repeatedly hit the DB.
+- AMC/Warranty due date parsing is defensive because the customer table has invalid text dates such as 31/11/2026. Invalid date text is treated as null for expiry calculations instead of crashing the report.
+
+Status Badge Colors
+Use consistent customer status badge colors:
+- AMC = green
+- EMC = sky/blue
+- WARRANTY = blue
+- OUT OF WARRANTY = red
+- PENDING / ON GOING = amber
+- Others = slate
+
+Users / Staff Module
+APIs:
+- /api/users
+- /api/users/onboard
+- /api/users/update-password
+
+DB table:
+- users
+
+Status:
+- Real DB-backed for login users.
+- The visual staff list inside the admin dashboard is still mock/local state.
+
+Superadmin-only features:
+- Fetch user directory from users table.
+- Onboard users.
+- Reset user passwords.
+
+Supported onboard roles in the API:
+- admin
+- manager
+- worker
+- customer
+
+Note:
+- setup-db.js also seeds storekeeper.
+- The onboard API currently does not list storekeeper as a valid new-user role unless updated later.
+
+Customer Portal
+Route:
+- /Customerdashboard
+
+File:
+- pages/Customerdashboard.jsx
+
+Status:
+- Mostly mock/localStorage.
+
+Current customer features:
+- Customer home summary.
+- Lift/AMC summary.
+- Complaint logs.
+- Raise complaint flow.
+- Emergency complaint option.
+- Complaint tracking timeline.
+- Documents section.
+- Support message form.
+- Profile/password UI.
+- Notifications.
+
+Current data source:
+- Mostly component state and localStorage.
+- Complaints sync through localStorage key amardip_complaints.
+- Material request visibility can read amardip_material_requests.
+
+Future customer scope:
+- Show only the logged-in customer records.
+- Link customers to real elevator_service_customers rows.
+- Show real lifts, AMC details, documents, service reports, invoices, and complaints.
+
+Technician Portal
+Route:
+- /Techniciandashboard
+
+File:
+- pages/Techniciandashboard.jsx
+
+Role:
+- worker
+
+Status:
+- Mostly mock/localStorage.
+
+Current technician features:
+- Assigned jobs.
+- Completed jobs.
+- Accept job.
+- En route.
+- Arrived.
+- Checklist.
+- Work report.
+- Photo evidence.
+- Customer signature.
+- GPS/selfie style check-in.
+- QR scanner simulator.
+- Inventory/material request flow.
+- Notifications.
+- Profile/password UI.
+
+Current data source:
+- Jobs initialized from local state.
+- Can read/write complaint-like jobs through localStorage key amardip_complaints.
+- Material requests use localStorage key amardip_material_requests.
+
+Future technician scope:
+- Real DB-backed job assignments.
+- Real job status history.
+- Real checklist records.
+- Real photo/signature storage.
+- Real parts-used records.
+- Real completion reports.
+
+Store / Inventory Portal
+Route:
+- /Storedashboard
+
+File:
+- pages/Storedashboard.jsx
+
+Role:
+- storekeeper
+
+Status:
+- Mostly mock/localStorage.
+
+Current store features:
+- Inventory dashboard.
+- Add stock.
+- Update stock.
+- Low stock/out-of-stock tracking.
+- Material request approval/issue.
+- Return material.
+- QR pickup simulator.
+- Transaction ledger.
+- Storekeeper profile/password UI.
+
+Current localStorage keys:
+- amardip_store_inventory
+- amardip_material_requests
+- amardip_store_transactions
+- amardip_complaints
+
+Future store scope:
+- DB-backed inventory master.
+- Stock inward/outward transactions.
+- Technician issue records.
+- Return records.
+- Low-stock alerts.
+- Reports by part, technician, job, and date.
+
+Mock / localStorage Modules Still To Convert
+These are not fully DB-backed yet:
+- Admin complaints
+- Admin service schedules
+- Admin technician list/status
+- Admin inventory list
+- Admin material approvals
+- Admin notifications
+- Admin reports
+- Admin leads/inquiries
+- Customer complaint flow
+- Customer documents
+- Customer support messages
+- Technician jobs
+- Technician checklist/work report
+- Technician evidence/signature
+- Technician material requests
+- Store inventory
+- Store issue/return transactions
+
+Real DB-backed Modules Now
+These are real DB-backed:
+- Login/auth through users table
+- User list/onboarding/password reset through users table
+- Customer table through elevator_service_customers
+- Customer stats through elevator_service_customers
+- Active AMC page through elevator_service_customers with status filter
+- Service visits table through elevator_service_visits
+- Service visit stats through elevator_service_visits
+- Service schedules through service_schedules
+- Upcoming services due list through elevator_service_customers + elevator_service_visits + service_schedules
+- Admin reports through elevator_service_customers + elevator_service_visits + service_schedules
+
+Current Admin Dashboard Module Audit
+1. Dashboard KPIs - mixed. Customer and AMC are real DB. Other cards are mock/local state.
+2. Customers - real DB.
+3. AMC - real DB.
+4. Service visits - real DB.
+5. Complaints - mock/localStorage.
+6. Service schedules - real DB-backed base module for upcoming services; older schedule UI may still contain mock/localStorage parts if not replaced.
+7. Technicians - mock/localStorage.
+8. Inventory - mock/localStorage.
+9. Material requests - mock/localStorage.
+10. Notifications - mock/localStorage.
+11. Reports - partially real DB-backed via /admin/reports; old in-dashboard reports UI may still contain mock/localStorage if accessed elsewhere.
+12. Staff/users - users are real DB, staff display list is mock/local state.
+
+Important Files To Read First
+Project structure:
+- package.json
+- next.config.mjs
+- AGENTS.md
+
+Auth/db:
+- lib/auth.js
+- lib/db.js
+- scripts/setup-db.js
+- pages/api/auth/login.js
+- pages/api/auth/logout.js
+
+Admin:
+- pages/Admindashboard.jsx
+- components/admin/dashboard/DashboardKpiGrid.jsx
+- pages/admin/customers.jsx
+- pages/admin/customers/[id].jsx
+- components/admin/customers/AdminCustomersTable.jsx
+- pages/admin/amc.jsx
+- components/admin/amc/AdminAmcTable.jsx
+- pages/admin/reports.jsx
+- pages/admin/service-visits.jsx
+- pages/admin/upcoming-services.jsx
+- components/admin/service/ServiceVisitsTable.jsx
+
+APIs:
+- pages/api/admin/reports/summary.js
+- pages/api/elevator-customers/index.js
+- pages/api/elevator-customers/[id].js
+- pages/api/elevator-customers/[id]/service-visits.js
+- pages/api/elevator-customers/stats.js
+- pages/api/elevator-service-visits/index.js
+- pages/api/elevator-service-visits/stats.js
+- pages/api/service-schedules/index.js
+- pages/api/service-schedules/upcoming.js
+- pages/api/users/index.js
+- pages/api/users/onboard.js
+- pages/api/users/update-password.js
+
+Service schedule helper:
+- lib/serviceSchedules.js
+
+Customer/technician/store:
+- pages/Customerdashboard.jsx
+- pages/Techniciandashboard.jsx
+- pages/Storedashboard.jsx
+
+Recent Implementation Notes
+The admin real-data upgrade added:
+- /admin/amc
+- /admin/service-visits
+- components/admin/amc/AdminAmcTable.jsx
+- components/admin/service/ServiceVisitsTable.jsx
+- /api/elevator-service-visits
+- /api/elevator-service-visits/stats
+- status filter in /api/elevator-customers
+- KPI card in-app navigation for customers, AMC, and service visits
+
+Skeleton Loader Upgrade
+The app now has reusable skeleton loaders:
+- components/ui/SkeletonLoaders.jsx
+
+Skeletons are used in:
+- Admin dashboard KPI grid while customer/service stats load.
+- Admin dashboard tab/card transitions when any dashboard card or bottom tab opens.
+- Customer list mobile cards and desktop table.
+- AMC list mobile cards and desktop table.
+- Service visits stats and ledger.
+- Customer detail service-history list/table.
+- Upcoming services summary and queue.
+- Admin reports metric cards, report cards, and report tables.
+- Older in-dashboard modules also get an app-shell transition skeleton before their content appears.
+
+Implementation notes:
+- No extra npm package was installed.
+- Skeletons use Tailwind animate-pulse and existing Amardip mobile app styling.
+- Data-heavy report queries are still lazy-loaded only on /admin/reports, not on dashboard startup.
+
+Admin Cache / API Optimization Upgrade
+The admin app now has browser session cache helpers for safe GET data:
+- lib/adminCache.js
+- lib/cachedFetch.js
+- components/admin/AdminAppDataProvider.jsx
+
+Cache behavior:
+- Uses sessionStorage only, not permanent localStorage, for DB/API response cache.
+- Cache keys are user-specific where possible.
+- Dashboard stats cache TTL is 5 minutes.
+- List/report/customer-service-history GET cache TTL is 2 minutes.
+- POST/PUT/PATCH/DELETE operations are not cached.
+- Schedule creation clears admin session cache before refreshing related data.
+- Logout clears amardip_admin_cache session keys.
+
+Provider behavior:
+- /Admindashboard is wrapped in AdminAppDataProvider.
+- Common dashboard data is fetched once and reused inside the admin app:
+  - /api/elevator-customers/stats
+  - /api/elevator-service-visits/stats
+  - /api/service-schedules/upcoming?page=1&pageSize=5
+- Switching dashboard tabs/cards does not refetch dashboard stats.
+- Reports summary is still not fetched on dashboard startup.
+
+Cached GET usage:
+- Customer list uses cachedGetJson.
+- AMC list uses cachedGetJson.
+- Service visits stats and ledger use cachedGetJson.
+- Customer detail service history uses cachedGetJson.
+- Upcoming services list uses cachedGetJson.
+- Admin reports summary uses cachedGetJson.
+
+Follow-up UX Correction
+Dashboard cards must not open new tabs. Customers, AMC, and Service Visits are available as embedded More subtabs in /Admindashboard. The standalone /admin/customers, /admin/amc, and /admin/service-visits routes remain available for direct access, but the primary experience is the single mobile admin app.
+
+Customer Detail Upgrade
+The customer module now has a real customer detail route and APIs:
+- /admin/customers/[id]
+- /api/elevator-customers/[id]
+- /api/elevator-customers/[id]/service-visits
+
+Customer and AMC list clicks now use router.push(`/admin/customers/${customer.id}`), not window.open. The detail page remains mobile-friendly and shows real service history for that customer.
+
+Service Planning Upgrade
+The admin dashboard service planning upgrade added:
+- service_schedules DB table via lib/serviceSchedules.js
+- /admin/upcoming-services
+- /api/service-schedules
+- /api/service-schedules/upcoming
+- new planning fields in /api/elevator-service-visits/stats
+- Total Services KPI replacing Today's Services
+- Upcoming Services KPI with Scheduled and To Be Scheduled counts
+- More section shortcut to Upcoming Services
+
+Dashboard service terms:
+- Total Services = completed service history count from elevator_service_visits.
+- Upcoming Services = Scheduled + To Be Scheduled.
+- Scheduled = current-month active service_schedules rows.
+- To Be Scheduled = AMC/EMC/WARRANTY customers without a linked current-month service visit and without an active current-month schedule.
+
+Reports Upgrade
+The admin reports and data quality upgrade added:
+- /admin/reports
+- /api/admin/reports/summary
+- Real AMC/Warranty expiry report using elevator_service_customers.
+- Real monthly service due report using elevator_service_customers, elevator_service_visits, and service_schedules.
+- Real customer data quality report using elevator_service_customers and linked service history.
+- Real service data quality report using elevator_service_visits.
+- Quick action buttons for Customers, AMC, Service Visits, and Upcoming Services.
+- /Admindashboard More section Reports shortcut now routes to /admin/reports with router.push.
+- /Admindashboard KPI grid now has a Reports Quality card that routes to /admin/reports with router.push.
+
+Reports implementation notes:
+- Reports are mobile-card-first and keep the Amardip blue app feel.
+- Desktop/tablet only gets horizontal tables as responsive support.
+- No fake technician/staff data was added.
+- No technician assignment dropdown was built because client technician/staff data is not available yet.
+- The reports API uses getUserFromRequest and allows only admin, superadmin, and manager.
+- The reports summary API is intentionally not loaded on dashboard startup.
+- The reports summary API uses a short server-side cache to reduce repeated DB hits.
+- Invalid AMC/Warranty text dates such as 31/11/2026 are treated as null for expiry calculations so reports do not crash.
+
+Validation From Last Admin Upgrade
+Build:
+- npm run build passed.
+
+Targeted lint:
+- Touched files passed targeted ESLint.
+
+Full lint:
+- npm run lint still fails due to older unrelated issues in existing dashboard files.
+- Known old lint areas include setState-in-effect warnings/errors in Admindashboard, Customerdashboard, Storedashboard, and Techniciandashboard, plus an old Math.random purity issue in Storedashboard.
+
+Runtime API smoke test:
+- superadmin login succeeded.
+- /api/elevator-customers/stats returned totalCustomers 308 and activeAmc 113.
+- /api/elevator-customers?page=1&pageSize=10&status=AMC returned 10 rows from 113.
+- /api/elevator-service-visits?page=1&pageSize=10 returned 10 rows from 6072.
+- /api/elevator-service-visits/stats returned 6072 total visits and 70 unlinked visits.
+- /api/elevator-service-visits/stats now also returns scheduledUpcomingServices, toBeScheduledServices, upcomingServicesTotal, currentMonthStart, and currentMonthEnd.
+
+Latest Customer Detail Tests
+Using customer id df445b84-c1cd-4a0e-8481-d9de42d4d906:
+- /Admindashboard returned 200.
+- /admin/customers returned 200.
+- /admin/amc returned 200.
+- /admin/customers/df445b84-c1cd-4a0e-8481-d9de42d4d906 returned 200.
+- /api/elevator-customers/df445b84-c1cd-4a0e-8481-d9de42d4d906 returned 200 with HIMALAYA HOSPITALS.
+- /api/elevator-customers/df445b84-c1cd-4a0e-8481-d9de42d4d906/service-visits?page=1&pageSize=10 returned 200 with 10 rows from 111 visits.
+
+Latest Verification
+- npm run build passed.
+- Targeted ESLint passed for customer table, AMC table, customer detail page, customer detail API, and customer service-history API.
+- One shell test script initially failed because a zsh loop variable was named path, which overwrote zsh command lookup. It was rerun with route instead and all requested routes passed.
+
+Latest Service Planning Tests
+- /Admindashboard returned 200.
+- /admin/upcoming-services returned 200.
+- /admin/service-visits returned 200.
+- /api/elevator-service-visits/stats returned 200.
+- /api/service-schedules/upcoming?page=1&pageSize=10 returned 200.
+- Before scheduling, upcoming summary was scheduled 0, toBeScheduled 68, total 68.
+- Smoke test scheduled BANDHAN BANK customer ee322f5a-0245-41b8-827f-1bbf0c658464.
+- After scheduling, service stats were totalServiceVisits 6072, scheduledUpcomingServices 1, toBeScheduledServices 67, upcomingServicesTotal 68.
+- Upcoming summary after scheduling was scheduled 1, toBeScheduled 67, total 68.
+- Duplicate POST returned: This customer is already scheduled for this month.
+- No neonPool.js file exists.
+- npm run build passed.
+- Targeted ESLint passed for DashboardKpiGrid, upcoming services page, service stats API, service schedule APIs, and serviceSchedules helper.
+
+Latest Reports Tests
+- /admin/reports returned 200.
+- /api/admin/reports/summary returned 200.
+- /Admindashboard returned 200.
+- npm run build passed.
+- Targeted ESLint passed for pages/admin/reports.jsx and pages/api/admin/reports/summary.js.
+- Fixed a reports API crash caused by invalid AMC/Warranty due text date 31/11/2026 by treating invalid date text as null.
+- Added Reports Quality dashboard card without adding extra dashboard DB/API hits.
+
+Latest Skeleton/Cache Tests
+- /Admindashboard returned 200 after AdminAppDataProvider integration.
+- /admin/customers returned 200 with cached GET customer list and skeleton loader.
+- /admin/amc returned 200 with cached GET AMC list and skeleton loader.
+- /admin/service-visits returned 200 with cached GET stats/list and skeleton loader.
+- /admin/upcoming-services returned 200 with cached GET list and skeleton loader.
+- /admin/reports returned 200 with cached GET reports summary and skeleton loader.
+- npm run build passed.
+- Targeted ESLint passed for cache helpers, provider, skeleton component, and updated DB-backed admin modules.
+
+Latest Reports Counts
+AMC/Warranty expiry:
+- due_this_month: 9
+- due_next_30_days: 7
+- expired: 65
+
+Monthly service due:
+- to_be_scheduled: 67
+- scheduled: 1
+- missed: 0
+- completed_current_month: 150
+
+Customer data quality:
+- missing_mobile: 45
+- missing_city: 3
+- missing_amc_warranty_due: 131
+- missing_customer_status: 2
+- blank_customer_code: 0
+- duplicate_customer_code_groups: 1
+- no_linked_service_history: 34
+
+Service data quality:
+- total_service_visits: 6072
+- linked_visits: 6002
+- unlinked_visits: 70
+- missing_service_date: 28
+- missing_service_type: 0
+- missing_technician_name: 0
+- payment_collected_count: 92
+
+Best Next Roadmap
+Completed/working:
+- Customer list
+- Active AMC list
+- Service visits list
+- Customer detail with service history
+- Upcoming services planning base
+- Service scheduling table and schedule action
+
+Next:
+- Technician assignment dropdown from real worker users only after client provides real technician/staff data
+- Service completion workflow from schedule to service visit
+- Complaints DB module
+- Inventory/material request DB module
+
+Later customer portal work:
+- Link customer users to elevator_service_customers.
+- Show only that customer's lifts/service records/AMC.
+- Make complaints and support requests real.
+
+Technician portal work:
+- Show assigned DB jobs.
+- Save checklist, work report, evidence, signature, parts used.
+- Update job status in real time.
+
+Store portal work:
+- Real inventory stock.
+- Real issue/return flow.
+- Real transaction ledger.
+- Low-stock alerts.
+
+Reports and exports:
+- AMC expiry report.
+- Open complaint report.
+- Technician performance.
+- Inventory usage.
+- Monthly service completion.
+- Customer-wise service history.
+
+Developer Notes
+When continuing work:
+- First check git status.
+- Preserve unrelated user changes.
+- Prefer small DB-backed slices.
+- Keep existing UI style unless asked for redesign.
+- For new API work, follow existing auth guard pattern using getUserFromRequest.
+- Admin-only APIs should block customer, worker, and storekeeper roles.
+- Do not remove old mock UI until replacement DB flow is working.

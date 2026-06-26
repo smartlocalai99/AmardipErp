@@ -1,3 +1,6 @@
+import { useRouter } from "next/router";
+import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
+
 function CustomersIcon({ className = "h-5 w-5" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
@@ -23,6 +26,14 @@ function AlertIcon({ className = "h-5 w-5" }) {
   );
 }
 
+function ReportsIcon({ className = "h-5 w-5" }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 17v-6m4 6V7m4 10v-4M5 5v14h14" />
+    </svg>
+  );
+}
+
 function ChevronRightIcon({ className = "h-4 w-4" }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
@@ -31,14 +42,14 @@ function ChevronRightIcon({ className = "h-4 w-4" }) {
   );
 }
 
-function KpiCard({ title, value, icon, colorClass, onClick }) {
+function KpiCard({ title, value, body, icon, colorClass, onClick }) {
   const Component = onClick ? "button" : "div";
 
   return (
     <Component
       type={onClick ? "button" : undefined}
       onClick={onClick}
-      className={`rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm flex flex-col justify-between h-28 select-none text-left w-full ${
+      className={`rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm flex flex-col justify-between min-h-28 select-none text-left w-full ${
         onClick ? "hover:shadow active:scale-98 transition cursor-pointer" : ""
       }`}
     >
@@ -53,6 +64,11 @@ function KpiCard({ title, value, icon, colorClass, onClick }) {
       </div>
 
       <p className="text-2xl font-black text-slate-900 mt-2">{value}</p>
+      {body && (
+        <p className="mt-1 whitespace-pre-line text-[10px] font-bold leading-snug text-slate-400">
+          {body}
+        </p>
+      )}
     </Component>
   );
 }
@@ -60,18 +76,46 @@ function KpiCard({ title, value, icon, colorClass, onClick }) {
 export default function DashboardKpiGrid({
   kpiCounts,
   customerStats,
+  serviceStats,
+  statsLoading = false,
   setActiveTab,
   setMoreSubTab,
 }) {
+  const router = useRouter();
   const totalCustomers =
     customerStats?.totalCustomers ?? kpiCounts?.totalCustomers ?? 0;
 
   const activeAmc =
     customerStats?.activeAmc ?? kpiCounts?.activeAMC ?? 0;
 
+  const totalServiceVisits = serviceStats?.totalServiceVisits ?? 0;
+  const scheduledUpcomingServices = serviceStats?.scheduledUpcomingServices ?? 0;
+  const toBeScheduledServices = serviceStats?.toBeScheduledServices ?? 0;
+  const upcomingServicesTotal =
+    serviceStats?.upcomingServicesTotal ??
+    scheduledUpcomingServices + toBeScheduledServices;
+
   function openCustomersTable() {
     setActiveTab("more");
     setMoreSubTab?.("customers");
+  }
+
+  function openAmcTable() {
+    setActiveTab("more");
+    setMoreSubTab?.("amc");
+  }
+
+  function openServiceVisits() {
+    setActiveTab("more");
+    setMoreSubTab?.("serviceVisits");
+  }
+
+  function openUpcomingServices() {
+    router.push("/admin/upcoming-services");
+  }
+
+  function openReports() {
+    router.push("/admin/reports");
   }
 
   return (
@@ -80,6 +124,9 @@ export default function DashboardKpiGrid({
         Performance Indicators
       </h2>
 
+      {statsLoading ? (
+        <MetricSkeletonGrid count={8} />
+      ) : (
       <div className="grid grid-cols-2 gap-3">
         <KpiCard
           title={"Total\nCustomers"}
@@ -98,18 +145,33 @@ export default function DashboardKpiGrid({
             </svg>
           }
           colorClass="bg-emerald-50 text-emerald-600"
+          onClick={openAmcTable}
         />
 
         <KpiCard
-          title={"Today's\nServices"}
-          value={kpiCounts?.todayService ?? 0}
+          title={"Total\nServices"}
+          value={totalServiceVisits}
+          body="Completed service history"
           icon={
             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
             </svg>
           }
           colorClass="bg-amber-50 text-amber-600"
-          onClick={() => setActiveTab("service")}
+          onClick={openServiceVisits}
+        />
+
+        <KpiCard
+          title={"Upcoming\nServices"}
+          value={upcomingServicesTotal}
+          body={`Scheduled: ${scheduledUpcomingServices}\nTo be Scheduled: ${toBeScheduledServices}`}
+          icon={
+            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+            </svg>
+          }
+          colorClass="bg-[#f0f7fc] text-[#0a649d]"
+          onClick={openUpcomingServices}
         />
 
         <KpiCard
@@ -132,22 +194,20 @@ export default function DashboardKpiGrid({
         />
 
         <KpiCard
-          title={"Upcoming\nChecks"}
-          value={kpiCounts?.upcomingMaintenance ?? 0}
-          icon={
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
-            </svg>
-          }
-          colorClass="bg-[#f0f7fc] text-[#0a649d]"
-        />
-
-        <KpiCard
           title={"Technician\nStatus"}
           value={`${kpiCounts?.availTechnicians ?? 0} / ${kpiCounts?.totalTechnicians ?? 0}`}
           icon={<TechniciansIcon className="h-4.5 w-4.5" />}
           colorClass="bg-emerald-50 text-emerald-600"
           onClick={() => setActiveTab("technicians")}
+        />
+
+        <KpiCard
+          title={"Reports\nQuality"}
+          value="Open"
+          body="AMC, service and data quality"
+          icon={<ReportsIcon className="h-4.5 w-4.5" />}
+          colorClass="bg-violet-50 text-violet-600"
+          onClick={openReports}
         />
 
         <button
@@ -175,6 +235,7 @@ export default function DashboardKpiGrid({
           <ChevronRightIcon className="text-slate-400 h-5 w-5" />
         </button>
       </div>
+      )}
     </div>
   );
 }
