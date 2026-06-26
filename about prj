@@ -20,6 +20,7 @@ Auth: custom JWT cookie auth
 Session cookie: auth_token
 Styling: Tailwind utility classes
 PWA: manifest.webmanifest + sw.js
+Planned auth upgrade: Admin Passkey/WebAuthn login
 
 Important Project Rules
 This project uses Next.js 16. Before changing Next.js APIs or route conventions, read the local Next docs under node_modules/next/dist/docs/.
@@ -37,6 +38,7 @@ Do not break:
 - The Amardip blue mobile dashboard style
 - Existing customer page/list
 - Login page logo usage
+- Existing username/password login fallback
 
 Mobile App UX Rule
 The admin dashboard is a mobile application shell, not a normal multi-page desktop website. Prefer opening modules inside the same app shell using dashboard tabs/subtabs. Do not use window.open or new browser tabs from dashboard cards unless the user explicitly asks for it. The standalone /admin/* pages can exist for direct access, but primary dashboard navigation should feel like one mobile app.
@@ -61,11 +63,18 @@ Auth APIs:
 - /api/auth/logout
 - /api/auth/demo
 
+Planned passkey auth APIs:
+- /api/auth/passkey/register-options
+- /api/auth/passkey/register-verify
+- /api/auth/passkey/login-options
+- /api/auth/passkey/login-verify
+
 Backend auth behavior:
 - pages/api/auth/login.js checks the users table by username.
 - Passwords are stored as bcrypt hashes in users.password_hash.
 - A signed JWT is stored in the auth_token HttpOnly cookie.
 - lib/auth.js reads and verifies auth_token.
+- Planned passkey login must create the same auth_token JWT cookie as /api/auth/login.
 
 Role Redirect Rules
 superadmin, admin, manager:
@@ -102,6 +111,10 @@ Known real DB tables:
 - elevator_service_customers
 - elevator_service_visits
 - service_schedules
+
+Planned passkey DB tables:
+- user_passkeys
+- webauthn_challenges
 
 Current DB counts verified on 2026-06-26:
 - elevator_service_customers: 308 customers
@@ -168,6 +181,15 @@ PWA files:
 - public/adlogo-pwa.png
 - public/adlogo-pwa-192.png
 - public/adlogo-pwa-512.png
+
+Planned passkey files:
+- lib/webauthnConfig.js
+- lib/passkeys.js
+- lib/passkeyClient.js if needed
+- pages/api/auth/passkey/register-options.js
+- pages/api/auth/passkey/register-verify.js
+- pages/api/auth/passkey/login-options.js
+- pages/api/auth/passkey/login-verify.js
 
 Admin Dashboard KPI Behavior
 DashboardKpiGrid.jsx controls KPI cards.
@@ -1053,6 +1075,152 @@ Logo behavior:
 - Login pages still use /logo.png.
 - Admin dashboard app header uses /adlogo.png instead of initials.
 - Admin profile avatar uses /adlogo.png instead of initials.
+
+Passkey / Phone Authentication Plan
+Status:
+- Planned, not implemented yet.
+- Admin only for now.
+- Do not add to Customerlogin, Technicianlogin, or Storelogin yet.
+
+Goal:
+- Admin logs in once with username/password.
+- Inside admin profile/settings, admin clicks Setup Passkey.
+- Browser/phone asks Face ID, fingerprint, device PIN, Windows Hello, or Android screen lock.
+- Passkey is saved for that admin user.
+- Next time on /Adminlogin, admin can click Login with Passkey.
+- Backend verifies WebAuthn and creates the normal auth_token JWT cookie.
+- Existing role redirect sends admin to /Admindashboard.
+- If passkey fails, username/password login must still work.
+
+Important security meaning:
+- Do not build custom face recognition.
+- Do not open camera.
+- Do not store face data.
+- Do not store fingerprint data.
+- Do not store device PIN.
+- Do not store private key.
+- Store only public key credential data from WebAuthn.
+- Use the phone/laptop operating system authenticator through Passkeys/WebAuthn.
+
+Required packages:
+- @simplewebauthn/server
+- @simplewebauthn/browser
+
+Production Vercel passkey config:
+- WEBAUTHN_RP_NAME=Amardip Lifts ERP
+- WEBAUTHN_RP_ID=amardip-erp.vercel.app
+- WEBAUTHN_ORIGIN=https://amardip-erp.vercel.app
+
+Passkey domain rules:
+- This project is not using a custom domain.
+- Stable production admin login URL is https://amardip-erp.vercel.app/Adminlogin.
+- RP_ID must be only amardip-erp.vercel.app.
+- ORIGIN must be only https://amardip-erp.vercel.app.
+- Do not put /Adminlogin in RP_ID or ORIGIN.
+- Do not use random Vercel preview URLs for passkey registration/login.
+- If domain changes later, passkeys may need to be registered again.
+
+Planned WebAuthn config file:
+- lib/webauthnConfig.js
+
+Expected exports:
+- rpName from WEBAUTHN_RP_NAME or Amardip Lifts ERP.
+- rpID from WEBAUTHN_RP_ID or amardip-erp.vercel.app.
+- origin from WEBAUTHN_ORIGIN or https://amardip-erp.vercel.app.
+- Localhost fallback only when NODE_ENV is not production.
+
+Planned DB helper:
+- lib/passkeys.js
+
+Planned helper functions:
+- ensurePasskeyTables
+- saveChallenge
+- getValidChallenge
+- deleteChallenge
+- deleteExpiredChallenges
+- getUserPasskeys
+- getPasskeyByCredentialId
+- saveUserPasskey
+- updatePasskeyCounterAndLastUsed
+
+Planned user_passkeys table:
+- id SERIAL primary key
+- user_id INTEGER references users(id) on delete cascade
+- credential_id TEXT unique
+- credential_public_key TEXT
+- counter BIGINT
+- credential_device_type TEXT
+- credential_backed_up BOOLEAN
+- transports TEXT[]
+- device_name TEXT
+- created_at timestamptz
+- last_used_at timestamptz
+
+Planned webauthn_challenges table:
+- id SERIAL primary key
+- user_id INTEGER references users(id) on delete cascade
+- challenge TEXT
+- challenge_type TEXT
+- flow_id TEXT unique
+- username TEXT
+- expires_at timestamptz
+- created_at timestamptz
+
+Passkey API rules:
+- All passkey APIs are POST only.
+- Registration APIs require existing logged-in user from getUserFromRequest.
+- Login options can accept username or allow discoverable passkey login if username is empty.
+- Challenges expire in 5 minutes.
+- Delete expired challenges before creating a new challenge.
+- Delete used challenges after verification.
+- Do not cache passkey API responses.
+- Service worker must not cache passkey/auth APIs.
+- Use the same cookie security settings as the existing password login API.
+
+Planned Admin Profile UI:
+- Add Passkey Login section inside pages/Admindashboard.jsx profile/settings.
+- Button text: Setup Passkey.
+- Helper text: Use your phone Face ID, fingerprint, or device PIN for faster login.
+- Optional device name input.
+- Use startRegistration from @simplewebauthn/browser.
+
+Planned Adminlogin UI:
+- Keep username/password login unchanged.
+- Add Login with Passkey button only on /Adminlogin.
+- If username field has value, send username to login-options.
+- If username field is empty, try discoverable passkey login.
+- Use startAuthentication from @simplewebauthn/browser.
+- On success, redirect to redirectTo from login-verify.
+
+Planned passkey error messages:
+- Passkey login failed or was cancelled. Please use password login.
+- Passkey is not supported on this browser. Use password login.
+
+Planned passkey test flow:
+- Run npm run build.
+- Login as admin with password.
+- Go to profile/settings.
+- Click Setup Passkey.
+- Device/browser should ask Face ID/fingerprint/PIN.
+- Registration should succeed.
+- Logout.
+- Go to /Adminlogin.
+- Click Login with Passkey.
+- Device should authenticate.
+- Redirect should go to /Admindashboard.
+- Password login should still work.
+
+Planned Vercel production test:
+- Set WEBAUTHN_RP_NAME=Amardip Lifts ERP.
+- Set WEBAUTHN_RP_ID=amardip-erp.vercel.app.
+- Set WEBAUTHN_ORIGIN=https://amardip-erp.vercel.app.
+- Deploy.
+- Open https://amardip-erp.vercel.app/Adminlogin.
+- Login using password.
+- Setup passkey.
+- Logout.
+- Login with passkey.
+- Confirm redirect to /Admindashboard.
 
 Latest Mobile Polish Upgrade
 - App icon now has a white background and padding so adlogo fits better on mobile home screens.
