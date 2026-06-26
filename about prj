@@ -1490,3 +1490,278 @@ When continuing work:
 - For new API work, follow existing auth guard pattern using getUserFromRequest.
 - Admin-only APIs should block customer, worker, and storekeeper roles.
 - Do not remove old mock UI until replacement DB flow is working.
+
+Current Build Request - Customer Edit, AMC Renewal, Audit Logs
+Source brief: attached project request titled "Amardip Lifts / Amardip Elevators Build Customer Edit + AMC Renewal + Audit Log module."
+
+Goal:
+- Admin users should be able to edit customer details.
+- Admin users should be able to renew AMC/Warranty.
+- The app should track who changed what through audit logs.
+- Reports, dashboard stats, AMC lists, and upcoming-services calculations should remain accurate after updates.
+
+Strict scope and non-goals:
+- Do not touch or fix the 70 unlinked service records.
+- Do not build technician/staff assignment in this task.
+- Do not create fake staff or technicians.
+- Do not break login/auth, /Admindashboard, /admin/customers, /admin/customers/[id], or /admin/amc.
+- Keep the Amardip blue mobile app style.
+- Do not use window.open. Use router navigation or in-page modal/drawer.
+- Do not assume customer_code is unique.
+- Customer primary key is id.
+- Do not create a payment/invoice table for AMC renewal now. Store renewal amount only in the audit log for now.
+
+Task 1 - Admin Audit Log Table
+Create setup-safe SQL/helper so the table exists before inserting:
+- Table: admin_audit_logs
+- Primary key: id UUID DEFAULT gen_random_uuid()
+- Actor fields: actor_user_id, actor_username, actor_role
+- Entity fields: entity_type, entity_id
+- Change fields: action, old_values JSONB, new_values JSONB, changed_fields TEXT[]
+- Request fields: ip_address, user_agent
+- Timestamp: created_at TIMESTAMPTZ DEFAULT NOW()
+- Indexes: actor_user_id, entity_type/entity_id, action, created_at
+
+Create:
+- lib/auditLog.js
+
+Required functions:
+- ensureAuditLogTable()
+- createAuditLog({ req, actor, entityType, entityId, action, oldValues, newValues, changedFields })
+
+Audit helper rules:
+- Use actor from getUserFromRequest.
+- Capture IP and user-agent from request headers.
+- Example entityType values: CUSTOMER, AMC_RENEWAL.
+- Example action values: CUSTOMER_UPDATED, AMC_RENEWED.
+
+Task 2 - Customer Update API
+Create or update:
+- pages/api/elevator-customers/[id].js
+
+Keep existing GET behavior working and add PATCH.
+
+PATCH auth:
+- Use getUserFromRequest.
+- Return 401 if unauthenticated.
+- Allow admin, superadmin, manager only.
+- Block customer, worker, storekeeper.
+
+PATCH allowed fields:
+- customer_name
+- address
+- city
+- mobile_no
+- hoc_date
+- customer_status
+- amc_warranty_due
+- amc_starting_date
+- amc_ending_date
+- no_of_passenger
+- door_type
+- cabin
+- no_of_floors
+- motor_make
+- controller_make
+- drive_make
+- ard_make
+- drive_model_no
+- motor_model_no
+- elevator_type
+- door_make
+- location
+- remarks
+
+PATCH validation:
+- Do not allow changing id.
+- Do not require customer_code to be unique.
+- Do not allow changing customer_code unless explicitly included and validated safely.
+- Trim text fields.
+- Convert blank strings to null for date fields.
+- Validate dates safely and return clean 400 on invalid date.
+- Return 400 if no allowed fields are sent.
+
+PATCH behavior:
+- Load existing customer.
+- Build a dynamic update query from allowed fields only.
+- Update customer.
+- Create audit log with entityType CUSTOMER, action CUSTOMER_UPDATED.
+- Audit oldValues/newValues should contain previous and updated values for changed fields only.
+- Return { success: true, customer, changedFields }.
+
+Task 3 - AMC Renewal API
+Create:
+- pages/api/elevator-customers/[id]/renew-amc.js
+
+Method:
+- POST only.
+
+Auth:
+- admin, superadmin, manager only.
+
+Body:
+- renewalType
+- startDate
+- endDate
+- dueDate
+- status
+- amount
+- notes
+
+Defaults:
+- renewalType default: AMC.
+- status default: AMC.
+- dueDate default: endDate when dueDate is not provided.
+- amount and notes are optional.
+
+Validation:
+- startDate required.
+- endDate required.
+- endDate must be >= startDate.
+- status must be one of AMC, EMC, WARRANTY, OUT OF WARRANTY, PENDING, ON GOING.
+
+Renewal behavior:
+- Load customer.
+- Update customer_status = status.
+- Update amc_starting_date = startDate.
+- Update amc_ending_date = endDate.
+- Update amc_warranty_due = dueDate || endDate.
+- Append renewal note to remarks safely when notes exists.
+- Create audit log with entityType CUSTOMER, action AMC_RENEWED.
+- Audit oldValues should include old AMC/status fields.
+- Audit newValues should include new AMC/status fields plus amount and notes.
+- Return updated customer.
+
+Task 4 - Customer Audit Logs API
+Create:
+- pages/api/elevator-customers/[id]/audit-logs.js
+
+Method:
+- GET only.
+
+Auth:
+- admin, superadmin, manager only.
+
+Response:
+- { success: true, logs }
+- Each log should expose id, actorUsername, actorRole, action, changedFields, oldValues, newValues, createdAt.
+- Sort newest first.
+
+Task 5 - Edit Customer UI
+Update:
+- pages/admin/customers/[id].jsx
+
+Add header buttons:
+- Edit Customer
+- Renew AMC
+- View Change History
+
+Use mobile-friendly modal/drawer UI.
+
+Edit Customer fields:
+- Customer name, mobile number, city, address, status, AMC/Warranty due, AMC start date, AMC end date
+- Passenger capacity, floors, door type, cabin
+- Motor make, controller make, drive make, ARD make
+- Drive model, motor model, elevator type, door make, location, remarks
+
+Edit save behavior:
+- PATCH /api/elevator-customers/[id]
+- Show success/error.
+- Refresh customer detail.
+- Invalidate relevant detail/list/stat caches if cache helpers exist.
+
+Status options:
+- AMC
+- EMC
+- WARRANTY
+- OUT OF WARRANTY
+- PENDING
+- ON GOING
+
+Task 6 - Renew AMC UI
+In the same customer detail page, add Renew AMC modal/drawer.
+
+Fields:
+- Renewal type: AMC / EMC / WARRANTY
+- Start date
+- End date
+- Due date
+- Status
+- Amount optional
+- Notes optional
+
+Quick buttons:
+- 1 Year AMC
+- 6 Months AMC
+- Warranty
+
+1 Year AMC behavior:
+- start date default today.
+- end date default today + 1 year - 1 day.
+- status AMC.
+
+Submit behavior:
+- POST /api/elevator-customers/[id]/renew-amc
+- Refresh customer detail.
+- Refresh service planning stats if needed.
+- Invalidate related caches.
+
+AMC renewal affects:
+- Active AMC count
+- AMC expiry report
+- Upcoming services due count
+- Customer profile
+- Reports
+
+Task 7 - Change History UI
+In customer detail page:
+- Add Change History modal/drawer.
+- Fetch /api/elevator-customers/[id]/audit-logs.
+- Show date/time, admin username, action, changed fields, and old value -> new value.
+- Keep it simple and mobile-friendly.
+
+Task 8 - Customer Detail Visual Indicators
+Use current amc_warranty_due or amc_ending_date.
+
+Show:
+- Red warning: AMC/Warranty expired.
+- Amber warning: AMC/Warranty due soon.
+- Green status: AMC active.
+
+Task 9 - Customer List / AMC List Indicators
+Files:
+- components/admin/customers/AdminCustomersTable.jsx
+- components/admin/amc/AdminAmcTable.jsx
+
+Optional, no redesign:
+- Add small Expired, Due Soon, Active text/badge.
+- Rows should still navigate to /admin/customers/[id].
+
+Task 10 - Cache Invalidation
+If cache helpers exist:
+- lib/adminCache.js
+- lib/cachedFetch.js
+
+After customer update or AMC renewal, clear:
+- customer detail cache
+- customer list cache
+- AMC list cache
+- customer stats cache
+- service stats/upcoming cache
+- reports cache
+
+Do not cache PATCH/POST.
+
+Task 11 - Reports After Renewal
+No big report redesign.
+
+Make sure after AMC renewal these endpoints can show updated values after cache expiry or cache invalidation:
+- /api/elevator-customers/stats
+- /api/admin/reports/summary
+- /api/elevator-service-visits/stats
+
+Task 12 - Optional Admin Audit Log Page
+Optional route:
+- /admin/audit-logs
+
+If simple, create an admin-wide audit log page showing the latest 100 changes.

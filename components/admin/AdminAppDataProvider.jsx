@@ -10,6 +10,7 @@ const initialState = {
   customerStats: null,
   serviceStats: null,
   upcomingPreview: null,
+  moduleAvailability: null,
   loading: false,
   error: "",
   lastFetchedAt: null,
@@ -18,6 +19,7 @@ const initialState = {
 export function AdminAppDataProvider({ user, children }) {
   const [state, setState] = useState(initialState);
   const fetchRef = useRef(null);
+  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
 
   const loadAdminData = useCallback(async ({ forceRefresh = false } = {}) => {
     if (fetchRef.current && !forceRefresh) {
@@ -35,29 +37,37 @@ export function AdminAppDataProvider({ user, children }) {
         cacheKey: "dashboard_customer_stats",
         ttlMs: DASHBOARD_TTL_MS,
         forceRefresh,
-        user,
+        user: userCacheKey,
         onNetworkStart: markNetworkLoading,
       }),
       cachedGetJson("/api/elevator-service-visits/stats", {
         cacheKey: "dashboard_service_stats",
         ttlMs: DASHBOARD_TTL_MS,
         forceRefresh,
-        user,
+        user: userCacheKey,
         onNetworkStart: markNetworkLoading,
       }),
       cachedGetJson("/api/service-schedules/upcoming?page=1&pageSize=5", {
         cacheKey: "dashboard_upcoming_preview",
         ttlMs: DASHBOARD_TTL_MS,
         forceRefresh,
-        user,
+        user: userCacheKey,
+        onNetworkStart: markNetworkLoading,
+      }),
+      cachedGetJson("/api/admin/module-availability", {
+        cacheKey: "dashboard_module_availability",
+        ttlMs: 60 * 1000,
+        forceRefresh,
+        user: userCacheKey,
         onNetworkStart: markNetworkLoading,
       }),
     ])
-      .then(([customerData, serviceData, upcomingData]) => {
+      .then(([customerData, serviceData, upcomingData, availabilityData]) => {
         const nextState = {
           customerStats: customerData?.stats || null,
           serviceStats: serviceData?.stats || null,
           upcomingPreview: upcomingData || null,
+          moduleAvailability: availabilityData?.modules || null,
           loading: false,
           error: "",
           lastFetchedAt: Date.now(),
@@ -79,7 +89,7 @@ export function AdminAppDataProvider({ user, children }) {
       });
 
     return fetchRef.current;
-  }, [user]);
+  }, [userCacheKey]);
 
   useEffect(() => {
     loadAdminData().catch(() => {});

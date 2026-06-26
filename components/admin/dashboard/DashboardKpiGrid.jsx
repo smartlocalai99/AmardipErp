@@ -42,21 +42,35 @@ function ChevronRightIcon({ className = "h-4 w-4" }) {
   );
 }
 
-function KpiCard({ title, value, body, icon, colorClass, onClick }) {
+function LiveBadge({ enabled }) {
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${
+      enabled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+    }`}>
+      {enabled ? "Live Data" : "Waiting for Data"}
+    </span>
+  );
+}
+
+function KpiCard({ title, value, body, icon, colorClass, onClick, enabled = true }) {
   const Component = onClick ? "button" : "div";
 
   return (
     <Component
       type={onClick ? "button" : undefined}
       onClick={onClick}
+      disabled={onClick ? !enabled : undefined}
       className={`rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm flex flex-col justify-between min-h-28 select-none text-left w-full ${
         onClick ? "hover:shadow active:scale-98 transition cursor-pointer" : ""
-      }`}
+      } ${!enabled ? "opacity-80" : ""}`}
     >
       <div className="flex justify-between items-start">
-        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight whitespace-pre-line">
-          {title}
-        </span>
+        <div>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight whitespace-pre-line">
+            {title}
+          </span>
+          <div className="mt-1"><LiveBadge enabled={enabled} /></div>
+        </div>
 
         <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${colorClass}`}>
           {icon}
@@ -80,6 +94,7 @@ export default function DashboardKpiGrid({
   statsLoading = false,
   setActiveTab,
   setMoreSubTab,
+  moduleAvailability = {},
 }) {
   const router = useRouter();
   const totalCustomers =
@@ -94,6 +109,7 @@ export default function DashboardKpiGrid({
   const upcomingServicesTotal =
     serviceStats?.upcomingServicesTotal ??
     scheduledUpcomingServices + toBeScheduledServices;
+  const isLive = (key) => moduleAvailability?.[key]?.enabled !== false;
 
   function openCustomersTable() {
     setActiveTab("more");
@@ -134,6 +150,7 @@ export default function DashboardKpiGrid({
           icon={<CustomersIcon className="h-4.5 w-4.5" />}
           colorClass="bg-sky-50 text-[#0a649d]"
           onClick={openCustomersTable}
+          enabled={isLive("customers")}
         />
 
         <KpiCard
@@ -146,6 +163,7 @@ export default function DashboardKpiGrid({
           }
           colorClass="bg-emerald-50 text-emerald-600"
           onClick={openAmcTable}
+          enabled={isLive("amc")}
         />
 
         <KpiCard
@@ -159,6 +177,7 @@ export default function DashboardKpiGrid({
           }
           colorClass="bg-amber-50 text-amber-600"
           onClick={openServiceVisits}
+          enabled={isLive("serviceVisits")}
         />
 
         <KpiCard
@@ -172,6 +191,7 @@ export default function DashboardKpiGrid({
           }
           colorClass="bg-[#f0f7fc] text-[#0a649d]"
           onClick={openUpcomingServices}
+          enabled={isLive("servicePlanner")}
         />
 
         <KpiCard
@@ -180,6 +200,7 @@ export default function DashboardKpiGrid({
           icon={<AlertIcon className="h-4.5 w-4.5" />}
           colorClass="bg-red-50 text-red-600"
           onClick={() => setActiveTab("complaints")}
+          enabled={isLive("complaints")}
         />
 
         <KpiCard
@@ -199,6 +220,7 @@ export default function DashboardKpiGrid({
           icon={<TechniciansIcon className="h-4.5 w-4.5" />}
           colorClass="bg-emerald-50 text-emerald-600"
           onClick={() => setActiveTab("technicians")}
+          enabled={isLive("technicians")}
         />
 
         <KpiCard
@@ -208,6 +230,7 @@ export default function DashboardKpiGrid({
           icon={<ReportsIcon className="h-4.5 w-4.5" />}
           colorClass="bg-violet-50 text-violet-600"
           onClick={openReports}
+          enabled={isLive("reports")}
         />
 
         <button

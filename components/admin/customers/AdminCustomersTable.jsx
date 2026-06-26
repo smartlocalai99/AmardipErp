@@ -12,6 +12,7 @@ const TABLE_COLUMNS = [
   { key: "hoc_date", label: "HOC Date" },
   { key: "customer_status", label: "Status" },
   { key: "amc_warranty_due", label: "AMC/Warranty Due" },
+  { key: "amc_state", label: "AMC State" },
 ];
 
 const DETAIL_COLUMNS = [
@@ -36,6 +37,36 @@ const DETAIL_COLUMNS = [
 
 function displayValue(value) {
   return value === null || value === undefined || value === "" ? "—" : value;
+}
+
+function CountSkeleton() {
+  return (
+    <span className="mt-2 block h-3 w-40 animate-pulse rounded-full bg-slate-200" />
+  );
+}
+
+function getAmcState(customer) {
+  const rawDate = customer?.amc_warranty_due || customer?.amc_ending_date;
+  if (!rawDate) return { label: "Missing", classes: "bg-slate-100 text-slate-700 border-slate-200" };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDate = new Date(`${String(rawDate).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(dueDate.getTime())) return { label: "Missing", classes: "bg-slate-100 text-slate-700 border-slate-200" };
+
+  const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / 86400000);
+  if (diffDays < 0) return { label: "Expired", classes: "bg-red-50 text-red-700 border-red-100" };
+  if (diffDays <= 30) return { label: "Due Soon", classes: "bg-amber-50 text-amber-700 border-amber-100" };
+  return { label: "Active", classes: "bg-emerald-50 text-emerald-700 border-emerald-100" };
+}
+
+function AmcStateBadge({ customer }) {
+  const state = getAmcState(customer);
+  return (
+    <span className={`inline-flex items-center whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${state.classes}`}>
+      {state.label}
+    </span>
+  );
 }
 
 function StatusBadge({ status }) {
@@ -165,8 +196,9 @@ function CustomerDetailsSheet({ customer, onClose }) {
   );
 }
 
-export default function AdminCustomersTable({ user, embedded = false }) {
+export default function AdminCustomersTable({ user, embedded = false, returnTo = "/admin/customers" }) {
   const router = useRouter();
+  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -203,7 +235,7 @@ export default function AdminCustomersTable({ user, embedded = false }) {
     const controller = new AbortController();
 
     async function fetchCustomers() {
-      setLoading(false);
+      setLoading(true);
       setError("");
 
       try {
@@ -218,8 +250,8 @@ export default function AdminCustomersTable({ user, embedded = false }) {
 
         const data = await cachedGetJson(`/api/elevator-customers?${params.toString()}`, {
           cacheKey: `customers_${params.toString()}`,
-          ttlMs: 2 * 60 * 1000,
-          user,
+          ttlMs: 5 * 60 * 1000,
+          user: userCacheKey,
           fetchOptions: { signal: controller.signal },
           onNetworkStart: () => setLoading(true),
         });
@@ -241,11 +273,16 @@ export default function AdminCustomersTable({ user, embedded = false }) {
     fetchCustomers();
 
     return () => controller.abort();
-  }, [page, pageSize, search, user]);
+  }, [page, pageSize, search, userCacheKey]);
 
   function openCustomer(customer) {
     if (!customer?.id) return;
-    router.push(`/admin/customers/${customer.id}`);
+    router.push({
+      pathname: `/admin/customers/${customer.id}`,
+      query: {
+        returnTo,
+      },
+    });
   }
 
   const content = (
@@ -275,9 +312,13 @@ export default function AdminCustomersTable({ user, embedded = false }) {
               <h2 className="text-base font-black text-slate-900">
                 All Elevator Customers
               </h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} records
-              </p>
+              {loading && !pagination ? (
+                <CountSkeleton />
+              ) : (
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} records
+                </p>
+              )}
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -372,6 +413,9 @@ export default function AdminCustomersTable({ user, embedded = false }) {
                       {displayValue(customer.amc_warranty_due)}
                     </div>
                   </div>
+                  <div className="mt-3">
+                    <AmcStateBadge customer={customer} />
+                  </div>
                 </button>
               ))}
             </section>
@@ -403,6 +447,8 @@ export default function AdminCustomersTable({ user, embedded = false }) {
                           >
                             {column.key === "customer_status" ? (
                               <StatusBadge status={customer[column.key]} />
+                            ) : column.key === "amc_state" ? (
+                              <AmcStateBadge customer={customer} />
                             ) : (
                               <span title={String(displayValue(customer[column.key]))}>
                                 {displayValue(customer[column.key])}

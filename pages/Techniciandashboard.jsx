@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
+import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -128,6 +129,31 @@ function LogoutIcon({ className = "h-5 w-5" }) {
 
 export default function Techniciandashboard({ user }) {
     const router = useRouter();
+
+    async function handleWaitingLogout() {
+        await fetch("/api/auth/logout", { method: "POST" });
+        router.push("/Technicianlogin");
+    }
+
+    return (
+        <div className="min-h-screen bg-[#f1f5f9] p-4 text-[#0f172a]">
+            <div className="mx-auto flex min-h-[calc(100dvh-32px)] max-w-md flex-col justify-center gap-4">
+                <ModuleComingSoon
+                    title="Technician Jobs"
+                    primaryText="Waiting for client data"
+                    reason="Technician jobs will appear after staff data is uploaded and assignments are enabled."
+                />
+                <button
+                    type="button"
+                    onClick={handleWaitingLogout}
+                    className="h-11 rounded-2xl bg-[#0a649d] text-xs font-black text-white shadow-sm active:scale-95"
+                >
+                    Logout
+                </button>
+            </div>
+        </div>
+    );
+
     const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, jobs, inventory, notifications, profile
     const [activeJob, setActiveJob] = useState(null); // active job workspace
     const [jobsFilter, setJobsFilter] = useState("assigned"); // assigned, completed

@@ -177,6 +177,7 @@ export async function getServerSideProps(context) {
 
 export default function AdminReportsPage({ user }) {
   const router = useRouter();
+  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [reports, setReports] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -186,14 +187,14 @@ export default function AdminReportsPage({ user }) {
     const controller = new AbortController();
 
     async function loadReports() {
-      setLoading(false);
+      setLoading(true);
       setError("");
 
       try {
         const data = await cachedGetJson("/api/admin/reports/summary", {
           cacheKey: "admin_reports_summary",
-          ttlMs: 2 * 60 * 1000,
-          user,
+          ttlMs: 5 * 60 * 1000,
+          user: userCacheKey,
           fetchOptions: { signal: controller.signal },
           onNetworkStart: () => setLoading(true),
         });
@@ -214,7 +215,7 @@ export default function AdminReportsPage({ user }) {
 
     loadReports();
     return () => controller.abort();
-  }, [user]);
+  }, [userCacheKey]);
 
   const queryText = searchInput.trim().toLowerCase();
 

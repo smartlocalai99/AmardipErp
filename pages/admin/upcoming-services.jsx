@@ -9,6 +9,12 @@ function displayValue(value) {
   return value === null || value === undefined || value === "" ? "-" : value;
 }
 
+function CountSkeleton() {
+  return (
+    <span className="mt-2 block h-3 w-52 animate-pulse rounded-full bg-slate-200" />
+  );
+}
+
 function statusClasses(status) {
   const upper = String(status || "").trim().toUpperCase();
 
@@ -135,6 +141,7 @@ export async function getServerSideProps(context) {
 
 export default function UpcomingServicesPage({ user }) {
   const router = useRouter();
+  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({ scheduled: 0, toBeScheduled: 0, total: 0 });
   const [pagination, setPagination] = useState(null);
@@ -181,7 +188,7 @@ export default function UpcomingServicesPage({ user }) {
     const controller = new AbortController();
 
     async function loadUpcomingServices() {
-      setLoading(false);
+      setLoading(true);
       setError("");
 
       try {
@@ -196,9 +203,9 @@ export default function UpcomingServicesPage({ user }) {
 
         const data = await cachedGetJson(`/api/service-schedules/upcoming?${params.toString()}`, {
           cacheKey: `upcoming_services_${params.toString()}`,
-          ttlMs: 2 * 60 * 1000,
+          ttlMs: 5 * 60 * 1000,
           forceRefresh: refreshKey > 0,
-          user,
+          user: userCacheKey,
           fetchOptions: { signal: controller.signal },
           onNetworkStart: () => setLoading(true),
         });
@@ -222,7 +229,7 @@ export default function UpcomingServicesPage({ user }) {
     loadUpcomingServices();
 
     return () => controller.abort();
-  }, [page, pageSize, search, mode, status, refreshKey, user]);
+  }, [page, pageSize, search, mode, status, refreshKey, userCacheKey]);
 
   function openSchedule(row) {
     setSelectedRow(row);
@@ -320,9 +327,13 @@ export default function UpcomingServicesPage({ user }) {
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
           <div>
             <h2 className="text-base font-black text-slate-900">Service Planning Queue</h2>
-            <p className="mt-1 text-xs font-semibold text-slate-500">
-              Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} monthly service records
-            </p>
+            {loading && !pagination ? (
+              <CountSkeleton />
+            ) : (
+              <p className="mt-1 text-xs font-semibold text-slate-500">
+                Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} monthly service records
+              </p>
+            )}
           </div>
 
           <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-5">

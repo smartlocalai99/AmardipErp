@@ -6,6 +6,7 @@ import AdminAmcTable from "@/components/admin/amc/AdminAmcTable";
 import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
 import { clearSessionCache } from "@/lib/adminCache";
 import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
+import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import { browserSupportsPasskeys, startPasskeyRegistration } from "@/lib/passkeyClient";
 import { useRouter } from "next/router";
 import { useState, useEffect, useRef } from "react";
@@ -367,6 +368,14 @@ function AdmindashboardShell({ user }) {
     const customerStats = adminAppData.customerStats || fallbackCustomerStats;
     const serviceStats = adminAppData.serviceStats || fallbackServiceStats;
     const dashboardStatsLoading = adminAppData.loading && !adminAppData.customerStats && !adminAppData.serviceStats;
+    const moduleAvailability = adminAppData.moduleAvailability || {};
+    const moduleIsLive = (key) => moduleAvailability?.[key]?.enabled !== false;
+    const waitingModule = (title, key, fallbackReason) => (
+        <ModuleComingSoon
+            title={title}
+            reason={moduleAvailability?.[key]?.reason || fallbackReason}
+        />
+    );
 
     function showModuleSkeleton() {
         if (moduleOpeningTimer.current) {
@@ -396,6 +405,18 @@ function AdmindashboardShell({ user }) {
             loadFaceLockDevices();
         }
     }
+
+    useEffect(() => {
+        if (!router.isReady) return;
+
+        const tab = typeof router.query.tab === "string" ? router.query.tab : "";
+        const subtab = typeof router.query.subtab === "string" ? router.query.subtab : "";
+
+        if (tab === "more") {
+            setActiveTab("more");
+            setMoreSubTab(subtab || null);
+        }
+    }, [router.isReady, router.query.tab, router.query.subtab]);
 
     useEffect(() => {
         return () => {
@@ -1069,9 +1090,11 @@ function AdmindashboardShell({ user }) {
                                 statsLoading={dashboardStatsLoading}
                                 setActiveTab={openTab}
                                 setMoreSubTab={openMoreSubTab}
+                                moduleAvailability={moduleAvailability}
                             />
 
                             {/* Section 1: Today's Activities */}
+                            {moduleIsLive("complaints") ? (
                             <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
                                 <div className="flex items-center justify-between pb-3 border-b border-slate-50">
                                     <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Today&apos;s Activities</h3>
@@ -1096,8 +1119,12 @@ function AdmindashboardShell({ user }) {
                                     ))}
                                 </div>
                             </div>
+                            ) : (
+                                waitingModule("Recent Complaints", "complaints", "Waiting for client complaint data/module setup")
+                            )}
 
                             {/* Section 2: Recent Complaints */}
+                            {moduleIsLive("technicians") ? (
                             <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
                                 <div className="flex items-center justify-between pb-3 border-b border-slate-50">
                                     <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Recent Complaints</h3>
@@ -1135,6 +1162,9 @@ function AdmindashboardShell({ user }) {
                                     ))}
                                 </div>
                             </div>
+                            ) : (
+                                waitingModule("Technician Status", "technicians", "Waiting for client staff/technician data")
+                            )}
 
                             {/* Section 3: Upcoming AMC Visits */}
                             <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
@@ -1192,7 +1222,17 @@ function AdmindashboardShell({ user }) {
                     )}
 
                     {/* TAB: COMPLAINTS */}
-                    {activeTab === "complaints" && (
+                    {activeTab === "complaints" && !moduleIsLive("complaints") && (
+                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
+                            <div>
+                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Complaints</h1>
+                                <p className="text-xs text-slate-500 mt-0.5">Elevator breakdown reports and ticket logs.</p>
+                            </div>
+                            {waitingModule("Service Complaints", "complaints", "Waiting for client complaint data/module setup")}
+                        </div>
+                    )}
+
+                    {activeTab === "complaints" && moduleIsLive("complaints") && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div>
                                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Complaints</h1>
@@ -1382,7 +1422,17 @@ function AdmindashboardShell({ user }) {
                     )}
 
                     {/* TAB: TECHNICIANS */}
-                    {activeTab === "technicians" && (
+                    {activeTab === "technicians" && !moduleIsLive("technicians") && (
+                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
+                            <div>
+                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Crew Status</h1>
+                                <p className="text-xs text-slate-500 mt-0.5">Field staff and assignment readiness.</p>
+                            </div>
+                            {waitingModule("Technicians", "technicians", "Waiting for client staff/technician data")}
+                        </div>
+                    )}
+
+                    {activeTab === "technicians" && moduleIsLive("technicians") && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div>
                                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Crew Status</h1>
@@ -1491,7 +1541,11 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     </div>
 
-                                    <AdminCustomersTable user={user} embedded />
+                                    <AdminCustomersTable
+                                        user={user}
+                                        embedded
+                                        returnTo="/Admindashboard?tab=more&subtab=customers"
+                                    />
                                 </div>
                             ) : moreSubTab === "amc" ? (
                                 <div className="space-y-6">
@@ -1508,7 +1562,11 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     </div>
 
-                                    <AdminAmcTable user={user} embedded />
+                                    <AdminAmcTable
+                                        user={user}
+                                        embedded
+                                        returnTo="/Admindashboard?tab=more&subtab=amc"
+                                    />
                                 </div>
                             ) : moreSubTab === "serviceVisits" ? (
                                 <div className="space-y-6">
@@ -1525,7 +1583,27 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     </div>
 
-                                    <ServiceVisitsTable user={user} embedded />
+                                    <ServiceVisitsTable
+                                        user={user}
+                                        embedded
+                                        returnTo="/Admindashboard?tab=more&subtab=serviceVisits"
+                                    />
+                                </div>
+                            ) : moreSubTab === "inventory" && !moduleIsLive("inventory") ? (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openMoreSubTab(null)}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Inventory Stock</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Elevator spare parts and warehouse counts.</p>
+                                        </div>
+                                    </div>
+                                    {waitingModule("Inventory Stock", "inventory", "Waiting for client inventory data")}
                                 </div>
                             ) : moreSubTab === "inventory" ? (
                                 <div className="space-y-6">
@@ -1576,6 +1654,22 @@ function AdmindashboardShell({ user }) {
                                                 </div>
                                             ))}
                                     </div>
+                                </div>
+                            ) : moreSubTab === "staff" && !moduleIsLive("technicians") ? (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openMoreSubTab(null)}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Staff Directory</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Real staff and technician data.</p>
+                                        </div>
+                                    </div>
+                                    {waitingModule("Staff Directory", "technicians", "Waiting for client staff/technician data")}
                                 </div>
                             ) : moreSubTab === "staff" ? (
                                 <div className="space-y-6">
@@ -1895,6 +1989,22 @@ function AdmindashboardShell({ user }) {
                                 </div>
                             ) : moreSubTab === "notifications" ? (
                                 <div className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openMoreSubTab(null)}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Alert Notifications</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">System status updates and alerts.</p>
+                                        </div>
+                                    </div>
+                                    {waitingModule("Alert Notifications", "notifications", "Notification data not configured yet")}
+                                </div>
+                            ) : false ? (
+                                <div className="space-y-6">
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <button
@@ -1937,6 +2047,22 @@ function AdmindashboardShell({ user }) {
                                             ))}
                                         </div>
                                     )}
+                                </div>
+                            ) : moreSubTab === "approvals" && !moduleIsLive("materialRequests") ? (
+                                <div className="space-y-6">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openMoreSubTab(null)}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Spare Parts Approvals</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Material requests from field service technicians.</p>
+                                        </div>
+                                    </div>
+                                    {waitingModule("Spare Parts Approvals", "materialRequests", "Waiting for inventory/staff data")}
                                 </div>
                             ) : moreSubTab === "approvals" ? (
                                 <div className="space-y-6">

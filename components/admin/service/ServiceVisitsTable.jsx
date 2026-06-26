@@ -31,6 +31,12 @@ function displayValue(value) {
   return value === null || value === undefined || value === "" ? "-" : value;
 }
 
+function CountSkeleton() {
+  return (
+    <span className="mt-2 block h-3 w-48 animate-pulse rounded-full bg-slate-200" />
+  );
+}
+
 function formatMoney(value) {
   if (value === null || value === undefined || value === "") return "-";
   return `Rs. ${Number(value).toLocaleString("en-IN")}`;
@@ -84,6 +90,7 @@ function Pager({ pagination, page, setPage }) {
 }
 
 export default function ServiceVisitsTable({ user, embedded = false }) {
+  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [visits, setVisits] = useState([]);
   const [stats, setStats] = useState(null);
   const [pagination, setPagination] = useState(null);
@@ -125,7 +132,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
         const data = await cachedGetJson("/api/elevator-service-visits/stats", {
           cacheKey: "service_visits_stats",
           ttlMs: 5 * 60 * 1000,
-          user,
+          user: userCacheKey,
           onNetworkStart: () => setStats(null),
         });
 
@@ -138,13 +145,13 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     }
 
     fetchStats();
-  }, [user]);
+  }, [userCacheKey]);
 
   useEffect(() => {
     const controller = new AbortController();
 
     async function fetchVisits() {
-      setLoading(false);
+      setLoading(true);
       setError("");
 
       try {
@@ -160,8 +167,8 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
 
         const data = await cachedGetJson(`/api/elevator-service-visits?${params.toString()}`, {
           cacheKey: `service_visits_${params.toString()}`,
-          ttlMs: 2 * 60 * 1000,
-          user,
+          ttlMs: 5 * 60 * 1000,
+          user: userCacheKey,
           fetchOptions: { signal: controller.signal },
           onNetworkStart: () => setLoading(true),
         });
@@ -184,7 +191,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     fetchVisits();
 
     return () => controller.abort();
-  }, [page, pageSize, search, filters, user]);
+  }, [page, pageSize, search, filters, userCacheKey]);
 
   function updateFilter(key, value) {
     setPage(1);
@@ -241,9 +248,13 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
               <h2 className="text-base font-black text-slate-900">
                 Service Ledger
               </h2>
-              <p className="mt-1 text-xs font-semibold text-slate-500">
-                Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} service records
-              </p>
+              {loading && !pagination ? (
+                <CountSkeleton />
+              ) : (
+                <p className="mt-1 text-xs font-semibold text-slate-500">
+                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} service records
+                </p>
+              )}
             </div>
 
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-6">
