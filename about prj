@@ -20,7 +20,10 @@ Auth: custom JWT cookie auth
 Session cookie: auth_token
 Styling: Tailwind utility classes
 PWA: manifest.webmanifest + sw.js
-Planned auth upgrade: Admin Passkey/WebAuthn login
+Auth upgrade: Admin Passkey/WebAuthn login implemented
+Passkey packages:
+- @simplewebauthn/server
+- @simplewebauthn/browser
 
 Important Project Rules
 This project uses Next.js 16. Before changing Next.js APIs or route conventions, read the local Next docs under node_modules/next/dist/docs/.
@@ -63,7 +66,7 @@ Auth APIs:
 - /api/auth/logout
 - /api/auth/demo
 
-Planned passkey auth APIs:
+Passkey auth APIs:
 - /api/auth/passkey/register-options
 - /api/auth/passkey/register-verify
 - /api/auth/passkey/login-options
@@ -74,7 +77,7 @@ Backend auth behavior:
 - Passwords are stored as bcrypt hashes in users.password_hash.
 - A signed JWT is stored in the auth_token HttpOnly cookie.
 - lib/auth.js reads and verifies auth_token.
-- Planned passkey login must create the same auth_token JWT cookie as /api/auth/login.
+- Passkey login creates the same auth_token JWT cookie as /api/auth/login.
 
 Role Redirect Rules
 superadmin, admin, manager:
@@ -112,7 +115,7 @@ Known real DB tables:
 - elevator_service_visits
 - service_schedules
 
-Planned passkey DB tables:
+Passkey DB tables:
 - user_passkeys
 - webauthn_challenges
 
@@ -182,10 +185,10 @@ PWA files:
 - public/adlogo-pwa-192.png
 - public/adlogo-pwa-512.png
 
-Planned passkey files:
+Passkey files:
 - lib/webauthnConfig.js
 - lib/passkeys.js
-- lib/passkeyClient.js if needed
+- lib/passkeyClient.js
 - pages/api/auth/passkey/register-options.js
 - pages/api/auth/passkey/register-verify.js
 - pages/api/auth/passkey/login-options.js
@@ -1076,11 +1079,12 @@ Logo behavior:
 - Admin dashboard app header uses /adlogo.png instead of initials.
 - Admin profile avatar uses /adlogo.png instead of initials.
 
-Passkey / Phone Authentication Plan
+Passkey / Phone Authentication
 Status:
-- Planned, not implemented yet.
+- Implemented for Admin login.
 - Admin only for now.
-- Do not add to Customerlogin, Technicianlogin, or Storelogin yet.
+- Not added to Customerlogin, Technicianlogin, or Storelogin.
+- Physical Face ID/fingerprint/device PIN registration and login still needs browser/device testing on localhost or Vercel.
 
 Goal:
 - Admin logs in once with username/password.
@@ -1090,7 +1094,7 @@ Goal:
 - Next time on /Adminlogin, admin can click Login with Passkey.
 - Backend verifies WebAuthn and creates the normal auth_token JWT cookie.
 - Existing role redirect sends admin to /Admindashboard.
-- If passkey fails, username/password login must still work.
+- If passkey fails, username/password login still works.
 
 Important security meaning:
 - Do not build custom face recognition.
@@ -1102,7 +1106,7 @@ Important security meaning:
 - Store only public key credential data from WebAuthn.
 - Use the phone/laptop operating system authenticator through Passkeys/WebAuthn.
 
-Required packages:
+Installed packages:
 - @simplewebauthn/server
 - @simplewebauthn/browser
 
@@ -1120,19 +1124,19 @@ Passkey domain rules:
 - Do not use random Vercel preview URLs for passkey registration/login.
 - If domain changes later, passkeys may need to be registered again.
 
-Planned WebAuthn config file:
+WebAuthn config file:
 - lib/webauthnConfig.js
 
-Expected exports:
+Exports:
 - rpName from WEBAUTHN_RP_NAME or Amardip Lifts ERP.
 - rpID from WEBAUTHN_RP_ID or amardip-erp.vercel.app.
 - origin from WEBAUTHN_ORIGIN or https://amardip-erp.vercel.app.
 - Localhost fallback only when NODE_ENV is not production.
 
-Planned DB helper:
+DB helper:
 - lib/passkeys.js
 
-Planned helper functions:
+Helper functions:
 - ensurePasskeyTables
 - saveChallenge
 - getValidChallenge
@@ -1143,7 +1147,7 @@ Planned helper functions:
 - saveUserPasskey
 - updatePasskeyCounterAndLastUsed
 
-Planned user_passkeys table:
+user_passkeys table:
 - id SERIAL primary key
 - user_id INTEGER references users(id) on delete cascade
 - credential_id TEXT unique
@@ -1156,7 +1160,7 @@ Planned user_passkeys table:
 - created_at timestamptz
 - last_used_at timestamptz
 
-Planned webauthn_challenges table:
+webauthn_challenges table:
 - id SERIAL primary key
 - user_id INTEGER references users(id) on delete cascade
 - challenge TEXT
@@ -1176,27 +1180,29 @@ Passkey API rules:
 - Do not cache passkey API responses.
 - Service worker must not cache passkey/auth APIs.
 - Use the same cookie security settings as the existing password login API.
+- Verification keeps SimpleWebAuthn default user verification behavior.
 
-Planned Admin Profile UI:
-- Add Passkey Login section inside pages/Admindashboard.jsx profile/settings.
+Admin Profile UI:
+- Passkey Login section is inside pages/Admindashboard.jsx profile/settings.
 - Button text: Setup Passkey.
 - Helper text: Use your phone Face ID, fingerprint, or device PIN for faster login.
 - Optional device name input.
 - Use startRegistration from @simplewebauthn/browser.
 
-Planned Adminlogin UI:
+Adminlogin UI:
 - Keep username/password login unchanged.
-- Add Login with Passkey button only on /Adminlogin.
+- Login with Passkey button is added only on /Adminlogin.
 - If username field has value, send username to login-options.
 - If username field is empty, try discoverable passkey login.
 - Use startAuthentication from @simplewebauthn/browser.
 - On success, redirect to redirectTo from login-verify.
+- Login page logo remains /logo.png.
 
-Planned passkey error messages:
+Passkey error messages:
 - Passkey login failed or was cancelled. Please use password login.
 - Passkey is not supported on this browser. Use password login.
 
-Planned passkey test flow:
+Manual passkey test flow:
 - Run npm run build.
 - Login as admin with password.
 - Go to profile/settings.
@@ -1210,7 +1216,7 @@ Planned passkey test flow:
 - Redirect should go to /Admindashboard.
 - Password login should still work.
 
-Planned Vercel production test:
+Vercel production test:
 - Set WEBAUTHN_RP_NAME=Amardip Lifts ERP.
 - Set WEBAUTHN_RP_ID=amardip-erp.vercel.app.
 - Set WEBAUTHN_ORIGIN=https://amardip-erp.vercel.app.
@@ -1221,6 +1227,17 @@ Planned Vercel production test:
 - Logout.
 - Login with passkey.
 - Confirm redirect to /Admindashboard.
+
+Passkey implementation notes:
+- pages/api/auth/passkey/register-options.js creates a registration challenge for the logged-in admin.
+- pages/api/auth/passkey/register-verify.js verifies registration and saves the credential public key.
+- pages/api/auth/passkey/login-options.js creates an authentication challenge for username-based or discoverable passkey login.
+- pages/api/auth/passkey/login-verify.js verifies passkey authentication and creates auth_token.
+- lib/passkeyClient.js lazy-loads @simplewebauthn/browser so the login page still renders normally server-side.
+- lib/passkeys.js creates user_passkeys and webauthn_challenges if missing.
+- Local dev uses rpID localhost and origin http://localhost:3000.
+- Production uses rpID amardip-erp.vercel.app and origin https://amardip-erp.vercel.app.
+- Existing password login remains the fallback.
 
 Latest Mobile Polish Upgrade
 - App icon now has a white background and padding so adlogo fits better on mobile home screens.
@@ -1354,6 +1371,20 @@ Latest PWA/Logo Tests
 - /adlogo.png exists and is used in the logged-in admin app shell.
 - pages/_app.js includes manifest, theme-color, apple touch icon, favicon, and production service worker registration.
 - Login pages were not changed and continue to use /logo.png.
+
+Latest Passkey Tests
+- Installed @simplewebauthn/server and @simplewebauthn/browser.
+- npm run build passed.
+- Targeted ESLint passed for passkey config/helpers, passkey APIs, and pages/Adminlogin.js.
+- superadmin password login still succeeded.
+- /api/auth/passkey/register-options returned success with flowId, challenge, rpID localhost, and userName superadmin during local smoke test.
+- /api/auth/passkey/login-options with username superadmin returned No passkeys found for this username before device registration, which is expected.
+- /api/auth/passkey/login-options without username returned success with flowId, challenge, and rpID localhost for discoverable passkey login.
+- Physical Face ID/fingerprint/device PIN registration and login cannot be completed from terminal and still needs browser/device testing.
+- Vercel production test still needs env values set before testing:
+  - WEBAUTHN_RP_NAME=Amardip Lifts ERP
+  - WEBAUTHN_RP_ID=amardip-erp.vercel.app
+  - WEBAUTHN_ORIGIN=https://amardip-erp.vercel.app
 
 Latest Reports Counts
 AMC/Warranty expiry:

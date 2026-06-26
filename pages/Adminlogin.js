@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useRouter } from "next/router";
 import Image from "next/image";
 import { getUserFromRequest } from "@/lib/auth";
+import { browserSupportsPasskeys, startPasskeyAuthentication } from "@/lib/passkeyClient";
 
 const LOGIN_THEME = {
   primary: "#0a649d",
@@ -205,6 +206,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   const [loading, setLoading] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
   const [error, setError] = useState("");
 
   async function handleSubmit(event) {
@@ -250,6 +252,59 @@ export default function LoginPage() {
       setError(loginError.message || "Unable to sign in");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handlePasskeyLogin() {
+    setError("");
+
+    if (!browserSupportsPasskeys()) {
+      setError("Passkey is not supported on this browser. Use password login.");
+      return;
+    }
+
+    setPasskeyLoading(true);
+
+    try {
+      const optionsResponse = await fetch("/api/auth/passkey/login-options", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          username: username.trim(),
+        }),
+      });
+      const optionsData = await optionsResponse.json();
+
+      if (!optionsResponse.ok || !optionsData.success) {
+        throw new Error(optionsData.message || "Passkey login failed");
+      }
+
+      const credential = await startPasskeyAuthentication(optionsData.options);
+
+      const verifyResponse = await fetch("/api/auth/passkey/login-verify", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          flowId: optionsData.flowId,
+          credential,
+        }),
+      });
+      const verifyData = await verifyResponse.json();
+
+      if (!verifyResponse.ok || !verifyData.success) {
+        throw new Error(verifyData.message || "Passkey login failed");
+      }
+
+      await router.replace(verifyData.redirectTo || "/Admindashboard");
+    } catch (passkeyError) {
+      console.error("Passkey login failed:", passkeyError);
+      setError("Passkey login failed or was cancelled. Please use password login.");
+    } finally {
+      setPasskeyLoading(false);
     }
   }
 
@@ -350,13 +405,22 @@ export default function LoginPage() {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || passkeyLoading}
                 className="mt-7 h-[52px] w-full rounded-[16px] text-[15px] font-semibold text-white shadow-[0_14px_28px_rgba(10,100,157,0.28)] transition duration-300 hover:translate-y-[-1px] hover:shadow-[0_18px_34px_rgba(10,100,157,0.35)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-65"
                 style={{
                   background: `linear-gradient(135deg, ${LOGIN_THEME.primary}, ${LOGIN_THEME.primaryDark})`,
                 }}
               >
                 {loading ? "Please wait..." : "Continue"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePasskeyLogin}
+                disabled={loading || passkeyLoading}
+                className="mt-3 h-[52px] w-full rounded-[16px] border border-[#dbeafe] bg-[#eff6ff] text-[15px] font-bold text-[#0a649d] shadow-sm transition duration-300 hover:bg-[#dff3ff] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-65"
+              >
+                {passkeyLoading ? "Checking passkey..." : "Login with Passkey"}
               </button>
             </form>
           </section>

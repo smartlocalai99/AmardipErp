@@ -6,6 +6,7 @@ import AdminAmcTable from "@/components/admin/amc/AdminAmcTable";
 import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
 import { clearSessionCache } from "@/lib/adminCache";
 import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
+import { browserSupportsPasskeys, startPasskeyRegistration } from "@/lib/passkeyClient";
 import { useRouter } from "next/router";
 import { useState, useEffect, useRef } from "react";
 import Image from "next/image";
@@ -307,6 +308,10 @@ function AdmindashboardShell({ user }) {
     const [resetBusy, setResetBusy] = useState(false);
     const [resetSuccess, setResetSuccess] = useState("");
     const [resetError, setResetError] = useState("");
+    const [passkeyDeviceName, setPasskeyDeviceName] = useState("");
+    const [passkeyBusy, setPasskeyBusy] = useState(false);
+    const [passkeyMessage, setPasskeyMessage] = useState("");
+    const [passkeyError, setPasskeyError] = useState("");
 
     // Onboarding form states
     const [newUserData, setNewUserData] = useState({
@@ -595,6 +600,59 @@ function AdmindashboardShell({ user }) {
             setResetError(err.message);
         } finally {
             setResetBusy(false);
+        }
+    }
+
+    async function handleSetupPasskey() {
+        setPasskeyError("");
+        setPasskeyMessage("");
+
+        if (!browserSupportsPasskeys()) {
+            setPasskeyError("Passkey is not supported on this browser. Use password login.");
+            return;
+        }
+
+        setPasskeyBusy(true);
+
+        try {
+            const optionsResponse = await fetch("/api/auth/passkey/register-options", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            });
+            const optionsData = await optionsResponse.json();
+
+            if (!optionsResponse.ok || !optionsData.success) {
+                throw new Error(optionsData.message || "Failed to start passkey setup");
+            }
+
+            const credential = await startPasskeyRegistration(optionsData.options);
+
+            const verifyResponse = await fetch("/api/auth/passkey/register-verify", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    flowId: optionsData.flowId,
+                    credential,
+                    deviceName: passkeyDeviceName,
+                }),
+            });
+            const verifyData = await verifyResponse.json();
+
+            if (!verifyResponse.ok || !verifyData.success) {
+                throw new Error(verifyData.message || "Failed to save passkey");
+            }
+
+            setPasskeyMessage("Passkey registered successfully.");
+            setPasskeyDeviceName("");
+        } catch (err) {
+            console.error("Passkey setup failed:", err);
+            setPasskeyError(err.message || "Passkey setup failed or was cancelled.");
+        } finally {
+            setPasskeyBusy(false);
         }
     }
 
@@ -1663,6 +1721,44 @@ function AdmindashboardShell({ user }) {
                                                 Change Password
                                             </button>
                                         </div>
+                                    </div>
+
+                                    <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
+                                        <div>
+                                            <h3 className="text-sm font-black text-slate-900">Passkey Login</h3>
+                                            <p className="mt-1 text-xs font-semibold leading-relaxed text-slate-500">
+                                                Use your phone Face ID, fingerprint, or device PIN for faster login.
+                                            </p>
+                                        </div>
+
+                                        <input
+                                            type="text"
+                                            value={passkeyDeviceName}
+                                            onChange={(event) => setPasskeyDeviceName(event.target.value)}
+                                            placeholder="Device name optional"
+                                            className="amardip-field w-full"
+                                        />
+
+                                        {passkeyMessage && (
+                                            <p className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">
+                                                {passkeyMessage}
+                                            </p>
+                                        )}
+
+                                        {passkeyError && (
+                                            <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">
+                                                {passkeyError}
+                                            </p>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            onClick={handleSetupPasskey}
+                                            disabled={passkeyBusy}
+                                            className="h-11 w-full rounded-2xl bg-[#0a649d] text-xs font-black text-white shadow-sm active:scale-95 disabled:opacity-60"
+                                        >
+                                            {passkeyBusy ? "Setting up passkey..." : "Setup Passkey"}
+                                        </button>
                                     </div>
                                 </div>
                             ) : moreSubTab === "notifications" ? (
