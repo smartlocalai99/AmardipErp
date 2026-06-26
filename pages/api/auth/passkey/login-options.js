@@ -30,14 +30,14 @@ export default async function handler(req, res) {
       );
 
       if (userResult.rowCount === 0) {
-        return res.status(404).json({ success: false, message: "No passkeys found for this username" });
+        return res.status(404).json({ success: false, message: "No Face Lock found for this username" });
       }
 
       user = userResult.rows[0];
       passkeys = await getUserPasskeys(user.id);
 
       if (passkeys.length === 0) {
-        return res.status(404).json({ success: false, message: "No passkeys found for this username" });
+        return res.status(404).json({ success: false, message: "No Face Lock found for this username" });
       }
     }
 
@@ -70,7 +70,7 @@ export default async function handler(req, res) {
     console.error("Passkey login options error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to create passkey login options",
+      message: "Failed to create Face Lock login options",
     });
   }
 }

@@ -71,7 +71,7 @@ export default async function handler(req, res) {
     console.error("Passkey register options error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to create passkey registration options",
+      message: "Failed to create Face Lock setup options",
     });
   }
 }

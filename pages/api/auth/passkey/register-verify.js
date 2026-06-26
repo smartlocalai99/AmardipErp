@@ -22,7 +22,7 @@ export default async function handler(req, res) {
 
   const { flowId, credential, deviceName } = req.body || {};
   if (!flowId || !credential) {
-    return res.status(400).json({ success: false, message: "Passkey verification data is required" });
+    return res.status(400).json({ success: false, message: "Face Lock verification data is required" });
   }
 
   try {
@@ -30,7 +30,7 @@ export default async function handler(req, res) {
 
     const challenge = await getValidChallenge(flowId, "registration");
     if (!challenge || challenge.user_id !== sessionUser.id) {
-      return res.status(400).json({ success: false, message: "Passkey challenge expired or invalid" });
+      return res.status(400).json({ success: false, message: "Face Lock setup expired or invalid" });
     }
 
     const verification = await verifyRegistrationResponse({
@@ -41,7 +41,7 @@ export default async function handler(req, res) {
     });
 
     if (!verification.verified || !verification.registrationInfo) {
-      return res.status(400).json({ success: false, message: "Passkey registration could not be verified" });
+      return res.status(400).json({ success: false, message: "Face Lock setup could not be verified" });
     }
 
     const { credential: verifiedCredential, credentialDeviceType, credentialBackedUp } =
@@ -50,7 +50,7 @@ export default async function handler(req, res) {
     const existing = await getPasskeyByCredentialId(verifiedCredential.id);
     if (existing) {
       await deleteChallenge(flowId);
-      return res.status(409).json({ success: false, message: "This passkey is already registered" });
+      return res.status(409).json({ success: false, message: "This Face Lock is already enabled" });
     }
 
     await saveUserPasskey({
@@ -68,13 +68,13 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      message: "Passkey registered successfully",
+      message: "Face Lock enabled successfully",
     });
   } catch (error) {
     console.error("Passkey register verify error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to verify passkey registration",
+      message: "Failed to verify Face Lock setup",
     });
   }
 }

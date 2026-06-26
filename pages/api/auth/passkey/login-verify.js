@@ -24,7 +24,7 @@ export default async function handler(req, res) {
 
   const { flowId, credential } = req.body || {};
   if (!flowId || !credential) {
-    return res.status(400).json({ success: false, message: "Passkey login data is required" });
+    return res.status(400).json({ success: false, message: "Face Lock login data is required" });
   }
 
   try {
@@ -32,16 +32,16 @@ export default async function handler(req, res) {
 
     const challenge = await getValidChallenge(flowId, "authentication");
     if (!challenge) {
-      return res.status(400).json({ success: false, message: "Passkey challenge expired or invalid" });
+      return res.status(400).json({ success: false, message: "Face Lock login expired or invalid" });
     }
 
     const passkey = await getPasskeyByCredentialId(credential.id);
     if (!passkey) {
-      return res.status(401).json({ success: false, message: "Passkey is not registered" });
+      return res.status(401).json({ success: false, message: "Face Lock is not enabled" });
     }
 
     if (challenge.user_id && challenge.user_id !== passkey.user_id) {
-      return res.status(401).json({ success: false, message: "Passkey does not match this login request" });
+      return res.status(401).json({ success: false, message: "Face Lock does not match this login request" });
     }
 
     const verification = await verifyAuthenticationResponse({
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     });
 
     if (!verification.verified) {
-      return res.status(401).json({ success: false, message: "Passkey login could not be verified" });
+      return res.status(401).json({ success: false, message: "Face Lock login could not be verified" });
     }
 
     await updatePasskeyCounterAndLastUsed(
@@ -94,7 +94,7 @@ export default async function handler(req, res) {
     console.error("Passkey login verify error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to verify passkey login",
+      message: "Failed to verify Face Lock login",
     });
   }
 }

@@ -259,7 +259,7 @@ export default function LoginPage() {
     setError("");
 
     if (!browserSupportsPasskeys()) {
-      setError("Passkey is not supported on this browser. Use password login.");
+      setError("Face Lock is not supported on this browser. Use password login.");
       return;
     }
 
@@ -278,7 +278,7 @@ export default function LoginPage() {
       const optionsData = await optionsResponse.json();
 
       if (!optionsResponse.ok || !optionsData.success) {
-        throw new Error(optionsData.message || "Passkey login failed");
+        throw new Error(optionsData.message || "Face Lock login failed");
       }
 
       const credential = await startPasskeyAuthentication(optionsData.options);
@@ -296,13 +296,13 @@ export default function LoginPage() {
       const verifyData = await verifyResponse.json();
 
       if (!verifyResponse.ok || !verifyData.success) {
-        throw new Error(verifyData.message || "Passkey login failed");
+        throw new Error(verifyData.message || "Face Lock login failed");
       }
 
       await router.replace(verifyData.redirectTo || "/Admindashboard");
     } catch (passkeyError) {
-      console.error("Passkey login failed:", passkeyError);
-      setError("Passkey login failed or was cancelled. Please use password login.");
+      console.error("Face Lock login failed:", passkeyError);
+      setError("Face Lock login failed or was cancelled. Please use password login.");
     } finally {
       setPasskeyLoading(false);
     }
@@ -420,7 +420,7 @@ export default function LoginPage() {
                 disabled={loading || passkeyLoading}
                 className="mt-3 h-[52px] w-full rounded-[16px] border border-[#dbeafe] bg-[#eff6ff] text-[15px] font-bold text-[#0a649d] shadow-sm transition duration-300 hover:bg-[#dff3ff] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-65"
               >
-                {passkeyLoading ? "Checking passkey..." : "Login with Passkey"}
+                {passkeyLoading ? "Checking Face Lock..." : "Login with Face Lock"}
               </button>
             </form>
           </section>

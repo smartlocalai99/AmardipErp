@@ -71,13 +71,15 @@ Passkey auth APIs:
 - /api/auth/passkey/register-verify
 - /api/auth/passkey/login-options
 - /api/auth/passkey/login-verify
+- /api/auth/passkey/list
+- /api/auth/passkey/remove
 
 Backend auth behavior:
 - pages/api/auth/login.js checks the users table by username.
 - Passwords are stored as bcrypt hashes in users.password_hash.
 - A signed JWT is stored in the auth_token HttpOnly cookie.
 - lib/auth.js reads and verifies auth_token.
-- Passkey login creates the same auth_token JWT cookie as /api/auth/login.
+- Face Lock login creates the same auth_token JWT cookie as /api/auth/login.
 
 Role Redirect Rules
 superadmin, admin, manager:
@@ -193,6 +195,8 @@ Passkey files:
 - pages/api/auth/passkey/register-verify.js
 - pages/api/auth/passkey/login-options.js
 - pages/api/auth/passkey/login-verify.js
+- pages/api/auth/passkey/list.js
+- pages/api/auth/passkey/remove.js
 
 Admin Dashboard KPI Behavior
 DashboardKpiGrid.jsx controls KPI cards.
@@ -1079,29 +1083,31 @@ Logo behavior:
 - Admin dashboard app header uses /adlogo.png instead of initials.
 - Admin profile avatar uses /adlogo.png instead of initials.
 
-Passkey / Phone Authentication
+Face Lock / Passkey Authentication
 Status:
 - Implemented for Admin login.
+- User-facing name is Face Lock.
+- Technical implementation uses WebAuthn/passkeys.
 - Admin only for now.
 - Not added to Customerlogin, Technicianlogin, or Storelogin.
-- Physical Face ID/fingerprint/device PIN registration and login still needs browser/device testing on localhost or Vercel.
+- Physical face/fingerprint unlock registration and login still needs browser/device testing on localhost or Vercel.
 
 Goal:
 - Admin logs in once with username/password.
-- Inside admin profile/settings, admin clicks Setup Passkey.
-- Browser/phone asks Face ID, fingerprint, device PIN, Windows Hello, or Android screen lock.
-- Passkey is saved for that admin user.
-- Next time on /Adminlogin, admin can click Login with Passkey.
+- Inside admin profile/settings, admin clicks Setup Face Lock.
+- Browser/phone asks for built-in secure unlock.
+- Face Lock credential is saved for that admin user.
+- Next time on /Adminlogin, admin can click Login with Face Lock.
 - Backend verifies WebAuthn and creates the normal auth_token JWT cookie.
 - Existing role redirect sends admin to /Admindashboard.
-- If passkey fails, username/password login still works.
+- If Face Lock fails, username/password login still works.
 
 Important security meaning:
 - Do not build custom face recognition.
 - Do not open camera.
 - Do not store face data.
 - Do not store fingerprint data.
-- Do not store device PIN.
+- Do not store PIN or passcode data.
 - Do not store private key.
 - Store only public key credential data from WebAuthn.
 - Use the phone/laptop operating system authenticator through Passkeys/WebAuthn.
@@ -1171,9 +1177,12 @@ webauthn_challenges table:
 - created_at timestamptz
 
 Passkey API rules:
-- All passkey APIs are POST only.
+- Register/login/remove passkey APIs are POST only.
+- /api/auth/passkey/list is GET only.
 - Registration APIs require existing logged-in user from getUserFromRequest.
 - Login options can accept username or allow discoverable passkey login if username is empty.
+- List API returns only current user's id, deviceName, createdAt, and lastUsedAt.
+- Remove API deletes only the current user's credential by id.
 - Challenges expire in 5 minutes.
 - Delete expired challenges before creating a new challenge.
 - Delete used challenges after verification.
@@ -1183,37 +1192,47 @@ Passkey API rules:
 - Verification keeps SimpleWebAuthn default user verification behavior.
 
 Admin Profile UI:
-- Passkey Login section is inside pages/Admindashboard.jsx profile/settings.
-- Button text: Setup Passkey.
-- Helper text: Use your phone Face ID, fingerprint, or device PIN for faster login.
+- Face Lock section is inside pages/Admindashboard.jsx profile/settings.
+- Button text: Setup Face Lock.
+- Helper text: Use your phone or laptop face/fingerprint unlock for faster login.
 - Optional device name input.
+- Shows registered Face Lock devices with device name, created date, last used date, and Remove button.
+- Empty device state says Face Lock is not enabled yet.
+- Refresh Devices button reloads the current user's device list.
+- Remove Face Lock deletes the stored credential from user_passkeys for this app only.
 - Use startRegistration from @simplewebauthn/browser.
 
 Adminlogin UI:
 - Keep username/password login unchanged.
-- Login with Passkey button is added only on /Adminlogin.
+- Login with Face Lock button is added only on /Adminlogin.
 - If username field has value, send username to login-options.
-- If username field is empty, try discoverable passkey login.
+- If username field is empty, try discoverable Face Lock login.
 - Use startAuthentication from @simplewebauthn/browser.
 - On success, redirect to redirectTo from login-verify.
 - Login page logo remains /logo.png.
 
-Passkey error messages:
-- Passkey login failed or was cancelled. Please use password login.
-- Passkey is not supported on this browser. Use password login.
+Face Lock error messages:
+- Face Lock setup failed or was cancelled.
+- Face Lock login failed or was cancelled. Please use password login.
+- Face Lock is not supported on this browser. Use password login.
 
-Manual passkey test flow:
+Manual Face Lock test flow:
 - Run npm run build.
 - Login as admin with password.
 - Go to profile/settings.
-- Click Setup Passkey.
-- Device/browser should ask Face ID/fingerprint/PIN.
+- Confirm title says Face Lock, not Passkey.
+- Click Setup Face Lock.
+- Device/browser should ask for built-in secure unlock.
 - Registration should succeed.
+- Registered device should appear in device list.
 - Logout.
 - Go to /Adminlogin.
-- Click Login with Passkey.
+- Confirm button says Login with Face Lock.
+- Click Login with Face Lock.
 - Device should authenticate.
 - Redirect should go to /Admindashboard.
+- Go to profile/settings and remove Face Lock.
+- Logout and confirm removed credential no longer works.
 - Password login should still work.
 
 Vercel production test:
@@ -1223,9 +1242,9 @@ Vercel production test:
 - Deploy.
 - Open https://amardip-erp.vercel.app/Adminlogin.
 - Login using password.
-- Setup passkey.
+- Setup Face Lock.
 - Logout.
-- Login with passkey.
+- Login with Face Lock.
 - Confirm redirect to /Admindashboard.
 
 Passkey implementation notes:
@@ -1233,6 +1252,8 @@ Passkey implementation notes:
 - pages/api/auth/passkey/register-verify.js verifies registration and saves the credential public key.
 - pages/api/auth/passkey/login-options.js creates an authentication challenge for username-based or discoverable passkey login.
 - pages/api/auth/passkey/login-verify.js verifies passkey authentication and creates auth_token.
+- pages/api/auth/passkey/list.js returns safe display fields for current user's Face Lock devices.
+- pages/api/auth/passkey/remove.js removes only the current user's selected Face Lock credential.
 - lib/passkeyClient.js lazy-loads @simplewebauthn/browser so the login page still renders normally server-side.
 - lib/passkeys.js creates user_passkeys and webauthn_challenges if missing.
 - Local dev uses rpID localhost and origin http://localhost:3000.
@@ -1372,15 +1393,20 @@ Latest PWA/Logo Tests
 - pages/_app.js includes manifest, theme-color, apple touch icon, favicon, and production service worker registration.
 - Login pages were not changed and continue to use /logo.png.
 
-Latest Passkey Tests
+Latest Face Lock / Passkey Tests
 - Installed @simplewebauthn/server and @simplewebauthn/browser.
 - npm run build passed.
 - Targeted ESLint passed for passkey config/helpers, passkey APIs, and pages/Adminlogin.js.
 - superadmin password login still succeeded.
 - /api/auth/passkey/register-options returned success with flowId, challenge, rpID localhost, and userName superadmin during local smoke test.
-- /api/auth/passkey/login-options with username superadmin returned No passkeys found for this username before device registration, which is expected.
+- /api/auth/passkey/login-options with username superadmin returned No Face Lock found for this username before device registration, which is expected.
 - /api/auth/passkey/login-options without username returned success with flowId, challenge, and rpID localhost for discoverable passkey login.
-- Physical Face ID/fingerprint/device PIN registration and login cannot be completed from terminal and still needs browser/device testing.
+- /api/auth/passkey/list and /api/auth/passkey/remove were added for current-user Face Lock device management.
+- Latest local smoke test: superadmin password login returned 200.
+- Latest local smoke test: /api/auth/passkey/list returned 200 with devices [] before real browser registration.
+- Latest local smoke test: /api/auth/passkey/remove returned 404 for missing id 999999999, confirming non-owned/missing credentials are not removed.
+- Normal visible UI now says Face Lock instead of Passkey.
+- Physical face/fingerprint unlock registration, login, and remove flow cannot be completed from terminal and still needs browser/device testing.
 - Vercel production test still needs env values set before testing:
   - WEBAUTHN_RP_NAME=Amardip Lifts ERP
   - WEBAUTHN_RP_ID=amardip-erp.vercel.app
