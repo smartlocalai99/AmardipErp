@@ -310,16 +310,16 @@ export default function LoginPage() {
 
   return (
     <main
-      className="min-h-screen overflow-hidden"
+      className="h-[100svh] overflow-hidden sm:min-h-screen"
       style={{
         background:
           "radial-gradient(circle at top left, rgba(89,224,255,0.18), transparent 34%), radial-gradient(circle at bottom right, rgba(10,100,157,0.18), transparent 32%), #f4f7fb",
       }}
     >
-      <div className="flex min-h-screen items-center justify-center px-0 py-0 sm:px-6 sm:py-8">
-        <div className="relative min-h-screen w-full overflow-hidden bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:min-h-0 sm:max-w-[390px] sm:rounded-[34px]">
+      <div className="flex h-full items-start justify-center px-0 py-0 sm:min-h-screen sm:items-center sm:px-6 sm:py-8">
+        <div className="relative flex h-full w-full flex-col overflow-hidden bg-white shadow-[0_24px_80px_rgba(15,23,42,0.18)] sm:h-auto sm:min-h-0 sm:max-w-[390px] sm:rounded-[34px]">
           <section
-            className="relative flex h-[340px] items-center justify-center overflow-hidden"
+            className="relative flex h-[310px] shrink-0 items-center justify-center overflow-hidden sm:h-[340px]"
             style={{
               background: `linear-gradient(145deg, #07111f 0%, ${LOGIN_THEME.primaryDeep} 48%, #04070d 100%)`,
             }}
@@ -334,7 +334,7 @@ export default function LoginPage() {
             </div>
           </section>
 
-          <section className="relative -mt-[18px] rounded-t-[32px] bg-white px-5 pb-9 pt-10 shadow-[0_-10px_35px_rgba(15,23,42,0.06)]">
+          <section className="relative -mt-[18px] flex-1 overflow-y-auto overscroll-contain rounded-t-[32px] bg-white px-5 pb-9 pt-10 shadow-[0_-10px_35px_rgba(15,23,42,0.06)]">
             <h1 className="text-center text-[20px] font-semibold text-[#111827]">
               Login
             </h1>
@@ -359,7 +359,7 @@ export default function LoginPage() {
                       placeholder="Enter username"
                       autoComplete="username"
                       required
-                      className="mt-1 w-full bg-transparent text-[14px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
+                      className="mt-1 w-full bg-transparent text-[16px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
                     />
                   </div>
                 </FieldShell>
@@ -382,7 +382,7 @@ export default function LoginPage() {
                       placeholder="Enter password"
                       autoComplete="current-password"
                       required
-                      className="mt-1 w-full bg-transparent text-[14px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
+                      className="mt-1 w-full bg-transparent text-[16px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
                     />
                   </div>
 
