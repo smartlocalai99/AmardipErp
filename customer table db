@@ -1,0 +1,72 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS elevator_service_customers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+  record_no INTEGER,
+  customer_code TEXT,
+  customer_name TEXT NOT NULL,
+
+  address TEXT,
+  city TEXT,
+  mobile_no TEXT,
+
+  hoc_date TEXT,
+  customer_status TEXT,
+
+  amc_warranty_due TEXT,
+  amc_starting_date TEXT,
+  amc_ending_date TEXT,
+
+  no_of_passenger TEXT,
+  door_type TEXT,
+  cabin TEXT,
+  no_of_floors TEXT,
+
+  motor_make TEXT,
+  controller_make TEXT,
+  drive_make TEXT,
+  ard_make TEXT,
+
+  drive_model_no TEXT,
+  motor_model_no TEXT,
+
+  elevator_type TEXT,
+  door_make TEXT,
+
+  remarks TEXT,
+
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_code
+ON elevator_service_customers (customer_code);
+
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_name
+ON elevator_service_customers (customer_name);
+
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_mobile
+ON elevator_service_customers (mobile_no);
+
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_city
+ON elevator_service_customers (city);
+
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_status
+ON elevator_service_customers (customer_status);
+CREATE OR REPLACE FUNCTION set_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_elevator_service_customers_updated_at
+ON elevator_service_customers;
+
+CREATE TRIGGER trg_elevator_service_customers_updated_at
+BEFORE UPDATE ON elevator_service_customers
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
