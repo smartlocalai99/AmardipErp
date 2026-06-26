@@ -181,7 +181,7 @@ export default function UpcomingServicesPage({ user }) {
     const controller = new AbortController();
 
     async function loadUpcomingServices() {
-      setLoading(true);
+      setLoading(false);
       setError("");
 
       try {
@@ -200,6 +200,7 @@ export default function UpcomingServicesPage({ user }) {
           forceRefresh: refreshKey > 0,
           user,
           fetchOptions: { signal: controller.signal },
+          onNetworkStart: () => setLoading(true),
         });
 
         if (!data.success) {

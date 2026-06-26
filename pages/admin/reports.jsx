@@ -186,7 +186,7 @@ export default function AdminReportsPage({ user }) {
     const controller = new AbortController();
 
     async function loadReports() {
-      setLoading(true);
+      setLoading(false);
       setError("");
 
       try {
@@ -195,6 +195,7 @@ export default function AdminReportsPage({ user }) {
           ttlMs: 2 * 60 * 1000,
           user,
           fetchOptions: { signal: controller.signal },
+          onNetworkStart: () => setLoading(true),
         });
 
         if (!data.success) {

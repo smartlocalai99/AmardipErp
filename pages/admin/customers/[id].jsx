@@ -265,7 +265,7 @@ export default function CustomerDetailPage({ user, customer }) {
     const controller = new AbortController();
 
     async function fetchVisits() {
-      setLoading(true);
+      setLoading(false);
       setError("");
 
       try {
@@ -284,6 +284,7 @@ export default function CustomerDetailPage({ user, customer }) {
           ttlMs: 2 * 60 * 1000,
           user,
           fetchOptions: { signal: controller.signal },
+          onNetworkStart: () => setLoading(true),
         });
 
         if (!data.success) {

@@ -10,7 +10,7 @@ const initialState = {
   customerStats: null,
   serviceStats: null,
   upcomingPreview: null,
-  loading: true,
+  loading: false,
   error: "",
   lastFetchedAt: null,
 };
@@ -24,7 +24,11 @@ export function AdminAppDataProvider({ user, children }) {
       return fetchRef.current;
     }
 
-    setState((current) => ({ ...current, loading: true, error: "" }));
+    setState((current) => ({ ...current, error: "" }));
+
+    const markNetworkLoading = () => {
+      setState((current) => ({ ...current, loading: true }));
+    };
 
     fetchRef.current = Promise.all([
       cachedGetJson("/api/elevator-customers/stats", {
@@ -32,18 +36,21 @@ export function AdminAppDataProvider({ user, children }) {
         ttlMs: DASHBOARD_TTL_MS,
         forceRefresh,
         user,
+        onNetworkStart: markNetworkLoading,
       }),
       cachedGetJson("/api/elevator-service-visits/stats", {
         cacheKey: "dashboard_service_stats",
         ttlMs: DASHBOARD_TTL_MS,
         forceRefresh,
         user,
+        onNetworkStart: markNetworkLoading,
       }),
       cachedGetJson("/api/service-schedules/upcoming?page=1&pageSize=5", {
         cacheKey: "dashboard_upcoming_preview",
         ttlMs: DASHBOARD_TTL_MS,
         forceRefresh,
         user,
+        onNetworkStart: markNetworkLoading,
       }),
     ])
       .then(([customerData, serviceData, upcomingData]) => {

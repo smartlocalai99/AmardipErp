@@ -1,0 +1,39 @@
+{
+  "name": "Amardip Lifts ERP",
+  "short_name": "Amardip",
+  "description": "Amardip Lifts elevator service CRM and ERP app.",
+  "start_url": "/Admindashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a649d",
+  "theme_color": "#0a649d",
+  "icons": [
+    {
+      "src": "/adlogo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/adlogo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Admin Dashboard",
+      "short_name": "Dashboard",
+      "url": "/Admindashboard",
+      "icons": [{ "src": "/adlogo.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Reports",
+      "short_name": "Reports",
+      "url": "/admin/reports",
+      "icons": [{ "src": "/adlogo.png", "sizes": "192x192" }]
+    }
+  ]
+}

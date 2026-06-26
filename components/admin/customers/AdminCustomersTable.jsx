@@ -203,7 +203,7 @@ export default function AdminCustomersTable({ user, embedded = false }) {
     const controller = new AbortController();
 
     async function fetchCustomers() {
-      setLoading(true);
+      setLoading(false);
       setError("");
 
       try {
@@ -221,6 +221,7 @@ export default function AdminCustomersTable({ user, embedded = false }) {
           ttlMs: 2 * 60 * 1000,
           user,
           fetchOptions: { signal: controller.signal },
+          onNetworkStart: () => setLoading(true),
         });
         if (!data.success) {
           throw new Error(data.message || "Failed to load customers");

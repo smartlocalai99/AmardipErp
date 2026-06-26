@@ -126,6 +126,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
           cacheKey: "service_visits_stats",
           ttlMs: 5 * 60 * 1000,
           user,
+          onNetworkStart: () => setStats(null),
         });
 
         if (data.success) {
@@ -143,7 +144,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     const controller = new AbortController();
 
     async function fetchVisits() {
-      setLoading(true);
+      setLoading(false);
       setError("");
 
       try {
@@ -162,6 +163,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
           ttlMs: 2 * 60 * 1000,
           user,
           fetchOptions: { signal: controller.signal },
+          onNetworkStart: () => setLoading(true),
         });
 
         if (!data.success) {

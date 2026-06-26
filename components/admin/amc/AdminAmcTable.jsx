@@ -115,7 +115,7 @@ export default function AdminAmcTable({ user, embedded = false }) {
     const controller = new AbortController();
 
     async function fetchAmcCustomers() {
-      setLoading(true);
+      setLoading(false);
       setError("");
 
       try {
@@ -132,6 +132,7 @@ export default function AdminAmcTable({ user, embedded = false }) {
           ttlMs: 2 * 60 * 1000,
           user,
           fetchOptions: { signal: controller.signal },
+          onNetworkStart: () => setLoading(true),
         });
 
         if (!data.success) {

@@ -19,6 +19,7 @@ DB helper: lib/db.js
 Auth: custom JWT cookie auth
 Session cookie: auth_token
 Styling: Tailwind utility classes
+PWA: manifest.webmanifest + sw.js
 
 Important Project Rules
 This project uses Next.js 16. Before changing Next.js APIs or route conventions, read the local Next docs under node_modules/next/dist/docs/.
@@ -35,11 +36,17 @@ Do not break:
 - Existing role redirects
 - The Amardip blue mobile dashboard style
 - Existing customer page/list
+- Login page logo usage
 
 Mobile App UX Rule
 The admin dashboard is a mobile application shell, not a normal multi-page desktop website. Prefer opening modules inside the same app shell using dashboard tabs/subtabs. Do not use window.open or new browser tabs from dashboard cards unless the user explicitly asks for it. The standalone /admin/* pages can exist for direct access, but primary dashboard navigation should feel like one mobile app.
 
 Always keep the app feel first. Avoid desktop-style redesigns, wide dashboard-first layouts, or opening separate tabs for normal workflows. Pages can support desktop/tablet with horizontal tables, but the primary experience should feel like a mobile admin app.
+
+Logo Rule
+- Login pages continue using /logo.png.
+- Logged-in app shell uses /adlogo.png.
+- Do not replace login-page logo unless explicitly requested.
 
 Authentication / Login
 Login pages:
@@ -153,6 +160,11 @@ Admin cache helpers:
 - lib/adminCache.js
 - lib/cachedFetch.js
 
+PWA files:
+- public/manifest.webmanifest
+- public/sw.js
+- public/adlogo.png
+
 Admin Dashboard KPI Behavior
 DashboardKpiGrid.jsx controls KPI cards.
 
@@ -170,6 +182,8 @@ Current important card behavior:
 - Reports Quality opens /admin/reports with router.push and does not call the heavy reports summary API on dashboard load.
 - Dashboard KPI cards show skeleton placeholders while real stats load so users do not briefly see false zeroes.
 - Opening any dashboard tab, KPI card, or More-section card shows a short app-shell skeleton transition.
+- DB-backed modules show data-shaped skeleton loaders while real API/DB fetches are in flight.
+- If valid session cache exists, cached data can render immediately without unnecessary API/DB hit.
 - Open Complaints opens the existing in-dashboard complaints tab.
 - Technician Status opens the existing in-dashboard technicians tab.
 
@@ -976,6 +990,9 @@ Implementation notes:
 - No extra npm package was installed.
 - Skeletons use Tailwind animate-pulse and existing Amardip mobile app styling.
 - Data-heavy report queries are still lazy-loaded only on /admin/reports, not on dashboard startup.
+- Cached data renders immediately when available.
+- Skeleton loaders appear when a real network/API fetch is happening.
+- Dashboard tab/card opens also show a short app-shell skeleton transition so every card open feels like the mobile app is loading content.
 
 Admin Cache / API Optimization Upgrade
 The admin app now has browser session cache helpers for safe GET data:
@@ -1008,6 +1025,27 @@ Cached GET usage:
 - Customer detail service history uses cachedGetJson.
 - Upcoming services list uses cachedGetJson.
 - Admin reports summary uses cachedGetJson.
+
+PWA / Logo Upgrade
+The app now has basic PWA support:
+- public/manifest.webmanifest
+- public/sw.js
+- PWA meta tags in pages/_app.js
+- Service worker registers in production only.
+
+PWA behavior:
+- App name: Amardip Lifts ERP.
+- Start URL: /Admindashboard.
+- Display mode: standalone.
+- Theme/background color: Amardip blue #0a649d.
+- PWA icons use /adlogo.png.
+- Service worker caches only static app assets like adlogo and manifest.
+- API routes are network-only and are not cached by the service worker.
+
+Logo behavior:
+- Login pages still use /logo.png.
+- Admin dashboard app header uses /adlogo.png instead of initials.
+- Admin profile avatar uses /adlogo.png instead of initials.
 
 Follow-up UX Correction
 Dashboard cards must not open new tabs. Customers, AMC, and Service Visits are available as embedded More subtabs in /Admindashboard. The standalone /admin/customers, /admin/amc, and /admin/service-visits routes remain available for direct access, but the primary experience is the single mobile admin app.
@@ -1125,6 +1163,13 @@ Latest Skeleton/Cache Tests
 - /admin/reports returned 200 with cached GET reports summary and skeleton loader.
 - npm run build passed.
 - Targeted ESLint passed for cache helpers, provider, skeleton component, and updated DB-backed admin modules.
+
+Latest PWA/Logo Tests
+- /manifest.webmanifest exists.
+- /sw.js exists.
+- /adlogo.png exists and is used in the logged-in admin app shell.
+- pages/_app.js includes manifest, theme-color, apple touch icon, favicon, and production service worker registration.
+- Login pages were not changed and continue to use /logo.png.
 
 Latest Reports Counts
 AMC/Warranty expiry:

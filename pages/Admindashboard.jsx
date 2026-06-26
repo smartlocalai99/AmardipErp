@@ -868,8 +868,15 @@ function AdmindashboardShell({ user }) {
                 {/* APP BAR HEADER */}
                 <header className="sticky top-0 z-30 bg-[#0a649d] text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-md">
                     <div className="flex items-center gap-3">
-                        <div className="h-10.5 w-10.5 rounded-full bg-white/20 border border-white/30 flex items-center justify-center font-extrabold text-sm text-[#59e0ff] uppercase shadow-inner">
-                            {user?.name?.slice(0, 2) || "AD"}
+                        <div className="relative h-10.5 w-10.5 overflow-hidden rounded-full border border-white/40 bg-white shadow-inner">
+                            <Image
+                                src="/adlogo.png"
+                                alt="Amardip Lifts"
+                                fill
+                                sizes="42px"
+                                className="object-contain p-1"
+                                priority
+                            />
                         </div>
                         <div>
                             <span className="text-[10px] text-white/80 font-bold uppercase tracking-widest leading-none block">
@@ -1606,8 +1613,14 @@ function AdmindashboardShell({ user }) {
 
                                     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
                                         <div className="flex items-center gap-4 border-b border-slate-100 pb-4">
-                                            <div className="h-14 w-14 rounded-full bg-[#0a649d] text-white flex items-center justify-center text-lg font-black uppercase">
-                                                {user?.name?.slice(0, 2) || "AD"}
+                                            <div className="relative h-14 w-14 overflow-hidden rounded-full border border-[#0a649d]/15 bg-white shadow-sm">
+                                                <Image
+                                                    src="/adlogo.png"
+                                                    alt="Amardip Lifts"
+                                                    fill
+                                                    sizes="56px"
+                                                    className="object-contain p-1.5"
+                                                />
                                             </div>
                                             <div>
                                                 <h3 className="text-sm font-extrabold text-slate-900">{user?.name || "Admin User"}</h3>
