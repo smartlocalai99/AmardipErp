@@ -127,13 +127,9 @@ function QuotationBanner({ card, quotationStats, onClick, enabled = true }) {
             ))}
           </div>
 
-          <div className="mt-4 flex items-center justify-between gap-3">
-            <span className="inline-flex h-10 items-center rounded-2xl bg-white px-4 text-xs font-black text-[#0a649d] shadow-sm">
+          <div className="mt-4">
+            <span className="flex h-10 w-full items-center justify-center rounded-2xl bg-white px-4 text-xs font-black text-[#0a649d] shadow-sm">
               {card.buttonText}
-            </span>
-            <span className="text-right text-[10px] font-bold leading-tight text-white/70">
-              {total} total<br />
-              {generated} generated
             </span>
           </div>
         </div>

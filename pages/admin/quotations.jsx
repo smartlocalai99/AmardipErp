@@ -408,24 +408,23 @@ function BoqFullCard({ quotation, onBack }) {
     window.print();
   }
 
-  function handleWhatsApp() {
+  async function handleWhatsApp() {
     const message = buildQuotationMessage(quotation);
     const phone = getWhatsappPhone(quotation.mobileNo);
-    // Try WhatsApp app-to-app first (works on mobile iOS/Android)
-    const waApp = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
     const waWeb = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-
-    // On mobile, attempt to open app directly; browser will fall back to wa.me if not installed
-    const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
-    if (isMobile) {
-      window.location.href = waApp;
-      // Fallback after 1.5s in case WhatsApp isn't installed
-      setTimeout(() => { window.location.href = waWeb; }, 1500);
-    } else {
-      window.open(waWeb, "_blank");
-    }
     setShareStatus("Opening WhatsApp…");
     setTimeout(() => setShareStatus(""), 3000);
+    // navigator.share opens the native OS share sheet — user taps WhatsApp and it opens directly
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: message });
+        return;
+      } catch {
+        // Cancelled or not supported — fall through to open in new tab
+      }
+    }
+    // Open in a new tab so the current app page stays intact
+    window.open(waWeb, "_blank");
   }
 
   const specs = [
@@ -757,12 +756,18 @@ function getWhatsappPhone(mobileNo) {
 async function shareQuotation(quotation, onShared) {
   const message = buildQuotationMessage(quotation);
   const phone = getWhatsappPhone(quotation.mobileNo);
-  const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
-  if (isMobile) {
-    window.location.href = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
-    setTimeout(() => { window.location.href = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`; }, 1500);
-  } else {
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
+  const waWeb = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+  // Native share sheet (iOS/Android) lets user pick WhatsApp directly — no intermediate browser page
+  if (navigator.share) {
+    try {
+      await navigator.share({ text: message });
+      onShared?.("Shared.");
+      return;
+    } catch {
+      // User cancelled or browser blocked — fall through
+    }
   }
+  // Open in new tab so the current app page stays open
+  window.open(waWeb, "_blank");
   onShared?.("Opening WhatsApp…");
 }

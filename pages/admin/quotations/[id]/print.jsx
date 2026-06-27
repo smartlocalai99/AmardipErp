@@ -16,17 +16,22 @@ export async function getServerSideProps({ req, params }) {
 }
 
 export default function PrintQuotation({ quotation }) {
-  function handleWhatsApp() {
+  async function handleWhatsApp() {
     const message = buildMessage(quotation);
     const digits = String(quotation.mobileNo || "").replace(/\D/g, "");
     const phone = digits.length === 10 ? `91${digits}` : digits;
-    const isMobile = /android|iphone|ipad|ipod/i.test(navigator.userAgent);
-    if (isMobile) {
-      window.location.href = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`;
-      setTimeout(() => { window.location.href = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`; }, 1500);
-    } else {
-      window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
+    const waWeb = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    // Native share sheet on iOS/Android opens WhatsApp directly with no intermediate page
+    if (navigator.share) {
+      try {
+        await navigator.share({ text: message });
+        return;
+      } catch {
+        // User cancelled — fall through
+      }
     }
+    // New tab so this page stays open
+    window.open(waWeb, "_blank");
   }
 
   const specs = [

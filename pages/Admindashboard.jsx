@@ -345,14 +345,17 @@ function AdmindashboardShell({ user }) {
     const [inquiries, setInquiries] = useState([]);
 
     const [schedules, setSchedules] = useState([]);
+    const [schedulesLoading, setSchedulesLoading] = useState(false);
+    const [scheduleCustomers, setScheduleCustomers] = useState([]);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
-        location: "",
-        lastService: "",
-        nextService: "",
+        customerId: "",
+        customerName: "",
+        scheduledDate: "",
         technician: "",
-        status: "Scheduled"
+        technicianId: "",
+        notes: "",
     });
 
     // Database user directory states
@@ -531,6 +534,21 @@ function AdmindashboardShell({ user }) {
         const timer = setTimeout(() => fetchQuotationDashboardData(), 0);
         return () => clearTimeout(timer);
     }, [activeTab, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    async function fetchServiceSchedules() {
+        setSchedulesLoading(true);
+        try {
+            const res = await fetch("/api/service-schedules?pageSize=100");
+            const data = await res.json();
+            if (data.success) setSchedules(data.schedules || []);
+        } catch {}
+        finally { setSchedulesLoading(false); }
+    }
+
+    useEffect(() => {
+        if (activeTab !== "service") return;
+        fetchServiceSchedules();
+    }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function handleCreateComplaint(e) {
         e.preventDefault();
@@ -992,58 +1010,43 @@ function AdmindashboardShell({ user }) {
 
     async function handleAddSchedule(e) {
         e.preventDefault();
-        if (!newSchedule.location || !newSchedule.nextService) return;
+        if (!newSchedule.customerId) return;
 
-        const newId = schedules.length ? Math.max(...schedules.map(s => s.id)) + 1 : 1;
-        const scheduleToAdd = {
-            id: newId,
-            location: newSchedule.location,
-            lastService: newSchedule.lastService || newSchedule.nextService,
-            nextService: newSchedule.nextService,
-            technician: newSchedule.technician,
-            status: "Scheduled"
-        };
-
-        setSchedules(prev => [scheduleToAdd, ...prev]);
-
-        // Update KPIs
-        setKpiCounts(k => ({
-            ...k,
-            todayService: k.todayService + 1,
-            upcomingMaintenance: k.upcomingMaintenance + 1
-        }));
-
-        // Add in-app notification
-        const newNotif = {
-            id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
-            category: "Service Scheduled",
-            message: `New visit scheduled at ${newSchedule.location} with engineer ${newSchedule.technician}`,
-            time: "Just now"
-        };
-        setNotifications(prev => [newNotif, ...prev]);
-
-        // Send push notification to the assigned worker (non-blocking)
-        if (newSchedule.technician) {
-            fetch("/api/push/notify-worker", {
+        try {
+            const res = await fetch("/api/service-schedules", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    workerName: newSchedule.technician,
-                    title: "New Service Assigned",
-                    body: `Service at ${newSchedule.location} scheduled for ${newSchedule.nextService}`,
-                    data: { url: "/Techniciandashboard" },
+                    customerId: newSchedule.customerId,
+                    scheduledDate: newSchedule.scheduledDate || null,
+                    assignedTechnicianName: newSchedule.technician || null,
+                    assignedTechnicianUserId: newSchedule.technicianId || null,
+                    priority: "NORMAL",
+                    notes: newSchedule.notes || null,
                 }),
-            }).catch(() => {});
-        }
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to schedule");
 
-        // Reset form and close modal
-        setNewSchedule({
-            location: "",
-            lastService: "",
-            nextService: "",
-            technician: "",
-            status: "Scheduled"
-        });
+            // Reload from DB
+            await fetchServiceSchedules();
+
+            // Send push notification to the assigned worker (non-blocking)
+            if (newSchedule.technician) {
+                fetch("/api/push/notify-worker", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        workerName: newSchedule.technician,
+                        title: "New Service Assigned",
+                        body: `Service at ${newSchedule.customerName} scheduled for ${newSchedule.scheduledDate || "soon"}`,
+                        data: { url: "/Techniciandashboard" },
+                    }),
+                }).catch(() => {});
+            }
+        } catch {}
+
+        setNewSchedule({ customerId: "", customerName: "", scheduledDate: "", technician: "", technicianId: "", notes: "" });
         setShowScheduleModal(false);
     }
 
@@ -1464,7 +1467,15 @@ function AdmindashboardShell({ user }) {
                                     <p className="text-xs text-slate-500 mt-0.5">Manage AMC visits and checkoff reports.</p>
                                 </div>
                                 <button
-                                    onClick={() => { setShowScheduleModal(true); fetchUsers(); }}
+                                    onClick={async () => {
+                        setShowScheduleModal(true);
+                        fetchUsers();
+                        try {
+                            const r = await fetch("/api/elevator-customers?pageSize=100");
+                            const d = await r.json();
+                            if (d.customers) setScheduleCustomers(d.customers);
+                        } catch {}
+                    }}
                                     className="h-9 w-9 rounded-xl bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
                                 >
                                     <PlusIcon className="h-5 w-5" />
@@ -2727,45 +2738,41 @@ function AdmindashboardShell({ user }) {
 
                         <form onSubmit={handleAddSchedule} className="p-5 space-y-4">
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Building Site Location</label>
-                                <input
-                                    type="text"
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Customer / Site</label>
+                                <select
                                     required
-                                    value={newSchedule.location}
-                                    onChange={(e) => setNewSchedule({ ...newSchedule, location: e.target.value })}
-                                    placeholder="e.g. Royal Residency Towers"
-                                    className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
-                                />
+                                    value={newSchedule.customerId}
+                                    onChange={(e) => {
+                                        const sel = scheduleCustomers.find(c => String(c.id) === e.target.value);
+                                        setNewSchedule({ ...newSchedule, customerId: e.target.value, customerName: sel?.customer_name || sel?.customerName || "" });
+                                    }}
+                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
+                                >
+                                    <option value="">Select customer…</option>
+                                    {scheduleCustomers.map(c => (
+                                        <option key={c.id} value={c.id}>{c.customer_name || c.customerName} — {c.city || ""}</option>
+                                    ))}
+                                </select>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Last Service Date</label>
-                                    <input
-                                        type="date"
-                                        required
-                                        value={newSchedule.lastService}
-                                        onChange={(e) => setNewSchedule({ ...newSchedule, lastService: e.target.value })}
-                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Next Service Date</label>
-                                    <input
-                                        type="date"
-                                        required
-                                        value={newSchedule.nextService}
-                                        onChange={(e) => setNewSchedule({ ...newSchedule, nextService: e.target.value })}
-                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
-                                    />
-                                </div>
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Scheduled Date</label>
+                                <input
+                                    type="date"
+                                    value={newSchedule.scheduledDate}
+                                    onChange={(e) => setNewSchedule({ ...newSchedule, scheduledDate: e.target.value })}
+                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
+                                />
                             </div>
 
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Technician</label>
                                 <select
                                     value={newSchedule.technician}
-                                    onChange={(e) => setNewSchedule({ ...newSchedule, technician: e.target.value })}
+                                    onChange={(e) => {
+                                        const sel = technicians.find(t => t.name === e.target.value);
+                                        setNewSchedule({ ...newSchedule, technician: e.target.value, technicianId: sel?.id || "" });
+                                    }}
                                     className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
                                 >
                                     <option value="">Select technician…</option>
@@ -2775,6 +2782,17 @@ function AdmindashboardShell({ user }) {
                                         <option key={t.id} value={t.name}>{t.name}</option>
                                     ))}
                                 </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Notes (optional)</label>
+                                <input
+                                    type="text"
+                                    value={newSchedule.notes}
+                                    onChange={(e) => setNewSchedule({ ...newSchedule, notes: e.target.value })}
+                                    placeholder="Any special instructions…"
+                                    className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base outline-none focus:border-[#0a649d] transition"
+                                />
                             </div>
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
