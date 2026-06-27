@@ -1484,55 +1484,84 @@ function AdmindashboardShell({ user }) {
 
                             {/* Service schedules */}
                             <div className="space-y-6">
-                                {(() => {
+                                {schedulesLoading ? (
+                                    <p className="text-center text-xs text-slate-400 py-6">Loading…</p>
+                                ) : (() => {
                                     const grouped = schedules.reduce((groups, item) => {
-                                        const date = item.nextService || "Unknown Date";
-                                        if (!groups[date]) {
-                                            groups[date] = [];
-                                        }
+                                        const date = item.scheduled_date
+                                            ? item.scheduled_date.split("T")[0]
+                                            : "Unscheduled";
+                                        if (!groups[date]) groups[date] = [];
                                         groups[date].push(item);
                                         return groups;
                                     }, {});
 
-                                    const sortedDates = Object.keys(grouped).sort((a, b) => new Date(a) - new Date(b));
+                                    const sortedDates = Object.keys(grouped).sort((a, b) => {
+                                        if (a === "Unscheduled") return 1;
+                                        if (b === "Unscheduled") return -1;
+                                        return new Date(a) - new Date(b);
+                                    });
 
                                     if (sortedDates.length === 0) {
                                         return (
-                                            <p className="text-center text-xs text-slate-400 py-6">No scheduled services.</p>
+                                            <div className="text-center py-10">
+                                                <p className="text-sm font-bold text-slate-400">No services scheduled</p>
+                                                <p className="text-xs text-slate-300 mt-1">Tap + to schedule a visit</p>
+                                            </div>
                                         );
                                     }
+
+                                    const statusBadge = (s) => {
+                                        if (s === "COMPLETED") return "bg-emerald-100 text-emerald-800";
+                                        if (s === "IN_PROGRESS") return "bg-amber-100 text-amber-800";
+                                        if (s === "CANCELLED") return "bg-red-100 text-red-800";
+                                        if (s === "ASSIGNED") return "bg-sky-100 text-sky-800";
+                                        return "bg-blue-100 text-blue-800";
+                                    };
 
                                     return sortedDates.map(date => (
                                         <div key={date} className="space-y-2">
                                             <div className="flex items-center gap-2 px-1">
                                                 <span className="h-1.5 w-1.5 rounded-full bg-[#0a649d]"></span>
-                                                <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">{formatGroupDate(date)}</h4>
+                                                <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                                    {date === "Unscheduled" ? "Date TBD" : formatGroupDate(date)}
+                                                </h4>
                                             </div>
                                             <div className="space-y-3">
                                                 {grouped[date].map(sch => (
-                                                    <div 
-                                                        key={sch.id} 
-                                                        onClick={() => setSelectedSchedule(sch)}
-                                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between cursor-pointer hover:border-[#0a649d]/40 transition"
+                                                    <div
+                                                        key={sch.id}
+                                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between"
                                                     >
                                                         <div className="flex justify-between items-start">
                                                             <div className="min-w-0">
-                                                                <h3 className="text-sm font-extrabold text-slate-900 truncate">{sch.location}</h3>
-                                                                <p className="text-[10px] text-slate-400 mt-0.5">Engineer: <span className="font-semibold text-slate-600">{sch.technician}</span></p>
+                                                                <h3 className="text-sm font-extrabold text-slate-900 truncate">{sch.customer_name || "—"}</h3>
+                                                                <p className="text-[10px] text-slate-400 mt-0.5">
+                                                                    Engineer: <span className="font-semibold text-slate-600">{sch.assigned_technician_name || "Unassigned"}</span>
+                                                                </p>
+                                                                {sch.city && <p className="text-[10px] text-slate-400">{sch.city}</p>}
                                                             </div>
-                                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${sch.status === "Overdue" ? "bg-red-100 text-red-800 animate-pulse" :
-                                                                sch.status === "Upcoming" ? "bg-amber-100 text-amber-800" :
-                                                                    sch.status === "Completed" ? "bg-emerald-100 text-emerald-800" :
-                                                                        "bg-blue-100 text-blue-800"
-                                                                }`}>
-                                                                {sch.status}
+                                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded shrink-0 ${statusBadge(sch.status)}`}>
+                                                                {sch.status?.replace("_", " ")}
                                                             </span>
                                                         </div>
                                                         <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                                                            <span className="text-slate-400 font-semibold">Due: {sch.nextService}</span>
-                                                            {sch.status !== "Completed" && (
+                                                            <span className="text-slate-400 font-semibold">
+                                                                {sch.scheduled_date
+                                                                    ? new Date(sch.scheduled_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+                                                                    : "Date TBD"}
+                                                            </span>
+                                                            {sch.status !== "COMPLETED" && sch.status !== "CANCELLED" && (
                                                                 <button
-                                                                    onClick={(e) => { e.stopPropagation(); handleCompleteSchedule(sch.id); }}
+                                                                    onClick={async (e) => {
+                                                                        e.stopPropagation();
+                                                                        await fetch(`/api/service-schedules/${sch.id}`, {
+                                                                            method: "PATCH",
+                                                                            headers: { "Content-Type": "application/json" },
+                                                                            body: JSON.stringify({ status: "COMPLETED" }),
+                                                                        });
+                                                                        fetchServiceSchedules();
+                                                                    }}
                                                                     className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
                                                                 >
                                                                     Mark Done

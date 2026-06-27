@@ -163,9 +163,9 @@ export default function DashboardKpiGrid({
 
   function openCustomersTable() { setMoreSubTab?.("customers"); }
   function openAmcTable() { setMoreSubTab?.("amc"); }
-  function openServiceVisits() { setMoreSubTab?.("serviceVisits"); }
-  function openUpcomingServices() { router.push("/admin/upcoming-services"); }
-  function openReports() { router.push("/admin/reports"); }
+  function openServiceVisits() { setActiveTab?.("service"); }
+  function openUpcomingServices() { setActiveTab?.("service"); }
+  function openReports() { setMoreSubTab?.("reports"); }
   function openQuotations() { router.push("/admin/quotations"); }
 
   return (
@@ -253,6 +253,8 @@ export default function DashboardKpiGrid({
               </svg>
             }
             accent="bg-[#eaf4fb] text-[#0a649d]"
+            onClick={() => setMoreSubTab?.("inventory")}
+            enabled={isLive("inventory")}
           />
 
           <KpiCard
