@@ -289,6 +289,8 @@ function AdmindashboardShell({ user }) {
     const [complaintsLoading, setComplaintsLoading] = useState(false);
     const [complaintError, setComplaintError] = useState("");
     const [complaintStats, setComplaintStats] = useState(null);
+    const [quotationStats, setQuotationStats] = useState(null);
+    const [hasBoqPermission, setHasBoqPermission] = useState(false);
     const [priorityFilter, setPriorityFilter] = useState("all");
     const [complaintTypeFilter, setComplaintTypeFilter] = useState("all");
     const [newComplaintData, setNewComplaintData] = useState({
@@ -308,11 +310,14 @@ function AdmindashboardShell({ user }) {
     const [tempPartQty, setTempPartQty] = useState(1);
 
     useEffect(() => {
-        if (selectedComplaint) {
-            setAllocatedParts(selectedComplaint.allocatedParts || []);
-        } else {
-            setAllocatedParts([]);
-        }
+        const timer = setTimeout(() => {
+            if (selectedComplaint) {
+                setAllocatedParts(selectedComplaint.allocatedParts || []);
+            } else {
+                setAllocatedParts([]);
+            }
+        }, 0);
+        return () => clearTimeout(timer);
     }, [selectedComplaint]);
 
     const handleAddPart = () => {
@@ -445,16 +450,19 @@ function AdmindashboardShell({ user }) {
         const tab = typeof router.query.tab === "string" ? router.query.tab : "dashboard";
         const subtab = typeof router.query.subtab === "string" ? router.query.subtab : "";
 
-        if (VALID_TABS.includes(tab)) {
-            setActiveTab(tab);
-        }
-        if (tab === "more") {
-            setMoreSubTab(subtab || null);
-            if (subtab === "profile") loadFaceLockDevices();
-        } else {
-            setMoreSubTab(null);
-        }
-    }, [router.isReady, router.query.tab, router.query.subtab]); // eslint-disable-line react-hooks/exhaustive-deps
+        const timer = setTimeout(() => {
+            if (VALID_TABS.includes(tab)) {
+                setActiveTab(tab);
+            }
+            if (tab === "more") {
+                setMoreSubTab(subtab || null);
+                if (subtab === "profile") loadFaceLockDevices();
+            } else {
+                setMoreSubTab(null);
+            }
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [router.isReady, router.query.tab, router.query.subtab]);
 
 
     // Today's Activities
@@ -500,7 +508,29 @@ function AdmindashboardShell({ user }) {
         if (activeTab !== "complaints" && activeTab !== "dashboard") return;
         const timer = setTimeout(() => fetchComplaints(), 250);
         return () => clearTimeout(timer);
-    }, [activeTab, searchQuery, statusFilter, priorityFilter, complaintTypeFilter, user?.role]);
+    }, [activeTab, searchQuery, statusFilter, priorityFilter, complaintTypeFilter, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    async function fetchQuotationDashboardData() {
+        if (["customer", "worker", "storekeeper"].includes(user?.role)) return;
+        try {
+            const [statsRes, listRes] = await Promise.all([
+                fetch("/api/quotations/stats"),
+                fetch("/api/quotations?page=1&pageSize=1"),
+            ]);
+            const statsData = await statsRes.json();
+            const listData = await listRes.json();
+            if (statsRes.ok && statsData.success) setQuotationStats(statsData);
+            if (listRes.ok && listData.success) setHasBoqPermission(Boolean(listData.canGenerate));
+        } catch (err) {
+            console.error("Failed to load quotation dashboard data:", err);
+        }
+    }
+
+    useEffect(() => {
+        if (activeTab !== "dashboard") return;
+        const timer = setTimeout(() => fetchQuotationDashboardData(), 0);
+        return () => clearTimeout(timer);
+    }, [activeTab, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function handleCreateComplaint(e) {
         e.preventDefault();
@@ -625,7 +655,7 @@ function AdmindashboardShell({ user }) {
             const timer = setTimeout(() => fetchUsers(), 0);
             return () => clearTimeout(timer);
         }
-    }, [activeTab]);
+    }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function handleLogout() {
         setLoading(true);
@@ -1175,6 +1205,9 @@ function AdmindashboardShell({ user }) {
                                 setActiveTab={openTab}
                                 setMoreSubTab={openMoreSubTab}
                                 moduleAvailability={moduleAvailability}
+                                user={user}
+                                quotationStats={quotationStats}
+                                hasBoqPermission={hasBoqPermission}
                             />
 
                             {/* Section 1: Today's Activities */}
@@ -2251,23 +2284,6 @@ function AdmindashboardShell({ user }) {
                                     </div>
 
                                     <div className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-                                        {/* Manage Leads Button */}
-                                        <button
-                                            onClick={() => openMoreSubTab("customers")}
-                                            className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-9 w-9 rounded-xl bg-sky-50 text-[#0a649d] flex items-center justify-center">
-                                                    <svg className="h-5 w-5 text-[#0a649d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-bold text-slate-800">Manage Leads</p>
-                                                    <p className="text-[9px] text-slate-400 mt-0.5">Track customer inquiries and new elevator requests</p>
-                                                </div>
-                                            </div>
-                                            <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
-                                        </button>
-
                                         {/* Upcoming Services Button */}
                                         <button
                                             onClick={() => router.push("/admin/upcoming-services")}

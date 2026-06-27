@@ -2146,3 +2146,143 @@ Latest Quotation Verification
 Current Quotation Smoke Test Data
 - Smoke test created QTN-202606-0001 in the connected DB.
 - Delete it manually if it should not remain as a test quotation.
+
+Current Dashboard Correction Request - Quotations on Main Dashboard
+
+Status:
+- Implemented.
+
+Source brief:
+- Attached request titled "Fix Amardip dashboard so Quotation creation is available directly on the main dashboard, not inside More."
+
+Problem:
+- When user kethan logs in, quotation creation is not clearly visible.
+- Quotations should not be hidden only inside More.
+- Manage Leads / Leads/Inquiries is not needed now and should be removed or hidden from the client-facing dashboard.
+- Quotations should replace Leads as the active sales module.
+
+Main requirement:
+- Update /Admindashboard so a Quotations card/action appears directly on the main dashboard home.
+- Do not use window.open.
+- Keep the Amardip blue mobile app style.
+- Do not break login/auth, customers, AMC, service visits, upcoming services, complaints, technician jobs, quotations, BOQ permissions, reports, PWA, or Face Lock.
+
+Dashboard card:
+- Title: Quotations
+- Subtitle: Create BOQ, calculate price, print quotation
+- For superadmin or selected BOQ admin:
+  - Button text: Create Quotation
+  - Route: /admin/quotations
+  - Secondary text: BOQ pricing enabled
+- For front_office:
+  - Button text: View Quotations
+  - Route: /admin/quotations
+  - Secondary text: Generated quotations only
+- For customer, worker, storekeeper, or no-access users:
+  - Hide the card completely.
+
+Placement:
+- Place the Quotations card in the main dashboard card/action area near Customers, AMC, Service Visits, Upcoming Services, Reports, or Complaints.
+- It must be visible without opening More.
+- Use existing dashboard card styling.
+- Keep mobile app feel.
+
+Remove / hide:
+- Manage Leads card.
+- Leads/Inquiries card.
+- Any fake leads module card from the client-facing dashboard.
+
+Role behavior:
+- superadmin sees Quotations on main dashboard and can create/generate BOQ, access BOQ Rate Master, and access BOQ Permissions.
+- kethan / selected BOQ admin sees Quotations on main dashboard and can create quotation, generate BOQ, edit BOQ pricing, and access BOQ Rate Master if selected.
+- front_office sees Quotations only for view/print generated quotations. No create/generate/edit pricing/rate master.
+- customer, worker, and storekeeper do not see quotation card and remain blocked by APIs.
+
+Kethan permission setup:
+- Add script: scripts/add-kethan-boq-admin.mjs
+- Script should ensure quotation permission table exists.
+- Find user where username = 'kethan'.
+- If kethan exists and role is admin, manager, or superadmin, add him to quotation_admin_permissions if not already present.
+- Set can_generate_boq = true and can_edit_boq = true.
+- Do not duplicate row.
+- Respect max 6 BOQ admin limit.
+- If already 6 BOQ admins exist and kethan is not included, print: Maximum 6 BOQ admins reached. Remove one BOQ admin before adding kethan.
+- App should not fail if the script is not run.
+
+Optional stats API:
+- GET /api/quotations/stats
+- Allowed for superadmin, selected BOQ admins, admin/manager if allowed, and front_office with generated-only stats.
+- Return totalQuotations, draftQuotations, generatedQuotations, sentQuotations, acceptedQuotations.
+- For front_office, do not include draftQuotations.
+- If stats API is not implemented yet, dashboard card should still render without counts.
+
+Quotations page update:
+- pages/admin/quotations.jsx should show a big top button: Create Quotation for BOQ admins and superadmin.
+- Empty state should say:
+  - No quotations yet
+  - Create your first lift quotation and generate BOQ pricing.
+- Show Create Quotation button in empty state only if canGenerateBoq = true.
+
+Backend permission verification:
+- Confirm server-side protection for:
+  - POST /api/quotations
+  - POST /api/quotations/[id]/generate-boq
+  - PATCH /api/quotations/[id]
+  - POST /api/quotations/[id]/recalculate-boq if added later
+  - GET/POST/PATCH/DELETE /api/boq-rates if added later
+  - GET/POST/DELETE /api/quotation-permissions
+- Do not rely only on UI hiding.
+
+Module availability:
+- If lib/moduleAvailability.js or /api/admin/module-availability.js controls dashboard cards, mark Quotations as active.
+- Mark Leads/Inquiries hidden, waiting, or inactive.
+- Do not show fake leads data.
+
+Testing required:
+- npm run build.
+- Targeted ESLint for touched files.
+- Smoke test:
+  - Login as superadmin and confirm Manage Leads is hidden and Quotations appears on main dashboard.
+  - Click Quotations and confirm /admin/quotations opens.
+  - Confirm Create Quotation button is visible.
+  - Run/add kethan BOQ admin setup if needed.
+  - Login as kethan / 1234 and confirm Quotations card appears and quotation creation/generation works.
+  - Login as afreen / worker123 and confirm View Quotations only.
+  - Login as worker/customer/storekeeper and confirm quotation card is hidden and APIs remain blocked.
+
+Deliverables for this correction:
+- Quotations card directly on /Admindashboard main dashboard.
+- Manage Leads removed/hidden.
+- Kethan BOQ admin setup script/helper.
+- Create Quotation visible for kethan/BOQ admins.
+- Front office view-only behavior preserved.
+- Customer/worker/storekeeper blocked.
+- Backend permissions verified.
+- Build passes.
+
+Implementation files:
+- lib/quotationDashboard.js
+- pages/api/quotations/stats.js
+- scripts/add-kethan-boq-admin.mjs
+- components/admin/dashboard/DashboardKpiGrid.jsx
+- pages/Admindashboard.jsx
+- pages/admin/quotations.jsx
+- lib/moduleAvailability.js
+
+Implemented behavior:
+- Main dashboard now shows a direct Quotations KPI/action card for superadmin, selected BOQ admins, and front_office.
+- Superadmin and selected BOQ admins see Create Quotation and BOQ pricing enabled.
+- front_office sees View Quotations and Generated quotations only.
+- customer, worker, and storekeeper do not see the Quotations dashboard card.
+- Manage Leads banner was removed from dashboard KPI area.
+- Manage Leads row was removed from More Tools.
+- moduleAvailability now marks quotations active and leads hidden/inactive.
+- /api/quotations/stats returns quotation counts with draft counts hidden from front_office.
+- scripts/add-kethan-boq-admin.mjs safely adds kethan to quotation_admin_permissions if there is room in the 6-admin limit.
+- kethan was added as BOQ admin in the connected DB on 2026-06-27.
+
+Latest Dashboard Quotation Verification:
+- node scripts/dashboard-quotation-card.test.mjs passed.
+- node scripts/quotations.test.mjs passed.
+- Targeted ESLint passed for quotation dashboard helper, module availability, dashboard KPI grid, Admindashboard, quotations page, quotation stats API, and kethan setup script.
+- npm run build passed.

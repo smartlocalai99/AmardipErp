@@ -1,5 +1,6 @@
 import { useRouter } from "next/router";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
+import { getQuotationDashboardCard } from "@/lib/quotationDashboard";
 
 function CustomersIcon({ className = "h-5 w-5" }) {
   return (
@@ -97,6 +98,9 @@ export default function DashboardKpiGrid({
   setActiveTab,
   setMoreSubTab,
   moduleAvailability = {},
+  user,
+  quotationStats,
+  hasBoqPermission = false,
 }) {
   const router = useRouter();
   const totalCustomers = customerStats?.totalCustomers ?? kpiCounts?.totalCustomers ?? 0;
@@ -107,13 +111,14 @@ export default function DashboardKpiGrid({
   const upcomingServicesTotal =
     serviceStats?.upcomingServicesTotal ?? scheduledUpcomingServices + toBeScheduledServices;
   const isLive = (key) => moduleAvailability?.[key]?.enabled !== false;
-  const leadsLive = isLive("leads");
+  const quotationCard = getQuotationDashboardCard(user, hasBoqPermission);
 
   function openCustomersTable() { setMoreSubTab?.("customers"); }
   function openAmcTable() { setMoreSubTab?.("amc"); }
   function openServiceVisits() { setMoreSubTab?.("serviceVisits"); }
   function openUpcomingServices() { router.push("/admin/upcoming-services"); }
   function openReports() { router.push("/admin/reports"); }
+  function openQuotations() { router.push("/admin/quotations"); }
 
   return (
     <div>
@@ -184,6 +189,22 @@ export default function DashboardKpiGrid({
             enabled={isLive("complaints")}
           />
 
+          {quotationCard.visible && (
+            <KpiCard
+              title={"Quotations"}
+              value={quotationStats?.totalQuotations ?? "View"}
+              body={`${quotationCard.buttonText}\n${quotationCard.secondaryText}`}
+              icon={
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z" />
+                </svg>
+              }
+              accent="bg-[#eaf4fb] text-[#0a649d]"
+              onClick={openQuotations}
+              enabled={isLive("quotations")}
+            />
+          )}
+
           <KpiCard
             title={"Pending\nInstalls"}
             value={kpiCounts?.pendingInstallations ?? 0}
@@ -215,33 +236,6 @@ export default function DashboardKpiGrid({
             enabled={isLive("reports")}
           />
 
-          {/* Manage Leads banner */}
-          <button
-            type="button"
-            onClick={leadsLive ? () => setActiveTab("more") : undefined}
-            className={`col-span-2 rounded-[22px] p-4 flex items-center justify-between transition-transform duration-100 select-none ${
-              leadsLive ? "active:scale-[0.98] cursor-pointer" : "cursor-not-allowed opacity-75"
-            }`}
-            style={{
-              background: "linear-gradient(135deg, #073354 0%, #0a649d 100%)",
-              boxShadow: "0 4px 16px rgba(10,100,157,0.3)"
-            }}
-          >
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-xl bg-white/15 text-white flex items-center justify-center shrink-0">
-                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" />
-                </svg>
-              </div>
-              <div className="text-left">
-                <p className="text-[13px] font-bold text-white leading-tight">Manage Leads</p>
-                <p className="text-[10px] text-white/60 font-medium mt-0.5">
-                  {leadsLive ? "New elevator inquiries & requests" : "Waiting for leads/inquiries data"}
-                </p>
-              </div>
-            </div>
-            <ChevronRightIcon className="text-white/50 h-4 w-4" />
-          </button>
         </div>
       )}
     </div>
