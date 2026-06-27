@@ -1,5 +1,50 @@
-Super Admin: superadmin / superadmin123
-kethan:   kethan / 1234
-Customer: 9999999999 / customer123
-Technician: tech50 / tech123
-Storekeeper: store50 / store123
+AMARDIP ERP LOGIN CREDENTIALS
+
+Important:
+- Passwords are stored as bcrypt hashes in the DB, so changed passwords cannot be recovered as plaintext.
+- These are the known seeded/imported/default passwords only.
+- Imported worker/front-office accounts use the temporary password worker123 unless changed after import.
+
+Admin / Office
+- Super Admin: superadmin / superadmin123
+- Admin: kethan / 1234
+- Front Office: afreen / worker123
+
+Customer
+- Default Customer: 9999999999 / customer123
+
+Store
+- Storekeeper: store50 / store123
+
+Technician / Worker
+- Seeded Worker: tech50 / tech123
+
+Imported Workers - temporary password worker123
+- aslam / worker123
+- hari_vardhan_reddy / worker123
+- iqbal / worker123
+- k_cheeranjivi / worker123
+- k_vishnu_charan / worker123
+- kalam / worker123
+- kranti / worker123
+- m_chandra_sekhar_yadav / worker123
+- praveen / worker123
+- ranjith_singh / worker123
+- s_chandra_sekhar / worker123
+- s_mahaboob_basha / worker123
+- sameer / worker123
+- sekhar / worker123
+
+Role URLs
+- Admin / Front Office: /Adminlogin
+- Customer: /Customerlogin
+- Worker: /Technicianlogin
+- Storekeeper: /Storelogin
+
+Production Notes
+- For production, set DATABASE_URL, JWT_SECRET, WEBAUTHN_RP_NAME, WEBAUTHN_RP_ID, and WEBAUTHN_ORIGIN in Vercel.
+- Production passkey values currently expected:
+  - WEBAUTHN_RP_NAME=Amardip Lifts ERP
+  - WEBAUTHN_RP_ID=amardip-erp.vercel.app
+  - WEBAUTHN_ORIGIN=https://amardip-erp.vercel.app
+- After deploy, test login, customer records, complaints, worker assigned complaints, and Face Lock on the production domain.

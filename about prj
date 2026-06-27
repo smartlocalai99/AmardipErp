@@ -1959,3 +1959,190 @@ Latest Complaints Verification
   - POST /api/complaints/[id]/assign assigned the complaint to worker IQBAL and changed status to ASSIGNED.
   - worker iqbal / worker123 login succeeded.
   - GET /api/worker/assigned-complaints returned the assigned CMP-202606-0001 complaint for IQBAL.
+
+Current Login Credentials Note
+
+Credential file:
+- cred
+
+Known logins updated in cred:
+- superadmin / superadmin123
+- kethan / 1234
+- afreen / worker123
+- 9999999999 / customer123
+- tech50 / tech123
+- store50 / store123
+- Imported worker usernames from AMARDIP WORKERS use temporary password worker123 unless changed.
+
+Imported worker usernames:
+- aslam
+- hari_vardhan_reddy
+- iqbal
+- k_cheeranjivi
+- k_vishnu_charan
+- kalam
+- kranti
+- m_chandra_sekhar_yadav
+- praveen
+- ranjith_singh
+- s_chandra_sekhar
+- s_mahaboob_basha
+- sameer
+- sekhar
+
+Production Deploy Checklist
+
+Before pushing/deploying to production:
+- Confirm the target repo/branch is main and push to GitHub.
+- Confirm Vercel project is connected to the same GitHub repo and branch.
+- Set production DATABASE_URL in Vercel.
+- Set a strong production JWT_SECRET in Vercel. Do not rely on the local fallback secret.
+- Set passkey/Face Lock env values:
+  - WEBAUTHN_RP_NAME=Amardip Lifts ERP
+  - WEBAUTHN_RP_ID=amardip-erp.vercel.app
+  - WEBAUTHN_ORIGIN=https://amardip-erp.vercel.app
+- Confirm the production DB has users, imported workers/front-office, customer data, service visits, complaints table, service_schedules, passkey tables, and audit table as needed.
+- If using a fresh production DB, run/import in this order:
+  - users setup through scripts/setup-db.js
+  - customer/service data import if not already present
+  - scripts/import-workers.mjs for AMARDIP WORKERS
+  - service visit mapping scripts only if importing the original service Excel again
+- Complaint, audit, service schedule, passkey, and future module tables are setup-safe and can be created by their APIs/helpers when first used, but production smoke tests should verify them.
+- Run npm run build before deploy.
+
+Production smoke test after deploy:
+- Open https://amardip-erp.vercel.app/Adminlogin.
+- Login superadmin.
+- Confirm /Admindashboard loads.
+- Confirm Customers, AMC, Service Visits, Upcoming Services, Reports, and Complaints load.
+- Create one test complaint, assign it to a worker, login as that worker, and confirm it appears in /Techniciandashboard.
+- Login as front office afreen and confirm allowed office/admin views load.
+- Login as customer 9999999999 and submit/view a complaint.
+- Login as storekeeper store50 and confirm store dashboard still loads.
+- Test Face Lock only on the stable production domain after env values are set.
+
+Current Production Risk Notes
+- The smoke test created real complaint CMP-202606-0001 assigned to IQBAL in the connected DB. Delete it manually if it should not remain as a test ticket.
+- Some non-complaint modules still use mock/localStorage behavior and should not be presented as fully live until converted.
+- Full npm run lint has older unrelated React hook lint issues in legacy dashboard files; npm run build is the current required deploy check.
+
+Next Requested Module - Quotation + BOQ Generator
+
+Status:
+- Implemented.
+
+Goal:
+- Build a production-ready Quotation + BOQ Generator module for Amardip Lifts / Amardip Elevators ERP.
+- Use exact quotation form fields from the client brief.
+- Keep calculations server-side.
+- Keep Amardip blue mobile app style.
+- Do not use window.open.
+
+Access rules:
+- BOQ and quotation generation allowed only for 6 selected admin users.
+- Superadmin can manage BOQ admin permissions.
+- Superadmin always has permission.
+- Selected BOQ admins can create quotations, generate BOQ, edit BOQ cost fields, and print quotation.
+- Front office can only view/print/share generated quotations after admin generates them.
+- Front office cannot see DRAFT quotations.
+- Front office cannot generate BOQ.
+- Front office cannot edit BOQ or price/cost fields.
+- Customer, worker, and storekeeper have no BOQ/quotation access.
+
+Quotation exact input fields:
+- S.NO
+- Name - required
+- Address
+- Mobile No - required
+- Well Width - required
+- Well Depth - required
+- No. of Floors - required
+- No. of Passenger - required
+- Door Type - required
+- Cabin Type - required
+- Motor Type - required
+- Head Room - required
+- Door Opening - required
+
+Dropdown values:
+- No. of Floors: G+1, G+2, G+3, G+4, G+5
+- No. of Passenger: 6, 8, 10, 13, 18
+- Door Type: MS FRAME COLLAPSIBLE GATE, SS FRAME COLLAPSIBLE GATE, MS SWING DOOR SMALL VISION, SS SWING DOOR SMALL VISION, MANUAL MS TELISCOPIC DOOR, MANUAL SS TELISCOPIC DOOR, MS CLAD AUTO DOOR, SS CLAD AUTO DOOR, SS HALF VISION GLASS AUTO DOOR, SS FULL VISION GLASS AUTO DOOR, MS HALF VISION GLASS AUTO DOOR, MS FULL VISION GLASS AUTO DOOR
+- Cabin Type: MS CABIN, SS CABIN, SS CABIN AUTO DOOR, MS CABIN AUTO DOOR
+- Motor Type: GEARED MOTOR, GEAR LESS MOTOR
+- Head Room: MACHINE ROOM, MACHINE ROOM LESS
+- Door Opening: 600MM, 700MM, 800MM, 900MM, 1000MM, 1200MM
+
+Planned DB tables:
+- quotation_requests
+- quotation_cost_breakdowns
+- quotation_admin_permissions
+
+Quotation number format:
+- QTN-YYYYMM-0001
+
+Planned helpers:
+- lib/quotations.js
+- lib/quotationPermissions.js
+
+Planned APIs:
+- GET/POST /api/quotations
+- GET/PATCH /api/quotations/[id]
+- POST /api/quotations/[id]/generate-boq
+- POST /api/quotations/[id]/status
+- GET /api/quotations/[id]/print
+- GET/POST/DELETE /api/quotation-permissions
+
+Planned UI:
+- pages/admin/quotations.jsx
+- pages/admin/boq-permissions.jsx
+- pages/admin/quotations/[id]/print.jsx
+
+Quotation v1 calculation:
+- totalMaterialCost = commonMaterial + doorMaterial + cabinMaterial + motorMaterial + ropeCost + railCost + additionalLfCost
+- taxAmount = totalMaterialCost * taxPercent / 100
+- projectCost = totalMaterialCost + labourTransport + taxAmount
+- marginAmount = projectCost * marginPercent / 100
+- customerPrice = projectCost + marginAmount
+- finalPrice = customerPrice - discountAmount
+
+Default editable values:
+- labourTransport = 75000
+- taxPercent = 18
+- marginPercent = 15
+- discountAmount = 0
+
+Quotation audit actions:
+- QUOTATION_CREATED
+- BOQ_GENERATED
+- QUOTATION_UPDATED
+- QUOTATION_STATUS_CHANGED
+- BOQ_ADMIN_ADDED
+- BOQ_ADMIN_REMOVED
+- QUOTATION_PRINTED
+
+Quotation Implementation Notes
+- Superadmin always has BOQ permission.
+- quotation_admin_permissions limits selected BOQ admins to 6 users.
+- Only superadmin can add/remove BOQ admins.
+- Only users with role superadmin, admin, or manager can be selected as BOQ admins.
+- front_office can list/view/print generated quotations only and cannot see DRAFT records.
+- customer, worker, and storekeeper are blocked.
+- BOQ calculations are server-side through calculateQuotationCost().
+- v1 uses placeholder/default BOQ mapping until exact Excel rate formulas are confirmed.
+- Audit logging is wrapped in try/catch so quotation operations do not fail if audit logging fails.
+
+Latest Quotation Verification
+- node scripts/quotations.test.mjs passed.
+- Targeted ESLint passed for quotation helpers, APIs, and pages.
+- npm run build passed.
+- Local production smoke test on port 3021:
+  - superadmin login succeeded.
+  - POST /api/quotations created QTN-202606-0001 as DRAFT.
+  - POST /api/quotations/[id]/generate-boq changed status to BOQ_GENERATED and calculated finalPrice 554415.
+  - front office afreen / worker123 could list the generated quotation.
+  - worker iqbal / worker123 was blocked from /api/quotations.
+
+Current Quotation Smoke Test Data
+- Smoke test created QTN-202606-0001 in the connected DB.
+- Delete it manually if it should not remain as a test quotation.
