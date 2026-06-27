@@ -90,6 +90,58 @@ function KpiCard({ title, value, body, icon, accent, onClick, enabled = true }) 
   );
 }
 
+function QuotationBanner({ card, quotationStats, onClick, enabled = true }) {
+  if (!card?.visible) return null;
+  const total = quotationStats?.totalQuotations ?? 0;
+  const generated = quotationStats?.generatedQuotations ?? 0;
+
+  return (
+    <button
+      type="button"
+      onClick={enabled ? onClick : undefined}
+      className={`mb-3 w-full overflow-hidden rounded-[26px] bg-gradient-to-br from-[#0a649d] via-[#0875b4] to-[#06456e] p-4 text-left text-white shadow-[0_14px_30px_rgba(10,100,157,0.28)] ${
+        enabled ? "active:scale-[0.98] transition-transform duration-100" : "opacity-60"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M7 3h7l5 5v13H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14 3v5h5M9 13h6M9 17h4" />
+          </svg>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-black leading-tight">{card.title}</p>
+              <p className="mt-1 text-xs font-semibold leading-relaxed text-white/78">{card.subtitle}</p>
+            </div>
+            <ChevronRightIcon className="mt-1 h-5 w-5 shrink-0 text-white/75" />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {card.pills.map((pill) => (
+              <span key={pill} className="rounded-full bg-white/14 px-2.5 py-1 text-[10px] font-black text-white ring-1 ring-white/20">
+                {pill}
+              </span>
+            ))}
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <span className="inline-flex h-10 items-center rounded-2xl bg-white px-4 text-xs font-black text-[#0a649d] shadow-sm">
+              {card.buttonText}
+            </span>
+            <span className="text-right text-[10px] font-bold leading-tight text-white/70">
+              {total} total<br />
+              {generated} generated
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export default function DashboardKpiGrid({
   kpiCounts,
   customerStats,
@@ -125,6 +177,13 @@ export default function DashboardKpiGrid({
       <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-3 px-0.5">
         Overview
       </p>
+
+      <QuotationBanner
+        card={quotationCard}
+        quotationStats={quotationStats}
+        onClick={openQuotations}
+        enabled={isLive("quotations")}
+      />
 
       {statsLoading ? (
         <MetricSkeletonGrid count={8} />
@@ -188,22 +247,6 @@ export default function DashboardKpiGrid({
             onClick={() => setActiveTab("complaints")}
             enabled={isLive("complaints")}
           />
-
-          {quotationCard.visible && (
-            <KpiCard
-              title={"Quotations"}
-              value={quotationStats?.totalQuotations ?? "View"}
-              body={`${quotationCard.buttonText}\n${quotationCard.secondaryText}`}
-              icon={
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z" />
-                </svg>
-              }
-              accent="bg-[#eaf4fb] text-[#0a649d]"
-              onClick={openQuotations}
-              enabled={isLive("quotations")}
-            />
-          )}
 
           <KpiCard
             title={"Pending\nInstalls"}

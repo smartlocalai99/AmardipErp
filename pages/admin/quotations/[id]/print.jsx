@@ -34,8 +34,8 @@ export default function PrintQuotation({ quotation }) {
         <div>
           <h2 className="mb-3 text-base font-black">Lift Specification</h2>
           <div className="grid gap-2 text-sm sm:grid-cols-2">
-            <p>Well Width: {quotation.wellWidth}</p>
-            <p>Well Depth: {quotation.wellDepth}</p>
+            <p>Wall Width: {quotation.wellWidth}</p>
+            <p>Wall Depth: {quotation.wellDepth}</p>
             <p>Floors: {quotation.noOfFloors}</p>
             <p>Passenger: {quotation.noOfPassenger}</p>
             <p>Door Type: {quotation.doorType}</p>
@@ -47,7 +47,7 @@ export default function PrintQuotation({ quotation }) {
         </div>
         <div className="rounded-2xl bg-slate-50 p-4">
           <h2 className="text-base font-black">Price Summary</h2>
-          <p className="mt-2 text-2xl font-black text-[#0a649d]">Rs. {quotation.finalPrice ?? quotation.customerPrice ?? "-"}</p>
+          <p className="mt-2 text-2xl font-black text-[#0a649d]">₹{quotation.finalPrice ?? quotation.customerPrice ?? "-"}</p>
         </div>
         <div className="text-sm text-slate-500">
           <h2 className="font-black text-slate-900">Terms and Conditions</h2>

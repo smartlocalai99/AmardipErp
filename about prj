@@ -2054,8 +2054,8 @@ Quotation exact input fields:
 - Name - required
 - Address
 - Mobile No - required
-- Well Width - required
-- Well Depth - required
+- Wall Width - required
+- Wall Depth - required
 - No. of Floors - required
 - No. of Passenger - required
 - Door Type - required
@@ -2286,3 +2286,73 @@ Latest Dashboard Quotation Verification:
 - node scripts/quotations.test.mjs passed.
 - Targeted ESLint passed for quotation dashboard helper, module availability, dashboard KPI grid, Admindashboard, quotations page, quotation stats API, and kethan setup script.
 - npm run build passed.
+
+Quotation UI Wording / Banner Correction
+
+Status:
+- Implemented.
+
+Source brief:
+- Attached request titled "Fix Quotation UI wording and replace the dashboard Quotations card with a full-width banner."
+
+Purpose:
+- Improve the quotation entry point and mobile form UX without changing DB column names or weakening backend permissions.
+- Correct all visible quotation wording to Wall Width and Wall Depth.
+
+Implemented behavior:
+- /Admindashboard no longer shows the old small Quotations KPI card.
+- /Admindashboard now shows a full-width Amardip blue gradient quotation banner above the normal KPI cards for superadmin, selected BOQ admins, and front_office.
+- Superadmin, kethan, and selected BOQ admins see:
+  - Title: Create Lift Quotation
+  - Subtitle: Prepare BOQ pricing and share quotation to customer on WhatsApp.
+  - Button: Create Quotation
+  - Pills: BOQ Enabled, WhatsApp Share, Rate Master
+- front_office sees:
+  - Title: Generated Quotations
+  - Subtitle: View generated quotations and share them with customers.
+  - Button: View Quotations
+  - Pills: View Only, WhatsApp Share
+- customer, worker, storekeeper, and users without quotation access do not see the quotation banner.
+- Manage Leads / Leads/Inquiries remain hidden from the client-facing dashboard.
+
+Quotation form UI:
+- pages/admin/quotations.jsx now has a mobile-friendly Create Quotation modal with:
+  - Sticky header
+  - Quotation Form title
+  - Customer Details, Wall Details, and Lift Specification sections
+  - Labels above fields
+  - Required red star markers
+  - Inline validation messages
+  - Blank dropdown placeholders such as Choose floors and Choose door type
+  - No auto-selected default floor/passenger/door values
+  - Sticky mobile footer with Cancel, Save Draft, and Generate BOQ
+  - Loading states: Saving... and Generating BOQ...
+- Empty form submit scrolls/focuses to the first invalid field.
+
+Wall wording:
+- All visible quotation UI, validation, list cards, result cards, print/detail page, and WhatsApp message text use Wall Width and Wall Depth.
+- Backend/database fields remain well_width and well_depth for compatibility.
+- lib/quotations.js accepts wallWidth / wall_width aliases while preserving existing wellWidth / well_width inputs.
+
+WhatsApp sharing:
+- Generated quotation result card shows Share to WhatsApp as the primary post-generation action.
+- Quotation cards show Share WhatsApp for generated quotations.
+- Share message uses:
+  - Quotation No
+  - Wall Width
+  - Wall Depth
+  - Floors
+  - Passenger
+  - Door Type
+  - Cabin Type
+  - Motor Type
+  - Final Price
+- Mobile numbers with 10 digits are prefixed with 91 for WhatsApp fallback.
+- navigator.share is used when supported; fallback goes to https://wa.me/{phone}?text={encodedMessage}.
+- Copy Message button is available on the generated result card.
+- Print is secondary through View / Print.
+
+Latest Quotation UI Verification:
+- node scripts/dashboard-quotation-card.test.mjs passed.
+- Targeted ESLint passed for quotation dashboard helper, quotation helper, dashboard KPI grid, quotation page, quotation print page, and dashboard quotation test.
+- rg found no remaining legacy wall-dimension wording under pages, components, lib, or scripts.
