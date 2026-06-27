@@ -28,5 +28,11 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true, schedule: result.rows[0] });
   }
 
+  if (req.method === "DELETE") {
+    const result = await query(`DELETE FROM service_schedules WHERE id = $1`, [id]);
+    if (result.rowCount === 0) return res.status(404).json({ success: false, message: "Not found" });
+    return res.status(200).json({ success: true });
+  }
+
   return res.status(405).json({ success: false, message: "Method not allowed" });
 }

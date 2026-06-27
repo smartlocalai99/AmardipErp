@@ -195,6 +195,55 @@ function PlusIcon({ className = "h-5 w-5" }) {
     );
 }
 
+function AmcStatStrip({ stats, loading }) {
+    const cards = [
+        {
+            label: "This Month",
+            value: stats?.dueThisMonth ?? "—",
+            sub: "AMC due this month",
+            color: "bg-amber-50 border-amber-100 text-amber-700",
+            dot: "bg-amber-400",
+        },
+        {
+            label: "Next 30 Days",
+            value: stats?.dueIn30 ?? "—",
+            sub: "Expiring soon",
+            color: "bg-sky-50 border-sky-100 text-sky-700",
+            dot: "bg-sky-400",
+        },
+        {
+            label: "Expired",
+            value: stats?.expired ?? "—",
+            sub: "Past due date",
+            color: "bg-red-50 border-red-100 text-red-700",
+            dot: "bg-red-400",
+        },
+        {
+            label: "Active AMC",
+            value: stats?.statusAmc ?? "—",
+            sub: "Status = AMC",
+            color: "bg-emerald-50 border-emerald-100 text-emerald-700",
+            dot: "bg-emerald-400",
+        },
+    ];
+    return (
+        <div className="grid grid-cols-2 gap-2">
+            {cards.map((c) => (
+                <div key={c.label} className={`rounded-2xl border p-3.5 ${c.color}`}>
+                    <div className="flex items-center gap-1.5 mb-1">
+                        <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${c.dot}`} />
+                        <span className="text-[9px] font-black uppercase tracking-wider opacity-70">{c.label}</span>
+                    </div>
+                    <p className="text-2xl font-black leading-none">
+                        {loading ? <span className="block h-7 w-10 animate-pulse rounded-lg bg-current opacity-15" /> : c.value}
+                    </p>
+                    <p className="text-[9px] font-semibold mt-1 opacity-60">{c.sub}</p>
+                </div>
+            ))}
+        </div>
+    );
+}
+
 function formatGroupDate(dateStr) {
     if (!dateStr || dateStr === "Unknown Date") return "No Scheduled Date";
     try {
@@ -347,6 +396,8 @@ function AdmindashboardShell({ user }) {
     const [schedules, setSchedules] = useState([]);
     const [schedulesLoading, setSchedulesLoading] = useState(false);
     const [scheduleCustomers, setScheduleCustomers] = useState([]);
+    const [amcStats, setAmcStats] = useState(null);
+    const [amcStatsLoading, setAmcStatsLoading] = useState(false);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -545,10 +596,26 @@ function AdmindashboardShell({ user }) {
         finally { setSchedulesLoading(false); }
     }
 
+    async function fetchAmcStats() {
+        if (amcStats) return; // already loaded
+        setAmcStatsLoading(true);
+        try {
+            const res = await fetch("/api/elevator-customers/amc-stats");
+            const data = await res.json();
+            if (data.success) setAmcStats(data.stats);
+        } catch {}
+        finally { setAmcStatsLoading(false); }
+    }
+
     useEffect(() => {
         if (activeTab !== "service") return;
         fetchServiceSchedules();
     }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    useEffect(() => {
+        if (activeTab !== "more") return;
+        if (moreSubTab === "customers" || moreSubTab === "amc") fetchAmcStats();
+    }, [activeTab, moreSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function handleCreateComplaint(e) {
         e.preventDefault();
@@ -1551,22 +1618,38 @@ function AdmindashboardShell({ user }) {
                                                                     ? new Date(sch.scheduled_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
                                                                     : "Date TBD"}
                                                             </span>
-                                                            {sch.status !== "COMPLETED" && sch.status !== "CANCELLED" && (
+                                                            <div className="flex items-center gap-2">
+                                                                {sch.status !== "COMPLETED" && sch.status !== "CANCELLED" && (
+                                                                    <button
+                                                                        onClick={async (e) => {
+                                                                            e.stopPropagation();
+                                                                            await fetch(`/api/service-schedules/${sch.id}`, {
+                                                                                method: "PATCH",
+                                                                                headers: { "Content-Type": "application/json" },
+                                                                                body: JSON.stringify({ status: "COMPLETED" }),
+                                                                            });
+                                                                            fetchServiceSchedules();
+                                                                        }}
+                                                                        className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
+                                                                    >
+                                                                        Mark Done
+                                                                    </button>
+                                                                )}
                                                                 <button
                                                                     onClick={async (e) => {
                                                                         e.stopPropagation();
-                                                                        await fetch(`/api/service-schedules/${sch.id}`, {
-                                                                            method: "PATCH",
-                                                                            headers: { "Content-Type": "application/json" },
-                                                                            body: JSON.stringify({ status: "COMPLETED" }),
-                                                                        });
+                                                                        if (!confirm("Remove this schedule?")) return;
+                                                                        await fetch(`/api/service-schedules/${sch.id}`, { method: "DELETE" });
                                                                         fetchServiceSchedules();
                                                                     }}
-                                                                    className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
+                                                                    className="h-7 w-7 flex items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 transition cursor-pointer"
+                                                                    title="Delete"
                                                                 >
-                                                                    Mark Done
+                                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                    </svg>
                                                                 </button>
-                                                            )}
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 ))}
@@ -1684,7 +1767,7 @@ function AdmindashboardShell({ user }) {
                     {activeTab === "more" && (
                         <div className="p-4 space-y-6 overflow-y-auto max-h-[calc(100dvh-140px)] pb-10 animate-in fade-in duration-200">
                             {moreSubTab === "customers" ? (
-                                <div className="space-y-6">
+                                <div className="space-y-4">
                                     <div className="flex items-center gap-3">
                                         <button
                                             onClick={() => openTab("dashboard")}
@@ -1698,6 +1781,8 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     </div>
 
+                                    <AmcStatStrip stats={amcStats} loading={amcStatsLoading} />
+
                                     <AdminCustomersTable
                                         user={user}
                                         embedded
@@ -1705,7 +1790,7 @@ function AdmindashboardShell({ user }) {
                                     />
                                 </div>
                             ) : moreSubTab === "amc" ? (
-                                <div className="space-y-6">
+                                <div className="space-y-4">
                                     <div className="flex items-center gap-3">
                                         <button
                                             onClick={() => openTab("dashboard")}
@@ -1718,6 +1803,8 @@ function AdmindashboardShell({ user }) {
                                             <p className="text-[10px] text-slate-500 mt-0.5">Real AMC customer records.</p>
                                         </div>
                                     </div>
+
+                                    <AmcStatStrip stats={amcStats} loading={amcStatsLoading} />
 
                                     <AdminAmcTable
                                         user={user}
