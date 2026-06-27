@@ -48,9 +48,11 @@ async function setup() {
                 name VARCHAR(100) NOT NULL,
                 role VARCHAR(20) NOT NULL,
                 phone VARCHAR(20),
+                designation VARCHAR(100),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         `);
+        await client.query("ALTER TABLE users ADD COLUMN IF NOT EXISTS designation VARCHAR(100)");
         console.log("Table 'users' is verified/created.");
 
         console.log("Checking if default superadmin exists...");

@@ -158,10 +158,7 @@ export default function Customerdashboard({ user }) {
     // Notifications Center
     const [showNotificationCenter, setShowNotificationCenter] = useState(false);
     const [notifications, setNotifications] = useState([
-        { id: 1, category: "Technician Assigned", message: "Suresh R. has been dispatched for LIFT-9821 breakdown check.", time: "10 mins ago", read: false },
-        { id: 2, category: "Upcoming Maintenance", message: "Periodic maintenance scheduled for Skyline residency on June 22.", time: "1 hour ago", read: false },
-        { id: 3, category: "AMC Notice", message: "Your AMC contract (AMC-29810) has 92 days remaining. Renew soon to avoid lapse.", time: "1 day ago", read: true },
-        { id: 4, category: "Service Completed", message: "AMC monthly safety inspection successfully completed on June 15.", time: "5 days ago", read: true }
+        { id: 1, category: "Portal Ready", message: "Real complaint tracking is now connected to the service office.", time: "Today", read: true }
     ]);
 
     // Lifts
@@ -181,10 +178,8 @@ export default function Customerdashboard({ user }) {
     });
 
     // Complaints
-    const [complaints, setComplaints] = useState([
-        { id: "COMP-402", liftId: "LIFT-9821", date: "2026-06-20", category: "Lift Not Working", description: "Cabin stuck between floors. Emergency bell was ringing.", status: "In Progress", emergency: true, assignedTech: "Suresh R.", techPhone: "+91 98765 00001", eta: "15 mins", timeline: ["Raised - 10:30 AM", "Assigned - 10:32 AM", "Technician Dispatched - 10:35 AM"] },
-        { id: "COMP-312", liftId: "LIFT-7652", date: "2026-05-10", category: "Door Issue", description: "Cabin door taking multiple attempts to fully slide close.", status: "Completed", emergency: false, assignedTech: "Vijay K.", techPhone: "+91 98765 00002", eta: "", timeline: ["Raised - 09:00 AM", "Assigned - 09:15 AM", "Work In Progress - 10:00 AM", "Completed - 11:30 AM"] }
-    ]);
+    const [complaints, setComplaints] = useState([]);
+    const [complaintError, setComplaintError] = useState("");
 
     // Active Complaint Tracking Modal state
     const [selectedTrackComplaint, setSelectedTrackComplaint] = useState(null);
@@ -227,24 +222,38 @@ export default function Customerdashboard({ user }) {
     const [supportSent, setSupportSent] = useState(false);
 
     const [materialRequests, setMaterialRequests] = useState([]);
-    const isFirstMount = useRef(true);
 
-    // Sync complaints and material requests from localStorage
-    useEffect(() => {
-        const stored = localStorage.getItem("amardip_complaints");
-        if (stored) {
-            try {
-                const parsed = JSON.parse(stored);
-                const customerLifts = ["LIFT-9821", "LIFT-7652"];
-                const customerComplaints = parsed.filter(c => customerLifts.includes(c.liftId) || c.customer === "Apex Business Park");
-                
-                if (customerComplaints.length > 0) {
-                    setComplaints(customerComplaints);
-                }
-            } catch (e) {
-                console.error("Failed to parse amardip_complaints from localStorage", e);
-            }
+    function mapComplaintForCustomer(c) {
+        return {
+            id: c.complaintNo,
+            dbId: c.id,
+            liftId: c.customerCode || "LIFT",
+            date: c.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+            category: c.complaintType?.replaceAll("_", " ") || "SERVICE REQUEST",
+            description: c.description,
+            status: c.status?.replaceAll("_", " ") || "UNASSIGNED",
+            emergency: c.priority === "EMERGENCY",
+            assignedTech: c.assignedTechnicianName || "",
+            techPhone: "",
+            eta: "",
+            timeline: [`Raised - ${c.createdAt ? formatGroupDate(c.createdAt.slice(0, 10)) : "Just now"}`],
+        };
+    }
+
+    async function fetchCustomerComplaints() {
+        setComplaintError("");
+        try {
+            const res = await fetch("/api/customer/complaints?page=1&pageSize=50");
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to load complaints");
+            setComplaints((data.complaints || []).map(mapComplaintForCustomer));
+        } catch (err) {
+            setComplaintError(err.message || "Failed to load complaints");
         }
+    }
+
+    useEffect(() => {
+        fetchCustomerComplaints();
 
         const storedReqs = localStorage.getItem("amardip_material_requests");
         if (storedReqs) {
@@ -256,62 +265,9 @@ export default function Customerdashboard({ user }) {
         }
     }, []);
 
-    useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-            return;
-        }
-        
-        const stored = localStorage.getItem("amardip_complaints");
-        let allComplaints = [];
-        if (stored) {
-            try {
-                allComplaints = JSON.parse(stored);
-            } catch (e) {
-                allComplaints = [];
-            }
-        }
-
-        complaints.forEach(c => {
-            const idx = allComplaints.findIndex(item => item.id === c.id);
-            const complaintData = {
-                id: c.id,
-                liftId: c.liftId,
-                date: c.date,
-                category: c.category,
-                description: c.description,
-                status: c.status,
-                emergency: c.emergency,
-                assignedTech: c.assignedTech || "",
-                techPhone: c.techPhone || "",
-                eta: c.eta || "",
-                timeline: c.timeline || ["Raised - Just now"],
-                customer: "Apex Business Park",
-                allocatedParts: c.allocatedParts || [],
-                allocatedPartsQr: c.allocatedPartsQr || null,
-                allocatedPartsIssued: c.allocatedPartsIssued || false,
-                checklist: c.checklist || null,
-                workReport: c.workReport || null,
-                gpsCheckedIn: c.gpsCheckedIn || false,
-                checkInTime: c.checkInTime || null,
-                selfieUrl: c.selfieUrl || "",
-                signature: c.signature || null,
-                completeTime: c.completeTime || null
-            };
-
-            if (idx > -1) {
-                allComplaints[idx] = { ...allComplaints[idx], ...complaintData };
-            } else {
-                allComplaints.push(complaintData);
-            }
-        });
-
-        localStorage.setItem("amardip_complaints", JSON.stringify(allComplaints));
-    }, [complaints]);
-
     // Dynamic KPI Counts
     const activeAMC = lifts.filter(l => l.amcStatus === "Active").length;
-    const openComplaints = complaints.filter(c => c.status !== "Completed").length;
+    const openComplaints = complaints.filter(c => !["RESOLVED", "CLOSED", "Resolved", "Closed"].includes(c.status)).length;
     const upcomingChecks = 1;
 
     // Remaining days calculation
@@ -359,78 +315,83 @@ export default function Customerdashboard({ user }) {
         }
     };
 
-    const handleSubmitComplaint = (e) => {
+    const handleSubmitComplaint = async (e) => {
         e.preventDefault();
         if (!formDescription.trim()) return;
 
-        const nextNum = complaints.length ? Math.max(...complaints.map(c => parseInt(c.id.split("-")[1]))) + 1 : 101;
-        const compId = `COMP-${nextNum}`;
-
-        const newComplaint = {
-            id: compId,
-            liftId: formLift,
-            date: new Date().toISOString().split("T")[0],
-            category: formCategory,
-            description: formDescription,
-            status: "Open",
-            emergency: formEmergency,
-            assignedTech: "",
-            techPhone: "",
-            eta: "",
-            timeline: ["Raised - Just now"]
+        const typeMap = {
+            "Lift Not Working": "BREAKDOWN",
+            "Door Issue": "DOOR_ISSUE",
+            "Noise Problem": "NOISE",
+            "Power Failure": "BREAKDOWN",
+            "Emergency Alarm": "BREAKDOWN",
+            "Other Issue": "OTHER",
         };
 
-        setComplaints(prev => [newComplaint, ...prev]);
+        const res = await fetch("/api/complaints", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                complaintType: typeMap[formCategory] || "OTHER",
+                priority: formEmergency ? "EMERGENCY" : "NORMAL",
+                description: formDescription,
+                customerNotes: `Lift: ${formLift}`,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            setComplaintError(data.message || "Failed to submit complaint");
+            return;
+        }
 
         // Add Notification
         const newNotif = {
             id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
             category: "Complaint Registered",
-            message: `New ticket ${compId} logged for ${formLift}. We are assigning a technician.`,
+            message: `New ticket ${data.complaint.complaintNo} logged. We are assigning a technician.`,
             time: "Just now",
             read: false
         };
         setNotifications(prev => [newNotif, ...prev]);
 
-        setNewCompId(compId);
+        setNewCompId(data.complaint.complaintNo);
         setSubmitSuccess(true);
         setFormDescription("");
         setPhotos([]);
         setVideos([]);
         setFormEmergency(false);
+        await fetchCustomerComplaints();
     };
 
-    const triggerEmergencyRequest = () => {
-        const nextNum = complaints.length ? Math.max(...complaints.map(c => parseInt(c.id.split("-")[1]))) + 1 : 101;
-        const compId = `COMP-${nextNum}`;
-
-        const newEmergency = {
-            id: compId,
-            liftId: lifts[0]?.id || "LIFT-9821",
-            date: new Date().toISOString().split("T")[0],
-            category: "Emergency Alarm",
-            description: "CRITICAL: Urgent breakdown safety alarm triggered via Support Portal.",
-            status: "Open",
-            emergency: true,
-            assignedTech: "",
-            techPhone: "",
-            eta: "",
-            timeline: ["Emergency Raised - Just now"]
-        };
-
-        setComplaints(prev => [newEmergency, ...prev]);
+    const triggerEmergencyRequest = async () => {
+        const res = await fetch("/api/complaints", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                complaintType: "BREAKDOWN",
+                priority: "EMERGENCY",
+                description: "CRITICAL: Urgent breakdown safety alarm triggered via Support Portal.",
+                customerNotes: `Lift: ${lifts[0]?.id || "LIFT"}`,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            setComplaintError(data.message || "Failed to create emergency complaint");
+            return;
+        }
 
         // Push to notification center
         const newNotif = {
             id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
             category: "Emergency Alarm",
-            message: `CRITICAL breakdown response registered for ${newEmergency.liftId}. Dispatched crew immediately.`,
+            message: `CRITICAL breakdown response registered as ${data.complaint.complaintNo}.`,
             time: "Just now",
             read: false
         };
         setNotifications(prev => [newNotif, ...prev]);
 
-        alert(`EMERGENCY TICKET ${compId} CREATED. Technician dispatching has been fast-tracked!`);
+        alert(`EMERGENCY TICKET ${data.complaint.complaintNo} CREATED. Technician dispatching has been fast-tracked!`);
+        await fetchCustomerComplaints();
         setActiveTab("complaints");
         setComplaintSubTab("logs");
     };
@@ -647,8 +608,8 @@ export default function Customerdashboard({ user }) {
                                             <p className="text-[8.5px] font-bold text-slate-400 mt-1 uppercase tracking-wide">10:30 AM</p>
                                         </div>
                                         <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-extrabold text-slate-800 truncate">Technician Assigned</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">Suresh R. dispatched for complaint COMP-402</p>
+                                            <p className="text-xs font-extrabold text-slate-800 truncate">Complaint Tracking</p>
+                                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">Submitted complaints appear here after DB sync.</p>
                                         </div>
                                     </div>
 
@@ -694,7 +655,12 @@ export default function Customerdashboard({ user }) {
                             {/* Sub-view: COMPLAINT LOGS */}
                             {complaintSubTab === "logs" && (
                                 <div className="space-y-4">
-                                    {complaints.map(c => (
+                                    {complaintError && (
+                                        <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{complaintError}</p>
+                                    )}
+                                    {complaints.length === 0 ? (
+                                        <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No complaints submitted yet.</p>
+                                    ) : complaints.map(c => (
                                         <div
                                             key={c.id}
                                             onClick={() => setSelectedTrackComplaint(c)}

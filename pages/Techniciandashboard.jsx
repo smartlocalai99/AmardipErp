@@ -203,87 +203,8 @@ export default function Techniciandashboard({ user }) {
         parts: null
     });
 
-    // Mock Database for Assigned Jobs
-    const [jobs, setJobs] = useState([
-        {
-            id: "COMP-402",
-            customerName: "Apex Business Park",
-            buildingName: "Apex Business Complex, Block A",
-            address: "Phase 3, Sector 15, Near Metro Junction, Bangalore",
-            phone: "+91 99999 88888",
-            liftId: "LIFT-9821",
-            liftType: "Passenger Cabin (Automatic)",
-            floors: 10,
-            capacity: "680 kg (10 Passengers)",
-            type: "Cabin Stuck",
-            category: "Emergency Breakdown",
-            description: "Cabin stuck between 4th and 5th floor. Emergency alarm was triggered. Passengers safely evacuated, but lift remains completely unresponsive.",
-            priority: "Emergency",
-            assignedTime: "Today, 10:30 AM",
-            status: "Assigned", // Assigned, Accepted, En Route, Arrived, Completed
-            checklist: {
-                power: false,
-                door: false,
-                controller: false,
-                motor: false,
-                safety: false,
-                emergency: false,
-                brake: false,
-                testing: false
-            },
-            workReport: {
-                problem: "",
-                workPerformed: "",
-                sparePartsUsed: "",
-                remarks: "",
-                status: "Completed"
-            },
-            gpsCheckedIn: false,
-            checkInTime: null,
-            selfieUrl: "",
-            signature: null,
-            completeTime: null
-        },
-        {
-            id: "COMP-415",
-            customerName: "Skyline Residency",
-            buildingName: "Skyline Towers, Block C",
-            address: "Bannerghatta Road, Near Royal Mall, Bangalore",
-            phone: "+91 98765 43210",
-            liftId: "LIFT-7652",
-            liftType: "Service Elevator (Manual)",
-            floors: 12,
-            capacity: "1000 kg (15 Passengers)",
-            type: "Door operation slow",
-            category: "Routine Service Maintenance",
-            description: "Lift slider doors taking multiple attempts to fully close and slide shut. Squeaking sound heard.",
-            priority: "Medium",
-            assignedTime: "Today, 09:15 AM",
-            status: "Assigned",
-            checklist: {
-                power: false,
-                door: false,
-                controller: false,
-                motor: false,
-                safety: false,
-                emergency: false,
-                brake: false,
-                testing: false
-            },
-            workReport: {
-                problem: "",
-                workPerformed: "",
-                sparePartsUsed: "",
-                remarks: "",
-                status: "Completed"
-            },
-            gpsCheckedIn: false,
-            checkInTime: null,
-            selfieUrl: "",
-            signature: null,
-            completeTime: null
-        }
-    ]);
+    const [jobs, setJobs] = useState([]);
+    const [jobsError, setJobsError] = useState("");
 
     // Material Request List
     const [materialRequests, setMaterialRequests] = useState([
@@ -294,75 +215,53 @@ export default function Techniciandashboard({ user }) {
 
     // Notification List
     const [notifications, setNotifications] = useState([
-        { id: 1, type: "emergency", title: "🚨 Emergency assigned", message: "Emergency ticket COMP-402 assigned. Immediate check-in required.", time: "15 mins ago", read: false },
-        { id: 2, type: "approval", title: "✅ Spare parts approved", message: "24V Control Relay request (REQ-901) has been approved. Scan QR at store.", time: "1 hour ago", read: false },
-        { id: 3, type: "info", title: "📢 Safety Gear Reminder", message: "All technicians must wear safety harness and helmet during overhead shaft testing.", time: "4 hours ago", read: true },
-        { id: 4, type: "schedule", title: "📅 Schedule shift change", message: "Skyline towers scheduled maintenance shifted to tomorrow morning.", time: "1 day ago", read: true }
+        { id: 1, type: "info", title: "Safety Gear Reminder", message: "Wear safety harness and helmet during overhead shaft testing.", time: "Today", read: true }
     ]);
 
-    const isFirstMount = useRef(true);
+    function mapAssignedComplaintToJob(c) {
+        return {
+            id: c.complaintNo,
+            dbId: c.id,
+            customerName: c.customerName,
+            buildingName: c.city || "Customer site",
+            address: c.address || "-",
+            phone: c.mobileNo || "-",
+            liftId: c.customerCode || "LIFT",
+            liftType: "Elevator complaint",
+            floors: "-",
+            capacity: "-",
+            type: c.complaintType?.replaceAll("_", " ") || "Service Request",
+            category: c.complaintType?.replaceAll("_", " ") || "Service Request",
+            description: c.description || "No description provided.",
+            priority: c.priority === "EMERGENCY" ? "Emergency" : c.priority || "NORMAL",
+            assignedTime: c.assignedAt ? new Date(c.assignedAt).toLocaleString("en-IN") : "Assigned",
+            assignedBy: c.assignedByUsername || "Office/Admin",
+            status: ["RESOLVED", "CLOSED"].includes(c.status) ? "Completed" : c.status?.replaceAll("_", " ") || "ASSIGNED",
+            checklist: { power: false, door: false, controller: false, motor: false, safety: false, emergency: false, brake: false, testing: false },
+            workReport: { problem: "", workPerformed: "", sparePartsUsed: "", remarks: "", status: "Completed" },
+            gpsCheckedIn: false,
+            checkInTime: null,
+            selfieUrl: "",
+            signature: null,
+            completeTime: null,
+        };
+    }
 
-    // Sync complaints and material requests from localStorage
-    useEffect(() => {
-        const storedComplaints = localStorage.getItem("amardip_complaints");
-        if (storedComplaints) {
-            try {
-                const parsed = JSON.parse(storedComplaints);
-                const localTechJobs = parsed
-                    .filter(c => c.assignedTech === "Suresh R.")
-                    .map(c => {
-                        const baseJob = jobs.find(j => j.id === c.id) || {};
-                        return {
-                            id: c.id,
-                            customerName: c.customer || baseJob.customerName || "Customer",
-                            buildingName: c.buildingName || baseJob.buildingName || "Main Building",
-                            address: c.address || baseJob.address || "Bangalore",
-                            phone: c.phone || baseJob.phone || "+91 99999 88888",
-                            liftId: c.liftId || baseJob.liftId || "LIFT-9821",
-                            liftType: c.liftType || baseJob.liftType || "Passenger Elevator",
-                            floors: c.floors || baseJob.floors || 8,
-                            capacity: c.capacity || baseJob.capacity || "680 kg",
-                            type: c.type || baseJob.type || "Service Request",
-                            category: c.category || baseJob.category || "Maintenance",
-                            description: c.description || baseJob.description || "No description provided.",
-                            priority: c.priority === "High" ? "Emergency" : (c.priority || "Medium"),
-                            assignedTime: c.assignedTime || baseJob.assignedTime || "Today, 10:00 AM",
-                            status: c.status === "Resolved" ? "Completed" : (c.status === "In Progress" ? (baseJob.status === "Assigned" ? "Arrived" : baseJob.status || "Arrived") : (c.status || "Assigned")),
-                            checklist: c.checklist || baseJob.checklist || {
-                                power: false,
-                                door: false,
-                                controller: false,
-                                motor: false,
-                                safety: false,
-                                emergency: false,
-                                brake: false,
-                                testing: false
-                            },
-                            workReport: c.workReport || baseJob.workReport || {
-                                problem: "",
-                                workPerformed: "",
-                                sparePartsUsed: "",
-                                remarks: "",
-                                status: "Completed"
-                            },
-                            gpsCheckedIn: c.gpsCheckedIn !== undefined ? c.gpsCheckedIn : (baseJob.gpsCheckedIn || false),
-                            checkInTime: c.checkInTime || baseJob.checkInTime || null,
-                            selfieUrl: c.selfieUrl || baseJob.selfieUrl || "",
-                            signature: c.signature || baseJob.signature || null,
-                            completeTime: c.completeTime || baseJob.completeTime || null,
-                            allocatedParts: c.allocatedParts || baseJob.allocatedParts || [],
-                            allocatedPartsQr: c.allocatedPartsQr || baseJob.allocatedPartsQr || null,
-                            allocatedPartsIssued: c.allocatedPartsIssued !== undefined ? c.allocatedPartsIssued : (baseJob.allocatedPartsIssued || false)
-                        };
-                    });
-
-                if (localTechJobs.length > 0) {
-                    setJobs(localTechJobs);
-                }
-            } catch (e) {
-                console.error("Failed to parse amardip_complaints", e);
-            }
+    async function fetchAssignedComplaints() {
+        setJobsError("");
+        try {
+            const res = await fetch("/api/worker/assigned-complaints?page=1&pageSize=50");
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to load assigned complaints");
+            setJobs((data.complaints || []).map(mapAssignedComplaintToJob));
+        } catch (err) {
+            setJobsError(err.message || "Failed to load assigned complaints");
         }
+    }
+
+    // Sync material requests from localStorage; assigned jobs come from PostgreSQL.
+    useEffect(() => {
+        fetchAssignedComplaints();
 
         const storedRequests = localStorage.getItem("amardip_material_requests");
         if (storedRequests) {
@@ -373,56 +272,6 @@ export default function Techniciandashboard({ user }) {
             }
         }
     }, []);
-
-    // Sync back jobs state to amardip_complaints in localStorage
-    useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-            return;
-        }
-
-        const stored = localStorage.getItem("amardip_complaints");
-        let allComplaints = [];
-        if (stored) {
-            try {
-                allComplaints = JSON.parse(stored);
-            } catch (e) {
-                allComplaints = [];
-            }
-        }
-
-        jobs.forEach(job => {
-            const index = allComplaints.findIndex(c => c.id === job.id);
-            const complaintData = {
-                id: job.id,
-                customer: job.customerName,
-                status: job.status === "Completed" ? "Resolved" : (job.status === "Assigned" ? "Open" : "In Progress"),
-                priority: job.priority === "Emergency" ? "High" : (job.priority === "Medium" ? "Medium" : "Low"),
-                color: job.priority === "Emergency" ? "text-red-600 bg-red-50 border-red-100" : "text-amber-600 bg-amber-50 border-amber-100",
-                date: job.assignedTime.includes("Today") ? "2026-06-20" : "2026-06-19",
-                description: job.description,
-                assignedTech: "Suresh R.",
-                allocatedParts: job.allocatedParts || [],
-                allocatedPartsQr: job.allocatedPartsQr || null,
-                allocatedPartsIssued: job.allocatedPartsIssued || false,
-                checklist: job.checklist,
-                workReport: job.workReport,
-                gpsCheckedIn: job.gpsCheckedIn,
-                checkInTime: job.checkInTime,
-                selfieUrl: job.selfieUrl,
-                signature: job.signature,
-                completeTime: job.completeTime
-            };
-
-            if (index > -1) {
-                allComplaints[index] = { ...allComplaints[index], ...complaintData };
-            } else {
-                allComplaints.push(complaintData);
-            }
-        });
-
-        localStorage.setItem("amardip_complaints", JSON.stringify(allComplaints));
-    }, [jobs]);
 
     // Sync back materialRequests state to localStorage
     useEffect(() => {
@@ -446,21 +295,6 @@ export default function Techniciandashboard({ user }) {
     const handleTabChange = (tabName) => {
         setActiveTab(tabName);
         setActiveJob(null);
-    };
-
-    // Accept Job
-    const handleAcceptJob = (job) => {
-        updateJobStatus(job.id, "Accepted");
-        // Add activity
-        const newNotif = {
-            id: notifications.length + 1,
-            type: "info",
-            title: "Job Accepted",
-            message: `You accepted ticket ${job.id} for ${job.customerName}.`,
-            time: "Just now",
-            read: false
-        };
-        setNotifications(prev => [newNotif, ...prev]);
     };
 
     // Start Journey
@@ -1144,6 +978,9 @@ export default function Techniciandashboard({ user }) {
 
                                     {/* Job cards log */}
                                     <div className="space-y-4">
+                                        {jobsError && (
+                                            <p className="p-3 text-center text-xs font-bold text-red-700 bg-red-50 rounded-2xl border border-red-100">{jobsError}</p>
+                                        )}
                                         {jobs.filter(j => jobsFilter === "completed" ? j.status === "Completed" : j.status !== "Completed").length === 0 ? (
                                             <p className="p-8 text-center text-xs text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">No jobs listed in this filter.</p>
                                         ) : (
@@ -1184,15 +1021,7 @@ export default function Techniciandashboard({ user }) {
 
                                                         {/* Actions */}
                                                         <div className="flex gap-2 pt-1.5">
-                                                            {job.status === "Assigned" && (
-                                                                <button
-                                                                    onClick={() => handleAcceptJob(job)}
-                                                                    className="h-9.5 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-xs font-extrabold tracking-wide transition active:scale-95 cursor-pointer"
-                                                                >
-                                                                    ACCEPT JOB
-                                                                </button>
-                                                            )}
-                                                            {job.status === "Accepted" && (
+                                                            {job.status === "IN PROGRESS" && (
                                                                     <button
                                                                         onClick={() => handleStartJourney(job)}
                                                                         className="h-9.5 flex-1 bg-[#0a649d] hover:bg-[#085282] text-white rounded-full text-xs font-extrabold tracking-wide transition active:scale-95 cursor-pointer"
@@ -1885,13 +1714,7 @@ export default function Techniciandashboard({ user }) {
                                             key={n.id} 
                                             onClick={() => {
                                                 setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
-                                                if (n.type === "emergency") {
-                                                    const emergencyJob = jobs.find(job => job.id === "COMP-402");
-                                                    if (emergencyJob) {
-                                                        setActiveJob(emergencyJob);
-                                                        setActiveTab("jobs");
-                                                    }
-                                                } else if (n.type === "approval") {
+                                                if (n.type === "approval") {
                                                     setActiveTab("inventory");
                                                 }
                                             }}

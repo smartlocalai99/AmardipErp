@@ -42,47 +42,49 @@ function ChevronRightIcon({ className = "h-4 w-4" }) {
   );
 }
 
-function LiveBadge({ enabled }) {
-  return (
-    <span className={`rounded-full px-2 py-0.5 text-[8px] font-black uppercase ${
-      enabled ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
-    }`}>
-      {enabled ? "Live Data" : "Waiting for Data"}
-    </span>
-  );
-}
-
-function KpiCard({ title, value, body, icon, colorClass, onClick, enabled = true }) {
+function KpiCard({ title, value, body, icon, accent, onClick, enabled = true }) {
   const Component = onClick ? "button" : "div";
 
   return (
     <Component
       type={onClick ? "button" : undefined}
-      onClick={onClick}
-      disabled={onClick ? !enabled : undefined}
-      className={`rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm flex flex-col justify-between min-h-28 select-none text-left w-full ${
-        onClick ? "hover:shadow active:scale-98 transition cursor-pointer" : ""
-      } ${!enabled ? "opacity-80" : ""}`}
+      onClick={enabled ? onClick : undefined}
+      className={`rounded-[22px] bg-white p-4 flex flex-col justify-between select-none text-left w-full overflow-hidden relative ${
+        onClick && enabled
+          ? "active:scale-[0.96] transition-transform duration-100 cursor-pointer"
+          : ""
+      }`}
+      style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}
     >
-      <div className="flex justify-between items-start">
-        <div>
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight whitespace-pre-line">
-            {title}
-          </span>
-          <div className="mt-1"><LiveBadge enabled={enabled} /></div>
-        </div>
-
-        <div className={`h-7 w-7 rounded-lg flex items-center justify-center ${colorClass}`}>
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest leading-tight whitespace-pre-line pt-0.5">
+          {title}
+        </span>
+        <div className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
           {icon}
         </div>
       </div>
 
-      <p className="text-2xl font-black text-slate-900 mt-2">{value}</p>
-      {body && (
-        <p className="mt-1 whitespace-pre-line text-[10px] font-bold leading-snug text-slate-400">
-          {body}
+      <div className="mt-3">
+        <p
+          className={`text-[28px] font-black leading-none tracking-tight ${
+            enabled ? "text-slate-900" : "text-slate-300"
+          }`}
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {enabled ? value : "—"}
         </p>
-      )}
+        {body && enabled && (
+          <p className="mt-1.5 whitespace-pre-line text-[10px] font-medium leading-relaxed text-slate-400">
+            {body}
+          </p>
+        )}
+        {!enabled && (
+          <p className="mt-1 text-[9px] font-semibold text-amber-500 uppercase tracking-wider">
+            Awaiting data
+          </p>
+        )}
+      </div>
     </Component>
   );
 }
@@ -97,167 +99,150 @@ export default function DashboardKpiGrid({
   moduleAvailability = {},
 }) {
   const router = useRouter();
-  const totalCustomers =
-    customerStats?.totalCustomers ?? kpiCounts?.totalCustomers ?? 0;
-
-  const activeAmc =
-    customerStats?.activeAmc ?? kpiCounts?.activeAMC ?? 0;
-
+  const totalCustomers = customerStats?.totalCustomers ?? kpiCounts?.totalCustomers ?? 0;
+  const activeAmc = customerStats?.activeAmc ?? kpiCounts?.activeAMC ?? 0;
   const totalServiceVisits = serviceStats?.totalServiceVisits ?? 0;
   const scheduledUpcomingServices = serviceStats?.scheduledUpcomingServices ?? 0;
   const toBeScheduledServices = serviceStats?.toBeScheduledServices ?? 0;
   const upcomingServicesTotal =
-    serviceStats?.upcomingServicesTotal ??
-    scheduledUpcomingServices + toBeScheduledServices;
+    serviceStats?.upcomingServicesTotal ?? scheduledUpcomingServices + toBeScheduledServices;
   const isLive = (key) => moduleAvailability?.[key]?.enabled !== false;
+  const leadsLive = isLive("leads");
 
-  function openCustomersTable() {
-    setActiveTab("more");
-    setMoreSubTab?.("customers");
-  }
-
-  function openAmcTable() {
-    setActiveTab("more");
-    setMoreSubTab?.("amc");
-  }
-
-  function openServiceVisits() {
-    setActiveTab("more");
-    setMoreSubTab?.("serviceVisits");
-  }
-
-  function openUpcomingServices() {
-    router.push("/admin/upcoming-services");
-  }
-
-  function openReports() {
-    router.push("/admin/reports");
-  }
+  function openCustomersTable() { setMoreSubTab?.("customers"); }
+  function openAmcTable() { setMoreSubTab?.("amc"); }
+  function openServiceVisits() { setMoreSubTab?.("serviceVisits"); }
+  function openUpcomingServices() { router.push("/admin/upcoming-services"); }
+  function openReports() { router.push("/admin/reports"); }
 
   return (
     <div>
-      <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">
-        Performance Indicators
-      </h2>
+      <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-3 px-0.5">
+        Overview
+      </p>
 
       {statsLoading ? (
         <MetricSkeletonGrid count={8} />
       ) : (
-      <div className="grid grid-cols-2 gap-3">
-        <KpiCard
-          title={"Total\nCustomers"}
-          value={totalCustomers}
-          icon={<CustomersIcon className="h-4.5 w-4.5" />}
-          colorClass="bg-sky-50 text-[#0a649d]"
-          onClick={openCustomersTable}
-          enabled={isLive("customers")}
-        />
+        <div className="grid grid-cols-2 gap-2.5">
+          <KpiCard
+            title={"Total\nCustomers"}
+            value={totalCustomers}
+            icon={<CustomersIcon className="h-4 w-4" />}
+            accent="bg-sky-50 text-[#0a649d]"
+            onClick={openCustomersTable}
+            enabled={isLive("customers")}
+          />
 
-        <KpiCard
-          title={"Active\nAMCs"}
-          value={activeAmc}
-          icon={
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-            </svg>
-          }
-          colorClass="bg-emerald-50 text-emerald-600"
-          onClick={openAmcTable}
-          enabled={isLive("amc")}
-        />
-
-        <KpiCard
-          title={"Total\nServices"}
-          value={totalServiceVisits}
-          body="Completed service history"
-          icon={
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
-            </svg>
-          }
-          colorClass="bg-amber-50 text-amber-600"
-          onClick={openServiceVisits}
-          enabled={isLive("serviceVisits")}
-        />
-
-        <KpiCard
-          title={"Upcoming\nServices"}
-          value={upcomingServicesTotal}
-          body={`Scheduled: ${scheduledUpcomingServices}\nTo be Scheduled: ${toBeScheduledServices}`}
-          icon={
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
-            </svg>
-          }
-          colorClass="bg-[#f0f7fc] text-[#0a649d]"
-          onClick={openUpcomingServices}
-          enabled={isLive("servicePlanner")}
-        />
-
-        <KpiCard
-          title={"Open\nComplaints"}
-          value={kpiCounts?.openComplaints ?? 0}
-          icon={<AlertIcon className="h-4.5 w-4.5" />}
-          colorClass="bg-red-50 text-red-600"
-          onClick={() => setActiveTab("complaints")}
-          enabled={isLive("complaints")}
-        />
-
-        <KpiCard
-          title={"Pending\nInstalls"}
-          value={kpiCounts?.pendingInstallations ?? 0}
-          icon={
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2m14 0V9a2 2 0 0 0-2-2M5 11V9a2 2 0 0 1 2-2m0 0V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2M7 7h10" />
-            </svg>
-          }
-          colorClass="bg-[#e6f9ff] text-[#0a649d]"
-        />
-
-        <KpiCard
-          title={"Technician\nStatus"}
-          value={`${kpiCounts?.availTechnicians ?? 0} / ${kpiCounts?.totalTechnicians ?? 0}`}
-          icon={<TechniciansIcon className="h-4.5 w-4.5" />}
-          colorClass="bg-emerald-50 text-emerald-600"
-          onClick={() => setActiveTab("technicians")}
-          enabled={isLive("technicians")}
-        />
-
-        <KpiCard
-          title={"Reports\nQuality"}
-          value="Open"
-          body="AMC, service and data quality"
-          icon={<ReportsIcon className="h-4.5 w-4.5" />}
-          colorClass="bg-violet-50 text-violet-600"
-          onClick={openReports}
-          enabled={isLive("reports")}
-        />
-
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab("more");
-          }}
-          className="rounded-3xl col-span-2 bg-[#0a649d]/5 border border-[#0a649d]/15 p-4 shadow-sm hover:bg-[#0a649d]/10 active:scale-98 transition flex items-center justify-between h-18 cursor-pointer select-none"
-        >
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-[#0a649d] text-white flex items-center justify-center shadow-sm shrink-0">
-              <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" />
+          <KpiCard
+            title={"Active\nAMCs"}
+            value={activeAmc}
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0 1 12 2.944a11.955 11.955 0 0 1-8.618 3.04A12.02 12.02 0 0 0 3 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
               </svg>
-            </div>
+            }
+            accent="bg-emerald-50 text-emerald-600"
+            onClick={openAmcTable}
+            enabled={isLive("amc")}
+          />
 
-            <div className="text-left">
-              <p className="text-xs font-bold text-slate-800">Manage Leads</p>
-              <p className="text-[10px] text-slate-400 leading-tight">
-                Track inquiries and new elevator requests
-              </p>
-            </div>
-          </div>
+          <KpiCard
+            title={"Total\nServices"}
+            value={totalServiceVisits}
+            body="Completed history"
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
+              </svg>
+            }
+            accent="bg-amber-50 text-amber-600"
+            onClick={openServiceVisits}
+            enabled={isLive("serviceVisits")}
+          />
 
-          <ChevronRightIcon className="text-slate-400 h-5 w-5" />
-        </button>
-      </div>
+          <KpiCard
+            title={"Upcoming\nServices"}
+            value={upcomingServicesTotal}
+            body={`Scheduled: ${scheduledUpcomingServices}\nPending: ${toBeScheduledServices}`}
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+              </svg>
+            }
+            accent="bg-[#eaf4fb] text-[#0a649d]"
+            onClick={openUpcomingServices}
+            enabled={isLive("servicePlanner")}
+          />
+
+          <KpiCard
+            title={"Open\nComplaints"}
+            value={kpiCounts?.openComplaints ?? 0}
+            icon={<AlertIcon className="h-4 w-4" />}
+            accent="bg-red-50 text-red-500"
+            onClick={() => setActiveTab("complaints")}
+            enabled={isLive("complaints")}
+          />
+
+          <KpiCard
+            title={"Pending\nInstalls"}
+            value={kpiCounts?.pendingInstallations ?? 0}
+            icon={
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2m14 0V9a2 2 0 0 0-2-2M5 11V9a2 2 0 0 1 2-2m0 0V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2M7 7h10" />
+              </svg>
+            }
+            accent="bg-[#eaf4fb] text-[#0a649d]"
+          />
+
+          <KpiCard
+            title={"Technician\nStatus"}
+            value={`${kpiCounts?.availTechnicians ?? 0}/${kpiCounts?.totalTechnicians ?? 0}`}
+            body="Available / Total"
+            icon={<TechniciansIcon className="h-4 w-4" />}
+            accent="bg-emerald-50 text-emerald-600"
+            onClick={() => setActiveTab("technicians")}
+            enabled={isLive("technicians")}
+          />
+
+          <KpiCard
+            title={"Reports\nQuality"}
+            value="View"
+            body="AMC & service analytics"
+            icon={<ReportsIcon className="h-4 w-4" />}
+            accent="bg-violet-50 text-violet-600"
+            onClick={openReports}
+            enabled={isLive("reports")}
+          />
+
+          {/* Manage Leads banner */}
+          <button
+            type="button"
+            onClick={leadsLive ? () => setActiveTab("more") : undefined}
+            className={`col-span-2 rounded-[22px] p-4 flex items-center justify-between transition-transform duration-100 select-none ${
+              leadsLive ? "active:scale-[0.98] cursor-pointer" : "cursor-not-allowed opacity-75"
+            }`}
+            style={{
+              background: "linear-gradient(135deg, #073354 0%, #0a649d 100%)",
+              boxShadow: "0 4px 16px rgba(10,100,157,0.3)"
+            }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-9 w-9 rounded-xl bg-white/15 text-white flex items-center justify-center shrink-0">
+                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2" />
+                </svg>
+              </div>
+              <div className="text-left">
+                <p className="text-[13px] font-bold text-white leading-tight">Manage Leads</p>
+                <p className="text-[10px] text-white/60 font-medium mt-0.5">
+                  {leadsLive ? "New elevator inquiries & requests" : "Waiting for leads/inquiries data"}
+                </p>
+              </div>
+            </div>
+            <ChevronRightIcon className="text-white/50 h-4 w-4" />
+          </button>
+        </div>
       )}
     </div>
   );

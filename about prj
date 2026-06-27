@@ -121,15 +121,18 @@ Passkey DB tables:
 - user_passkeys
 - webauthn_challenges
 
-Current DB counts verified on 2026-06-26:
+Current DB counts verified on 2026-06-27:
 - elevator_service_customers: 308 customers
 - Active AMC customers: 113
 - elevator_service_visits: 6072 service records
-- Linked service visits: 6002
-- Unlinked service visits: 70
+- Linked service visits: 6068 after client-confirmed service-record mapping
+- Unlinked service visits: 4 unresolved rows remain
 - service_schedules: 1 ASSIGNED schedule after smoke test
+- users: 20 total
+- worker users: 15 total, including the old seeded tech50 plus 14 imported field/service staff
+- front_office users: 1 imported from AMARDIP WORKERS (AFREEN)
 
-Important: the 70 unlinked service records are intentionally left as-is for now. Do not fix or hide them unless specifically asked.
+Important: only 4 service records remain unlinked because the client confirmation did not provide a safe customer ID for those rows.
 
 Admin Module
 Main admin page:
@@ -219,6 +222,10 @@ Current important card behavior:
 - If valid session cache exists, cached data can render immediately without unnecessary API/DB hit.
 - Open Complaints opens the existing in-dashboard complaints tab.
 - Technician Status opens the existing in-dashboard technicians tab.
+- Admin dashboard no longer initializes client-visible dashboard cards/lists from fake names or localStorage.
+- Today's Activities and Upcoming AMC Visits are derived from /api/service-schedules/upcoming via AdminAppDataProvider.
+- Technician Status and Staff Directory hydrate from real /api/users worker/front_office/admin data.
+- Complaints, inventory, material requests, notifications, and leads remain gated behind ModuleComingSoon unless real DB tables/data exist.
 
 Customers Module
 Route:
@@ -766,21 +773,32 @@ APIs:
 
 DB table:
 - users
+- users.designation stores imported staff/work designation such as SR ELECTRICIAN, ENGINEER, or FRONT OFFICE.
 
 Status:
 - Real DB-backed for login users.
-- The visual staff list inside the admin dashboard is still mock/local state.
+- Worker/front-office data imported from /Users/vardhanreddy/Downloads/AMARDIP WORKERS (1).xlsx.
+- Admin dashboard technician/staff lists hydrate from real users data.
+- /api/users GET is readable by superadmin, admin, manager, and front_office. Onboarding and password reset remain superadmin-only.
 
 Superadmin-only features:
 - Fetch user directory from users table.
 - Onboard users.
 - Reset user passwords.
 
+Worker import:
+- Script: scripts/import-workers.mjs
+- Test: scripts/import-workers.test.mjs
+- Default temporary password for imported users: worker123
+- Field/service designations import as role worker.
+- FRONT OFFICE imports as role front_office.
+
 Supported onboard roles in the API:
 - admin
 - manager
 - worker
 - customer
+- front_office
 
 Note:
 - setup-db.js also seeds storekeeper.
@@ -1452,10 +1470,9 @@ Completed/working:
 - Service scheduling table and schedule action
 
 Next:
-- Technician assignment dropdown from real worker users only after client provides real technician/staff data
-- Service completion workflow from schedule to service visit
-- Complaints DB module
-- Inventory/material request DB module
+- Inventory DB import from client Excel
+- Technician assignment
+- Store workflow
 
 Later customer portal work:
 - Link customer users to elevator_service_customers.
@@ -1490,6 +1507,69 @@ When continuing work:
 - For new API work, follow existing auth guard pattern using getUserFromRequest.
 - Admin-only APIs should block customer, worker, and storekeeper roles.
 - Do not remove old mock UI until replacement DB flow is working.
+
+Client Demo Cleanup / Data Availability Gating
+
+Status:
+- Implemented.
+
+Purpose:
+- Real DB-backed modules are shown normally.
+- Modules without real client data are disabled or shown as Coming Soon.
+- Fake localStorage/mock data is not shown to client as real data.
+
+Active live modules:
+- Dashboard
+- Customers
+- AMC
+- Customer Detail
+- Customer Edit
+- AMC Renewal
+- Service Visits
+- Service Planner v1 / Upcoming Services
+- Reports
+- Profile
+- Face Lock
+
+Waiting-for-data modules:
+- Complaints
+- Inventory
+- Material Requests
+- Technicians
+- Store inventory
+- Customer portal real data
+- Technician jobs
+- Notifications
+- Leads/Inquiries
+
+New files:
+- lib/moduleAvailability.js
+- pages/api/admin/module-availability.js
+- components/ui/ModuleComingSoon.jsx
+
+Rule:
+- If data exists, show the module.
+- If data does not exist, show Coming Soon / Waiting for client data.
+- Do not show fake localStorage data in client demo.
+
+Admin Real Data Pass
+
+Status:
+- Implemented for admin dashboard shell.
+
+Files:
+- lib/adminDashboardData.js
+- scripts/admin-dashboard-data.test.mjs
+- pages/Admindashboard.jsx
+- components/admin/dashboard/DashboardKpiGrid.jsx
+- pages/api/users/index.js
+
+Behavior:
+- Removed fake/localStorage defaults from the admin dashboard shell for complaints, activities, schedules, inventory, staff, notifications, and leads.
+- Dashboard KPIs now derive customer/service counts from existing stats APIs and technician counts from real users.
+- Upcoming dashboard activity and AMC visit previews derive from /api/service-schedules/upcoming.
+- Lead banner is disabled with waiting-data copy until a real leads/inquiries table exists.
+- Service evidence modal no longer shows fake post-service image cards.
 
 Current Build Request - Customer Edit, AMC Renewal, Audit Logs
 Source brief: attached project request titled "Amardip Lifts / Amardip Elevators Build Customer Edit + AMC Renewal + Audit Log module."
@@ -1765,3 +1845,117 @@ Optional route:
 - /admin/audit-logs
 
 If simple, create an admin-wide audit log page showing the latest 100 changes.
+
+Complaints + Worker Assignment DB Flow
+
+Status:
+- Implemented.
+
+Purpose:
+- Replaces fake/localStorage complaint flow with PostgreSQL-backed complaint creation and worker assignment.
+- Assignment itself gives the job to the worker. There is no worker Accept or Reject flow.
+- Worker sees only complaints assigned to their user id.
+
+DB table:
+- complaints
+
+Table setup:
+- Created safely by lib/complaints.js through ensureComplaintsTable().
+- Uses UUID primary key with gen_random_uuid().
+- complaint_no format is CMP-YYYYMM-0001.
+- Stores customer snapshot fields, complaint type, priority, status, notes, assignment metadata, raised-by metadata, resolved/closed timestamps, and created/updated timestamps.
+
+Allowed complaint statuses:
+- UNASSIGNED
+- ASSIGNED
+- IN_PROGRESS
+- RESOLVED
+- CLOSED
+- CANCELLED
+
+Allowed priorities:
+- LOW
+- NORMAL
+- HIGH
+- EMERGENCY
+
+Allowed complaint types:
+- BREAKDOWN
+- DOOR_ISSUE
+- MOTOR_ISSUE
+- NOISE
+- SERVICE_REQUEST
+- AMC_QUERY
+- PAYMENT_QUERY
+- OTHER
+
+New helper:
+- lib/complaints.js
+
+Helper functions:
+- ensureComplaintsTable()
+- buildComplaintNo()
+- generateComplaintNo()
+- normalizeComplaintInput()
+- normalizeComplaintRow()
+- getComplaintStats()
+- createComplaint()
+- listComplaints()
+- getComplaintById()
+- assignComplaintToWorker()
+- updateComplaintStatus()
+
+New APIs:
+- GET/POST /api/complaints
+- GET /api/complaints/stats
+- GET/PATCH /api/complaints/[id]
+- POST /api/complaints/[id]/assign
+- GET /api/customer/complaints
+- GET /api/worker/assigned-complaints
+
+API role rules:
+- admin, superadmin, manager, and front_office can list complaints and assign workers.
+- customer can create complaints and view only their own complaints through /api/customer/complaints.
+- worker can view only complaints assigned to their user id through /api/worker/assigned-complaints.
+- storekeeper has no complaint access.
+
+Admin dashboard behavior:
+- /Admindashboard Complaints tab now fetches real /api/complaints data.
+- Admin dashboard recent complaints now show real DB complaints.
+- Complaint KPI/badge uses /api/complaints/stats.
+- Admin/front office can add a manual complaint from the dashboard.
+- Admin/front office can assign a complaint to a worker from real users where role = worker.
+- Assignment updates complaint status to ASSIGNED.
+- Old fake spare-parts allocation controls were removed from the complaint detail modal for this task.
+- Complaints module is enabled even when the complaints table has zero rows so the first real complaint can be created.
+
+Customer portal behavior:
+- /Customerdashboard complaint list now reads /api/customer/complaints.
+- Customer complaint submission now POSTs to /api/complaints.
+- Emergency complaint button also creates a DB-backed EMERGENCY complaint.
+- Customer complaint localStorage sync was removed.
+
+Technician portal behavior:
+- /Techniciandashboard assigned jobs now read /api/worker/assigned-complaints.
+- Fake assigned complaint jobs were removed.
+- Worker Accept button was removed.
+- Worker cards show assigned complaint details from DB.
+- Complaint localStorage sync back to admin/customer was removed.
+
+Audit behavior:
+- Complaint create, assign, and status update attempts write admin audit logs through lib/auditLog.js.
+- Audit logging is wrapped in try/catch so complaint operations do not fail if audit logging fails.
+
+Navigation fix:
+- /Admindashboard tab and More-subtab navigation now uses router.replace with shallow routing.
+- Browser Back no longer steps through old More Tools tab states created by dashboard taps.
+
+Latest Complaints Verification
+- node scripts/complaints.test.mjs passed.
+- npm run build passed.
+- Local production smoke test on port 3020:
+  - superadmin login succeeded.
+  - POST /api/complaints created CMP-202606-0001 with status UNASSIGNED.
+  - POST /api/complaints/[id]/assign assigned the complaint to worker IQBAL and changed status to ASSIGNED.
+  - worker iqbal / worker123 login succeeded.
+  - GET /api/worker/assigned-complaints returned the assigned CMP-202606-0001 complaint for IQBAL.

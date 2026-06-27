@@ -53,13 +53,13 @@ export async function getServerSideProps(context) {
 
 function AmardipLogo() {
   return (
-    <div className="relative h-[190px] w-[280px]">
+    <div className="relative h-[190px] w-[280px] rounded-[26px]">
       <Image
         src="/logo.png"
         alt="Amardip Elevators Logo"
         fill
         priority
-        className="object-contain object-center"
+        className="object-contain object-center p-3"
       />
     </div>
   );

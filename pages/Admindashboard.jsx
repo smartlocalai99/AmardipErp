@@ -5,11 +5,19 @@ import AdminCustomersTable from "@/components/admin/customers/AdminCustomersTabl
 import AdminAmcTable from "@/components/admin/amc/AdminAmcTable";
 import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
 import { clearSessionCache } from "@/lib/adminCache";
-import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
+import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
+import {
+    buildAdminKpiCounts,
+    buildStaffFromUsers,
+    buildTechniciansFromUsers,
+    buildUpcomingActivities,
+    buildUpcomingVisits,
+    formatUserRole,
+} from "@/lib/adminDashboardData";
 import { browserSupportsPasskeys, startPasskeyRegistration } from "@/lib/passkeyClient";
 import { useRouter } from "next/router";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 
 export async function getServerSideProps(context) {
@@ -190,23 +198,32 @@ function PlusIcon({ className = "h-5 w-5" }) {
 function formatGroupDate(dateStr) {
     if (!dateStr || dateStr === "Unknown Date") return "No Scheduled Date";
     try {
-        const today = new Date("2026-06-20");
-        const date = new Date(dateStr);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayStr = today.toISOString().split("T")[0];
+        const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split("T")[0];
+        const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split("T")[0];
 
+        const date = new Date(dateStr);
         const options = { month: 'short', day: 'numeric', year: 'numeric' };
         const formatted = date.toLocaleDateString('en-US', options);
 
-        if (dateStr === "2026-06-20") {
-            return `Today - ${formatted}`;
-        } else if (dateStr === "2026-06-19") {
-            return `Yesterday - ${formatted}`;
-        } else if (dateStr === "2026-06-21") {
-            return `Tomorrow - ${formatted}`;
-        }
+        if (dateStr === todayStr) return `Today — ${formatted}`;
+        if (dateStr === yesterdayStr) return `Yesterday — ${formatted}`;
+        if (dateStr === tomorrowStr) return `Tomorrow — ${formatted}`;
         return formatted;
     } catch (e) {
         return dateStr;
     }
+}
+
+function getTimeGreeting() {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 17) return "Good Afternoon";
+    return "Good Evening";
 }
 
 function formatDeviceDate(value) {
@@ -220,22 +237,42 @@ function formatDeviceDate(value) {
     });
 }
 
-function ModuleOpenSkeleton() {
-    return (
-        <div className="p-4 space-y-4 animate-in fade-in duration-150">
-            <MetricSkeletonGrid count={4} />
-            <DataListSkeleton columns={6} rows={5} minWidth="980px" />
-        </div>
-    );
+const COMPLAINT_TYPE_OPTIONS = [
+    ["BREAKDOWN", "Breakdown"],
+    ["DOOR_ISSUE", "Door Issue"],
+    ["MOTOR_ISSUE", "Motor Issue"],
+    ["NOISE", "Noise"],
+    ["SERVICE_REQUEST", "Service Request"],
+    ["AMC_QUERY", "AMC Query"],
+    ["PAYMENT_QUERY", "Payment Query"],
+    ["OTHER", "Other"],
+];
+
+const COMPLAINT_PRIORITY_OPTIONS = ["LOW", "NORMAL", "HIGH", "EMERGENCY"];
+const COMPLAINT_STATUS_OPTIONS = ["UNASSIGNED", "ASSIGNED", "IN_PROGRESS", "RESOLVED", "CLOSED", "CANCELLED"];
+
+function complaintStatusClass(status) {
+    if (status === "UNASSIGNED") return "bg-amber-50 border-amber-100 text-amber-700";
+    if (status === "ASSIGNED") return "bg-blue-50 border-blue-100 text-blue-700";
+    if (status === "IN_PROGRESS") return "bg-purple-50 border-purple-100 text-purple-700";
+    if (status === "RESOLVED") return "bg-emerald-50 border-emerald-100 text-emerald-700";
+    if (status === "CANCELLED") return "bg-red-50 border-red-100 text-red-700";
+    return "bg-slate-50 border-slate-100 text-slate-700";
 }
+
+function formatComplaintDate(value) {
+    if (!value) return "-";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "-";
+    return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
 
 function AdmindashboardShell({ user }) {
     const router = useRouter();
     const adminAppData = useAdminAppData();
     const [loading, setLoading] = useState(false);
     const [activeTab, setActiveTab] = useState("dashboard"); // bottom tabs: dashboard, customers, service, technicians, more
-    const [moduleOpening, setModuleOpening] = useState(false);
-    const moduleOpeningTimer = useRef(null);
 
     // Modals
     const [showOnboardModal, setShowOnboardModal] = useState(false);
@@ -243,17 +280,32 @@ function AdmindashboardShell({ user }) {
     const [showNotificationCenter, setShowNotificationCenter] = useState(false);
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [selectedComplaint, setSelectedComplaint] = useState(null);
+    const [showAddComplaintModal, setShowAddComplaintModal] = useState(false);
     const [selectedSchedule, setSelectedSchedule] = useState(null);
     const [materialRequests, setMaterialRequests] = useState([]);
     const [modalTech, setModalTech] = useState("");
     const [modalStatus, setModalStatus] = useState("");
+    const [assignmentNotes, setAssignmentNotes] = useState("");
+    const [complaintsLoading, setComplaintsLoading] = useState(false);
+    const [complaintError, setComplaintError] = useState("");
+    const [complaintStats, setComplaintStats] = useState(null);
+    const [priorityFilter, setPriorityFilter] = useState("all");
+    const [complaintTypeFilter, setComplaintTypeFilter] = useState("all");
+    const [newComplaintData, setNewComplaintData] = useState({
+        customerName: "",
+        mobileNo: "",
+        city: "",
+        address: "",
+        complaintType: "BREAKDOWN",
+        priority: "NORMAL",
+        description: "",
+        officeNotes: "",
+    });
 
     // Parts allocation states
     const [allocatedParts, setAllocatedParts] = useState([]);
     const [tempPartName, setTempPartName] = useState("Door Roller Assembly");
     const [tempPartQty, setTempPartQty] = useState(1);
-
-    const isFirstMount = useRef(true);
 
     useEffect(() => {
         if (selectedComplaint) {
@@ -285,25 +337,16 @@ function AdmindashboardShell({ user }) {
     const [moreSubTab, setMoreSubTab] = useState(null);
 
     // Interactive directories
-    const [inquiries, setInquiries] = useState([
-        { id: 1, name: "Rajesh Kumar", company: "Skyline Residency", elevatorType: "Passenger Lift (10 Pax)", phone: "+91 98765 43210" },
-        { id: 2, name: "Sneha Patel", company: "Grand Plaza Mall", elevatorType: "Freight Elevator (2 Ton)", phone: "+91 91234 56789" },
-        { id: 3, name: "Dr. Amit Verma", company: "Care Hospital", elevatorType: "Stretcher Lift", phone: "+91 93456 78901" },
-        { id: 4, name: "Vikram Singh", company: "Apex Corporate Park", elevatorType: "Capsule Glass Lift", phone: "+91 95678 12345" }
-    ]);
+    const [inquiries, setInquiries] = useState([]);
 
-    const [schedules, setSchedules] = useState([
-        { id: 1, location: "Grand Plaza, Block A", technician: "Vijay K.", status: "Upcoming", lastService: "2026-05-20", nextService: "2026-06-22" },
-        { id: 2, location: "Skyline Residency Lift 2", technician: "Suresh R.", status: "Scheduled", lastService: "2026-05-18", nextService: "2026-06-20" },
-        { id: 3, location: "Care Hospital (Stretcher Lift)", technician: "Ramesh M.", status: "Overdue", lastService: "2026-04-15", nextService: "2026-05-15" }
-    ]);
+    const [schedules, setSchedules] = useState([]);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
         location: "",
         lastService: "",
         nextService: "",
-        technician: "Suresh R.",
+        technician: "",
         status: "Scheduled"
     });
 
@@ -337,16 +380,15 @@ function AdmindashboardShell({ user }) {
         phone: "",
     });
 
-    // Mock KPI & CRM Lift ERP Data
     const [kpiCounts, setKpiCounts] = useState({
-        totalCustomers: 342,
-        activeAMC: 124,
-        todayService: 8,
-        openComplaints: 5,
-        pendingInstallations: 12,
-        upcomingMaintenance: 15,
-        availTechnicians: 3,
-        totalTechnicians: 4
+        totalCustomers: 0,
+        activeAMC: 0,
+        todayService: 0,
+        openComplaints: 0,
+        pendingInstallations: 0,
+        upcomingMaintenance: 0,
+        availTechnicians: 0,
+        totalTechnicians: 0
     });
 
     const fallbackCustomerStats = {
@@ -377,159 +419,199 @@ function AdmindashboardShell({ user }) {
         />
     );
 
-    function showModuleSkeleton() {
-        if (moduleOpeningTimer.current) {
-            clearTimeout(moduleOpeningTimer.current);
-        }
-        setModuleOpening(true);
-        moduleOpeningTimer.current = setTimeout(() => {
-            setModuleOpening(false);
-        }, 240);
-    }
-
     function openTab(tab) {
-        showModuleSkeleton();
         setActiveTab(tab);
         if (tab !== "more") setMoreSubTab(null);
         setSearchQuery("");
         setStatusFilter("all");
+        const query = tab === "dashboard" ? {} : { tab };
+        router.replace({ pathname: "/Admindashboard", query }, undefined, { shallow: true });
     }
 
     function openMoreSubTab(tab) {
-        showModuleSkeleton();
         setActiveTab("more");
         setMoreSubTab(tab);
         setSearchQuery("");
         setStatusFilter("all");
-        if (tab === "profile") {
-            loadFaceLockDevices();
-        }
+        if (tab === "profile") loadFaceLockDevices();
+        const query = tab ? { tab: "more", subtab: tab } : { tab: "more" };
+        router.replace({ pathname: "/Admindashboard", query }, undefined, { shallow: true });
     }
 
     useEffect(() => {
         if (!router.isReady) return;
 
-        const tab = typeof router.query.tab === "string" ? router.query.tab : "";
+        const VALID_TABS = ["dashboard", "complaints", "service", "technicians", "more"];
+        const tab = typeof router.query.tab === "string" ? router.query.tab : "dashboard";
         const subtab = typeof router.query.subtab === "string" ? router.query.subtab : "";
 
-        if (tab === "more") {
-            setActiveTab("more");
-            setMoreSubTab(subtab || null);
+        if (VALID_TABS.includes(tab)) {
+            setActiveTab(tab);
         }
-    }, [router.isReady, router.query.tab, router.query.subtab]);
+        if (tab === "more") {
+            setMoreSubTab(subtab || null);
+            if (subtab === "profile") loadFaceLockDevices();
+        } else {
+            setMoreSubTab(null);
+        }
+    }, [router.isReady, router.query.tab, router.query.subtab]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    useEffect(() => {
-        return () => {
-            if (moduleOpeningTimer.current) {
-                clearTimeout(moduleOpeningTimer.current);
-            }
-        };
-    }, []);
 
     // Today's Activities
-    const [activities, setActivities] = useState([
-        { id: 1, type: "Urgent Breakdown Check", site: "Skyline Residency Lift 2", time: "10:30 AM", status: "In Progress", color: "bg-red-500 text-white" },
-        { id: 2, type: "Routine Monthly Service", site: "Grand Plaza, Block A", time: "01:00 PM", status: "Pending", color: "bg-amber-500 text-white" },
-        { id: 3, type: "Installation Site Audit", site: "Apex Corporate Park", time: "03:30 PM", status: "Scheduled", color: "bg-[#0a649d] text-white" }
-    ]);
+    const activities = useMemo(
+        () => buildUpcomingActivities(adminAppData.upcomingPreview),
+        [adminAppData.upcomingPreview]
+    );
 
     // Recent Complaints
-    const [complaints, setComplaints] = useState([
-        { id: "COMP-402", customer: "Apex Business Park", status: "In Progress", priority: "High", color: "text-red-600 bg-red-50 border-red-100", date: "2026-06-20", description: "Elevator cabin stuck between 3rd and 4th floor. Emergency alarm activated.", assignedTech: "" },
-        { id: "COMP-405", customer: "Greenwood Apartments", status: "Open", priority: "Medium", color: "text-amber-600 bg-amber-50 border-amber-100", date: "2026-06-20", description: "Infrared safety door sensor not detecting obstructions. Doors closing rapidly.", assignedTech: "" },
-        { id: "COMP-398", customer: "Dr. Amit (Care Hospital)", status: "Resolved", priority: "High", color: "text-emerald-600 bg-emerald-50 border-emerald-100", date: "2026-06-19", description: "Stretcher elevator landing indicator showing incorrect floor numbers.", assignedTech: "Ramesh M." },
-        { id: "COMP-395", customer: "Royal Plaza Tower C", status: "Resolved", priority: "Medium", color: "text-amber-600 bg-amber-50 border-amber-100", date: "2026-06-18", description: "Cabin exhaust fan making loud rattling noise.", assignedTech: "Vijay K." },
-        { id: "COMP-390", customer: "Skyline Residency Lift 1", status: "Resolved", priority: "Low", color: "text-slate-600 bg-slate-50 border-slate-100", date: "2026-06-15", description: "Emergency phone inside elevator cabin has static line noise.", assignedTech: "" }
-    ]);
+    const [complaints, setComplaints] = useState([]);
 
-    // Sync complaints with localStorage
+    async function fetchComplaints() {
+        if (!["superadmin", "admin", "manager", "front_office"].includes(user?.role)) return;
+        setComplaintsLoading(true);
+        setComplaintError("");
+        try {
+            const params = new URLSearchParams({
+                page: "1",
+                pageSize: "50",
+            });
+            if (searchQuery.trim()) params.set("search", searchQuery.trim());
+            if (statusFilter !== "all") params.set("status", statusFilter);
+            if (priorityFilter !== "all") params.set("priority", priorityFilter);
+            if (complaintTypeFilter !== "all") params.set("complaintType", complaintTypeFilter);
+
+            const [listRes, statsRes] = await Promise.all([
+                fetch(`/api/complaints?${params.toString()}`),
+                fetch("/api/complaints/stats"),
+            ]);
+            const listData = await listRes.json();
+            const statsData = await statsRes.json();
+            if (!listRes.ok || !listData.success) throw new Error(listData.message || "Failed to load complaints");
+            setComplaints(listData.complaints || []);
+            if (statsRes.ok && statsData.success) setComplaintStats(statsData);
+        } catch (err) {
+            setComplaintError(err.message || "Failed to load complaints");
+        } finally {
+            setComplaintsLoading(false);
+        }
+    }
+
     useEffect(() => {
-        const stored = localStorage.getItem("amardip_complaints");
-        if (stored) {
-            try {
-                setComplaints(JSON.parse(stored));
-            } catch (e) {
-                console.error("Failed to parse complaints from localStorage", e);
-            }
+        if (activeTab !== "complaints" && activeTab !== "dashboard") return;
+        const timer = setTimeout(() => fetchComplaints(), 250);
+        return () => clearTimeout(timer);
+    }, [activeTab, searchQuery, statusFilter, priorityFilter, complaintTypeFilter, user?.role]);
+
+    async function handleCreateComplaint(e) {
+        e.preventDefault();
+        setComplaintError("");
+        try {
+            const res = await fetch("/api/complaints", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(newComplaintData),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to create complaint");
+            setShowAddComplaintModal(false);
+            setNewComplaintData({
+                customerName: "",
+                mobileNo: "",
+                city: "",
+                address: "",
+                complaintType: "BREAKDOWN",
+                priority: "NORMAL",
+                description: "",
+                officeNotes: "",
+            });
+            await fetchComplaints();
+        } catch (err) {
+            setComplaintError(err.message || "Failed to create complaint");
         }
-        const storedRequests = localStorage.getItem("amardip_material_requests");
-        if (storedRequests) {
-            try {
-                setMaterialRequests(JSON.parse(storedRequests));
-            } catch (e) {
-                console.error("Failed to parse material requests from localStorage", e);
-            }
+    }
+
+    async function assignSelectedComplaint() {
+        if (!selectedComplaint || !modalTech) return;
+        setComplaintError("");
+        try {
+            const res = await fetch(`/api/complaints/${selectedComplaint.id}/assign`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    assignedTechnicianUserId: Number(modalTech),
+                    assignmentNotes,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to assign complaint");
+            setSelectedComplaint(null);
+            setModalTech("");
+            setAssignmentNotes("");
+            await fetchComplaints();
+        } catch (err) {
+            setComplaintError(err.message || "Failed to assign complaint");
         }
-    }, []);
+    }
+
+    async function updateSelectedComplaintStatus(nextStatus) {
+        if (!selectedComplaint) return;
+        setModalStatus(nextStatus);
+        try {
+            const res = await fetch(`/api/complaints/${selectedComplaint.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ status: nextStatus }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to update complaint");
+            setSelectedComplaint(data.complaint);
+            await fetchComplaints();
+        } catch (err) {
+            setComplaintError(err.message || "Failed to update complaint");
+        }
+    }
 
     const updateMaterialRequestsState = (newRequests) => {
         setMaterialRequests(newRequests);
-        localStorage.setItem("amardip_material_requests", JSON.stringify(newRequests));
     };
 
-    useEffect(() => {
-        if (isFirstMount.current) {
-            isFirstMount.current = false;
-            return;
-        }
-        localStorage.setItem("amardip_complaints", JSON.stringify(complaints));
-    }, [complaints]);
-
     // Upcoming AMC Visits
-    const [amcVisits, setAmcVisits] = useState([
-        { id: 1, customer: "Grand Plaza", building: "Tower A, Passenger 1", dueDate: "2026-06-22", phone: "+91 98765 43210" },
-        { id: 2, customer: "Supreme Mall", building: "South Entrance Freight", dueDate: "2026-07-01", phone: "+91 91234 56789" },
-        { id: 3, customer: "Skyline Residency", building: "Service Elevator 2", dueDate: "2026-07-05", phone: "+91 93456 78901" }
-    ]);
+    const amcVisits = useMemo(
+        () => buildUpcomingVisits(adminAppData.upcomingPreview),
+        [adminAppData.upcomingPreview]
+    );
 
     // Technician availability list
-    const [technicians, setTechnicians] = useState([
-        { id: 1, name: "Suresh R.", role: "Senior Inspector", status: "On Duty", workload: "2/4 Jobs", phone: "+91 98765 00001", allocatedTask: "" },
-        { id: 2, name: "Vijay K.", role: "Maintenance Specialist", status: "Available", workload: "1/4 Jobs", phone: "+91 98765 00002", allocatedTask: "" },
-        { id: 3, name: "Ramesh M.", role: "Installation Lead", status: "Busy", workload: "3/5 Jobs", phone: "+91 98765 00003", allocatedTask: "" },
-        { id: 4, name: "Ananya P.", role: "Diagnostics Expert", status: "Offline", workload: "0/3 Jobs", phone: "+91 98765 00004", allocatedTask: "" }
-    ]);
+    const [technicians, setTechnicians] = useState([]);
 
     // Inventory and Staff States
-    const [inventory, setInventory] = useState([
-        { id: 1, name: "Geared Traction Motor (5.5 kW)", category: "Motors", qty: 4, unit: "units", status: "In Stock", code: "INV-MOT-09" },
-        { id: 2, name: "Steel Wire Rope (10mm)", category: "Cables", qty: 250, unit: "meters", status: "In Stock", code: "INV-CAB-12" },
-        { id: 3, name: "Infrared Multi-Beam Door Sensor", category: "Sensors", qty: 15, unit: "units", status: "In Stock", code: "INV-SEN-04" },
-        { id: 4, name: "Microprocessor Controller Panel V4", category: "Control Board", qty: 1, unit: "unit", status: "Low Stock", code: "INV-CON-22" },
-        { id: 5, name: "Emergency Cabin Guide Shoes", category: "Safety", qty: 0, unit: "units", status: "Out of Stock", code: "INV-SAF-15" }
-    ]);
+    const [inventory, setInventory] = useState([]);
 
-    const [staff, setStaff] = useState([
-        { id: 1, name: "Amit Sharma", role: "operations manager", email: "amit.ops@smartlift.ai", phone: "+91 99887 76655" },
-        { id: 2, name: "Karan Johar", role: "financial supervisor", email: "karan.fin@smartlift.ai", phone: "+91 98765 01234" },
-        { id: 3, name: "Priya Nair", role: "customer service coordinator", email: "priya.cc@smartlift.ai", phone: "+91 97654 32109" }
-    ]);
+    const [staff, setStaff] = useState([]);
 
-    const allocatableTasks = [
-        "Complaint: COMP-402 (Elevator Breakdown)",
-        "Complaint: COMP-405 (Sensor Fault)",
-        "AMC Visit: Greenwood Apts",
-        "AMC Visit: Supreme Mall",
-        "Installation: Royal Residency Tower C",
-        "Safety Audit: Care Hospital"
-    ];
+    const allocatableTasks = activities.map((activity) => `${activity.type}: ${activity.site}`);
+    const liveKpiCounts = useMemo(
+        () => ({
+            ...buildAdminKpiCounts({ customerStats, serviceStats, technicians }),
+            openComplaints: complaintStats?.openComplaints || 0,
+        }),
+        [customerStats, serviceStats, technicians, complaintStats]
+    );
 
     // Recent Notifications
-    const [notifications, setNotifications] = useState([
-        { id: 1, category: "Complaint Raised", message: "Client Rajesh Kumar raised complaint #COMP-410 for Skyline Residency", time: "10 mins ago" },
-        { id: 2, category: "AMC Expiring", message: "Annual Contract for Greenwood Apartments expires in 7 days", time: "2 hours ago" },
-        { id: 3, category: "Service Completed", message: "Technician Vijay K. completed checkup at Greenwood", time: "4 hours ago" }
-    ]);
+    const [notifications, setNotifications] = useState([]);
 
-    // Fetch database users directory (Only for Superadmin)
+    // Fetch database users directory
     async function fetchUsers() {
-        if (user?.role !== "superadmin") return;
+        if (!["superadmin", "admin", "manager", "front_office"].includes(user?.role)) return;
         setUsersLoading(true);
         try {
             const res = await fetch("/api/users");
             const data = await res.json();
             if (data.success) {
                 setUsersList(data.users);
+                setTechnicians(buildTechniciansFromUsers(data.users));
+                setStaff(buildStaffFromUsers(data.users));
             }
         } catch (err) {
             console.error("Failed to load user directory:", err);
@@ -539,8 +621,9 @@ function AdmindashboardShell({ user }) {
     }
 
     useEffect(() => {
-        if (activeTab === "more") {
-            fetchUsers();
+        if (["dashboard", "more", "technicians", "staff"].includes(activeTab)) {
+            const timer = setTimeout(() => fetchUsers(), 0);
+            return () => clearTimeout(timer);
         }
     }, [activeTab]);
 
@@ -578,7 +661,7 @@ function AdmindashboardShell({ user }) {
                 throw new Error(data.message || "Failed to onboard user");
             }
 
-            setOnboardSuccess(`Successfully created ${newUserData.role} account!`);
+                                setOnboardSuccess(`Successfully created ${formatUserRole(newUserData.role)} account!`);
             fetchUsers();
 
             setNewUserData({
@@ -914,7 +997,7 @@ function AdmindashboardShell({ user }) {
             location: "",
             lastService: "",
             nextService: "",
-            technician: "Suresh R.",
+            technician: "",
             status: "Scheduled"
         });
         setShowScheduleModal(false);
@@ -1017,55 +1100,59 @@ function AdmindashboardShell({ user }) {
                 </div>
 
                 {/* APP BAR HEADER */}
-                <header className="sticky top-0 z-30 bg-[#0a649d] text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-md">
+                <header
+                    className="sticky top-0 z-30 text-white px-5 py-4 flex items-center justify-between shrink-0"
+                    style={{ background: "linear-gradient(135deg, #04182b 0%, #073354 45%, #0a4f7a 100%)", boxShadow: "0 1px 0 rgba(255,255,255,0.06), 0 4px 20px rgba(0,0,0,0.3)" }}
+                >
                     <div className="flex items-center gap-3">
-                        <div className="relative h-10.5 w-10.5 overflow-hidden rounded-full border border-white/40 bg-white shadow-inner">
+                        <div className="relative h-10 w-10 overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_8px_24px_rgba(2,6,23,0.18)] shrink-0">
                             <Image
                                 src="/adlogo.png"
                                 alt="Amardip Lifts"
                                 fill
-                                sizes="42px"
+                                sizes="40px"
                                 className="object-contain p-1"
                                 priority
                             />
                         </div>
                         <div>
-                            <span className="text-[10px] text-white/80 font-bold uppercase tracking-widest leading-none block">
-                                {user?.role === "customer" ? "Amardip Elevators" : "Amardip Elevators"}
+                            <span className="text-[10px] text-white/50 font-medium tracking-widest leading-none block uppercase">
+                                {new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "short" })}
                             </span>
-                            <span className="text-base font-extrabold tracking-tight leading-normal">Good Morning, {user?.name || "Admin"}</span>
+                            <span className="text-[15px] font-bold tracking-tight leading-snug">{getTimeGreeting()}, {(user?.name || "Admin").split(" ")[0]}</span>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                        {/* Notification trigger */}
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={() => setShowNotificationCenter(!showNotificationCenter)}
-                            className="relative h-10 w-10 bg-white/10 hover:bg-white/18 active:scale-95 transition flex items-center justify-center rounded-full"
+                            className="relative h-9 w-9 bg-white/10 active:bg-white/20 active:scale-90 transition-all flex items-center justify-center rounded-xl"
                         >
-                            <BellIcon className="h-5.5 w-5.5 text-white" />
-                            <span className="absolute -top-0.5 -right-0.5 h-4.5 w-4.5 rounded-full bg-red-500 border-2 border-[#0a649d] flex items-center justify-center text-[9px] font-black text-white">
-                                {notifications.length}
-                            </span>
+                            <BellIcon className="h-5 w-5 text-white" />
+                            {notifications.length > 0 && (
+                                <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-red-500 border-[1.5px] border-[#073354] flex items-center justify-center text-[8px] font-black text-white">
+                                    {notifications.length}
+                                </span>
+                            )}
                         </button>
                     </div>
                 </header>
 
                 {/* NOTIFICATION CENTER DROPDOWN */}
                 {showNotificationCenter && (
-                    <div className="absolute top-16 left-0 right-0 z-40 mx-4 mt-2 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden animate-in slide-in-from-top-3 duration-250 select-none">
-                        <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
-                            <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Unread Alerts</span>
-                            <button onClick={() => setShowNotificationCenter(false)} className="text-slate-400 hover:text-slate-600 text-xs font-semibold">Dismiss</button>
+                    <div className="absolute top-[68px] left-0 right-0 z-40 mx-3 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_40px_rgba(4,24,43,0.18)] overflow-hidden animate-in slide-in-from-top-2 duration-200 select-none">
+                        <div className="px-5 py-3.5 flex items-center justify-between border-b border-slate-100">
+                            <span className="text-xs font-bold text-slate-900">Notifications</span>
+                            <button onClick={() => setShowNotificationCenter(false)} className="text-[11px] font-semibold text-slate-400 hover:text-slate-600">Clear all</button>
                         </div>
-                        <div className="divide-y divide-slate-50 max-h-[300px] overflow-y-auto">
+                        <div className="divide-y divide-slate-50 max-h-[280px] overflow-y-auto">
                             {notifications.map(n => (
-                                <div key={n.id} className="p-4 hover:bg-slate-50 transition text-xs">
-                                    <div className="flex justify-between items-center mb-1">
-                                        <span className="font-extrabold text-[#0a649d]">{n.category}</span>
-                                        <span className="text-[10px] text-slate-400">{n.time}</span>
+                                <div key={n.id} className="px-5 py-3.5 hover:bg-slate-50/80 transition-colors">
+                                    <div className="flex justify-between items-baseline gap-2">
+                                        <span className="text-[11px] font-bold text-[#0a649d]">{n.category}</span>
+                                        <span className="text-[10px] text-slate-400 shrink-0">{n.time}</span>
                                     </div>
-                                    <p className="text-slate-600 font-medium leading-relaxed">{n.message}</p>
+                                    <p className="mt-0.5 text-[12px] text-slate-600 font-medium leading-relaxed">{n.message}</p>
                                 </div>
                             ))}
                         </div>
@@ -1073,18 +1160,15 @@ function AdmindashboardShell({ user }) {
                 )}
 
                 {/* MAIN CONTENT AREA */}
-                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
+                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#eef2f7]">
 
-                    {moduleOpening ? (
-                        <ModuleOpenSkeleton />
-                    ) : (
                     <>
                     {/* TAB: DASHBOARD */}
                     {activeTab === "dashboard" && (
-                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
+                        <div className="p-4 space-y-3 animate-in fade-in duration-200">
 
                             <DashboardKpiGrid
-                                kpiCounts={kpiCounts}
+                                kpiCounts={liveKpiCounts}
                                 customerStats={customerStats}
                                 serviceStats={serviceStats}
                                 statsLoading={dashboardStatsLoading}
@@ -1094,25 +1178,24 @@ function AdmindashboardShell({ user }) {
                             />
 
                             {/* Section 1: Today's Activities */}
-                            {moduleIsLive("complaints") ? (
-                            <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
-                                <div className="flex items-center justify-between pb-3 border-b border-slate-50">
-                                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Today&apos;s Activities</h3>
-                                    <span className="text-[10px] font-bold text-slate-400">{activities.length} Events</span>
+                            {moduleIsLive("servicePlanner") ? (
+                            <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-[13px] font-bold text-slate-900">Today&apos;s Activities</h3>
+                                    <span className="text-[10px] font-medium text-slate-400">{activities.length} events</span>
                                 </div>
                                 <div className="space-y-4">
                                     {activities.map(a => (
-                                        <div key={a.id} className="flex gap-4">
-                                            <div className="text-center w-14 shrink-0">
-                                                <p className="text-xs font-extrabold text-[#0a649d] leading-none">{a.time.split(" ")[0]}</p>
-                                                <p className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-wide">{a.time.split(" ")[1]}</p>
+                                        <div key={a.id} className="flex gap-3.5 items-start">
+                                            <div className="text-center w-16 shrink-0 pt-0.5">
+                                                <p className="text-[11px] font-bold text-[#0a649d] leading-none tabular-nums">{a.time}</p>
+                                                <p className="text-[9px] font-medium text-slate-400 mt-0.5 uppercase">Service</p>
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <p className="text-xs font-extrabold text-slate-800 truncate">{a.type}</p>
-                                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">{a.site}</p>
+                                                <p className="text-[12px] font-semibold text-slate-800 truncate">{a.type}</p>
+                                                <p className="text-[11px] text-slate-400 mt-0.5 truncate">{a.site}</p>
                                             </div>
-                                            <span className={`h-fit text-[9px] font-bold px-2 py-0.5 rounded ${a.status === "In Progress" ? "bg-red-100 text-red-800" : "bg-amber-100 text-amber-800"
-                                                }`}>
+                                            <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-lg ${a.status === "In Progress" ? "bg-red-50 text-red-700" : a.status === "Scheduled" ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-700"}`}>
                                                 {a.status}
                                             </span>
                                         </div>
@@ -1120,68 +1203,59 @@ function AdmindashboardShell({ user }) {
                                 </div>
                             </div>
                             ) : (
-                                waitingModule("Recent Complaints", "complaints", "Waiting for client complaint data/module setup")
+                                waitingModule("Today's Activities", "servicePlanner", "Waiting for service planning data")
                             )}
 
                             {/* Section 2: Recent Complaints */}
-                            {moduleIsLive("technicians") ? (
-                            <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
-                                <div className="flex items-center justify-between pb-3 border-b border-slate-50">
-                                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Recent Complaints</h3>
-                                    <span className="text-[10px] font-bold text-slate-400">Interactive</span>
+                            <div className="rounded-[22px] bg-white p-5 space-y-3" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-[13px] font-bold text-slate-900">Recent Complaints</h3>
+                                    <button onClick={() => openTab("complaints")} className="text-[10px] font-semibold text-[#0a649d]">View all</button>
                                 </div>
-                                <div className="space-y-3.5">
-                                    {complaints.map(c => (
+                                <div className="space-y-2">
+                                    {complaintsLoading && complaints.length === 0 ? (
+                                        <p className="text-center text-xs text-slate-400 py-5">Loading complaints...</p>
+                                    ) : complaints.slice(0, 3).length === 0 ? (
+                                        <p className="text-center text-xs text-slate-400 py-5">No real complaints yet.</p>
+                                    ) : complaints.slice(0, 3).map(c => (
                                         <div
                                             key={c.id}
                                             onClick={() => {
                                                 setSelectedComplaint(c);
-                                                setModalTech(c.assignedTech || "");
-                                                setModalStatus(c.status || "Open");
+                                                setModalTech(c.assignedTechnicianUserId || "");
+                                                setModalStatus(c.status || "UNASSIGNED");
                                             }}
-                                            className="flex items-center justify-between p-3.5 bg-slate-50/70 border border-slate-100 rounded-2xl cursor-pointer hover:bg-slate-100/60 transition active:scale-[0.99]"
+                                            className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 active:scale-[0.98] transition-transform cursor-pointer"
                                         >
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2">
-                                                    <span className="text-xs font-black text-slate-900">{c.id}</span>
-                                                    <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-sm border ${c.color}`}>
-                                                        {c.priority}
-                                                    </span>
+                                                    <span className="text-[12px] font-bold text-slate-900">{c.complaintNo}</span>
+                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${c.priority === "EMERGENCY" ? "bg-red-50 border-red-100 text-red-700" : "bg-slate-50 border-slate-100 text-slate-600"}`}>{c.priority}</span>
                                                 </div>
-                                                <p className="text-[10px] text-slate-400 mt-1 truncate">{c.customer}</p>
+                                                <p className="text-[11px] text-slate-400 mt-0.5 truncate">{c.customerName}</p>
                                             </div>
-                                            <div
-                                                className={`text-[10px] font-bold px-3 py-1.5 rounded-xl border ${c.status === "Resolved" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                    c.status === "In Progress" ? "bg-red-50 border-red-100 text-red-700" :
-                                                        "bg-amber-50 border-amber-100 text-amber-700"
-                                                    }`}
-                                            >
+                                            <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-xl border ${complaintStatusClass(c.status)}`}>
                                                 {c.status}
-                                            </div>
+                                            </span>
                                         </div>
                                     ))}
                                 </div>
                             </div>
-                            ) : (
-                                waitingModule("Technician Status", "technicians", "Waiting for client staff/technician data")
-                            )}
 
                             {/* Section 3: Upcoming AMC Visits */}
-                            <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
-                                <div className="flex items-center justify-between pb-3 border-b border-slate-50">
-                                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Upcoming AMC Visits</h3>
-                                </div>
-                                <div className="space-y-3.5">
+                            <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
+                                <h3 className="text-[13px] font-bold text-slate-900">Upcoming AMC Visits</h3>
+                                <div className="space-y-4">
                                     {amcVisits.map(v => (
-                                        <div key={v.id} className="flex justify-between items-center">
-                                            <div className="min-w-0">
-                                                <p className="text-xs font-extrabold text-slate-800 truncate">{v.customer}</p>
+                                        <div key={v.id} className="flex justify-between items-center gap-3">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[12px] font-semibold text-slate-800 truncate">{v.customer}</p>
                                                 <p className="text-[10px] text-slate-400 mt-0.5 truncate">{v.building}</p>
-                                                <p className="text-[9px] font-bold text-slate-400 mt-1 leading-none">Due Date: <span className="text-slate-700">{v.dueDate}</span></p>
+                                                <p className="text-[10px] font-medium text-slate-500 mt-1">Due <span className="text-slate-700">{v.dueDate}</span></p>
                                             </div>
-                                            <a href={`tel:${v.phone}`} className="px-3 h-8.5 rounded-xl bg-[#0a649d] hover:bg-[#085282] text-white flex items-center justify-center gap-1.5 active:scale-95 transition text-[10px] font-black shadow-sm shrink-0">
+                                            <a href={`tel:${v.phone}`} className="h-9 px-3.5 rounded-xl flex items-center justify-center gap-1.5 active:scale-90 transition-transform text-[11px] font-bold text-white shrink-0" style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}>
                                                 <PhoneIcon className="h-3.5 w-3.5" />
-                                                <span>Call Now</span>
+                                                Call
                                             </a>
                                         </div>
                                     ))}
@@ -1189,25 +1263,26 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             {/* Section 4: Technician Status */}
-                            <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
-                                <div className="flex items-center justify-between pb-3 border-b border-slate-50">
-                                    <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Technician Status</h3>
-                                    <span className="text-[10px] font-bold text-slate-400">Tap Status to Toggle</span>
+                            <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
+                                <div className="flex items-center justify-between">
+                                    <h3 className="text-[13px] font-bold text-slate-900">Technician Status</h3>
+                                    <span className="text-[10px] font-medium text-slate-400">Tap to toggle</span>
                                 </div>
                                 <div className="space-y-3">
                                     {technicians.map(t => (
                                         <div key={t.id} className="flex justify-between items-center">
                                             <div className="min-w-0">
-                                                <p className="text-xs font-extrabold text-slate-800">{t.name}</p>
-                                                <p className="text-[10px] text-slate-400 mt-0.5">{t.role} • {t.workload}</p>
+                                                <p className="text-[12px] font-semibold text-slate-800">{t.name}</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5">{t.role} · {t.workload}</p>
                                             </div>
                                             <button
                                                 onClick={() => toggleTechnicianStatus(t.id)}
-                                                className={`text-[10px] font-bold px-2.5 py-1.5 rounded-xl border transition-all active:scale-95 ${t.status === "Available" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                    t.status === "On Duty" ? "bg-blue-50 border-blue-100 text-blue-700" :
-                                                        t.status === "Busy" ? "bg-amber-50 border-amber-100 text-amber-700" :
-                                                            "bg-slate-100 border-slate-200 text-slate-600"
-                                                    }`}
+                                                className={`text-[10px] font-semibold px-3 py-1.5 rounded-xl active:scale-95 transition-transform ${
+                                                    t.status === "Available" ? "bg-emerald-50 text-emerald-700" :
+                                                    t.status === "On Duty" ? "bg-blue-50 text-blue-700" :
+                                                    t.status === "Busy" ? "bg-amber-50 text-amber-700" :
+                                                    "bg-slate-100 text-slate-500"
+                                                }`}
                                             >
                                                 {t.status}
                                             </button>
@@ -1216,30 +1291,26 @@ function AdmindashboardShell({ user }) {
                                 </div>
                             </div>
 
-
-
                         </div>
                     )}
 
                     {/* TAB: COMPLAINTS */}
-                    {activeTab === "complaints" && !moduleIsLive("complaints") && (
+                    {activeTab === "complaints" && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            <div>
-                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Complaints</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Elevator breakdown reports and ticket logs.</p>
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Complaints</h1>
+                                    <p className="text-xs text-slate-500 mt-0.5">Real complaint tickets and worker assignment.</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddComplaintModal(true)}
+                                    className="h-10 px-4 rounded-2xl bg-[#0a649d] text-white text-xs font-black shadow-sm active:scale-95"
+                                >
+                                    Add
+                                </button>
                             </div>
-                            {waitingModule("Service Complaints", "complaints", "Waiting for client complaint data/module setup")}
-                        </div>
-                    )}
 
-                    {activeTab === "complaints" && moduleIsLive("complaints") && (
-                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            <div>
-                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Complaints</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Elevator breakdown reports and ticket logs.</p>
-                            </div>
-
-                            {/* Search box & Filter tabs */}
                             <div className="space-y-3">
                                 <div className="relative">
                                     <input
@@ -1255,85 +1326,80 @@ function AdmindashboardShell({ user }) {
                                 </div>
 
                                 <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
-                                    {["all", "Open", "In Progress", "Resolved"].map(status => (
+                                    {["all", ...COMPLAINT_STATUS_OPTIONS].map(status => (
                                         <button
                                             key={status}
                                             onClick={() => setStatusFilter(status)}
-                                            className={`amardip-filter-chip shrink-0 capitalize ${statusFilter === status ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"
-                                                }`}
+                                            className={`amardip-filter-chip shrink-0 ${statusFilter === status ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"}`}
                                         >
-                                            {status === "all" ? "All Tickets" : status}
+                                            {status === "all" ? "All" : status.replaceAll("_", " ")}
                                         </button>
                                     ))}
                                 </div>
+
+                                <div className="grid grid-cols-2 gap-2">
+                                    <select value={priorityFilter} onChange={(e) => setPriorityFilter(e.target.value)} className="amardip-field">
+                                        <option value="all">All priorities</option>
+                                        {COMPLAINT_PRIORITY_OPTIONS.map(priority => <option key={priority} value={priority}>{priority}</option>)}
+                                    </select>
+                                    <select value={complaintTypeFilter} onChange={(e) => setComplaintTypeFilter(e.target.value)} className="amardip-field">
+                                        <option value="all">All types</option>
+                                        {COMPLAINT_TYPE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                    </select>
+                                </div>
                             </div>
 
-                            {/* Complaints list */}
-                            <div className="space-y-6">
-                                {(() => {
-                                    const filtered = complaints.filter(c => {
-                                        const matchesSearch = c.id.toLowerCase().includes(searchQuery.toLowerCase()) || c.customer.toLowerCase().includes(searchQuery.toLowerCase());
-                                        const matchesStatus = statusFilter === "all" || c.status === statusFilter;
-                                        return matchesSearch && matchesStatus;
-                                    });
+                            {complaintError && (
+                                <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{complaintError}</p>
+                            )}
 
-                                    const grouped = filtered.reduce((groups, item) => {
-                                        const date = item.date || "Unknown Date";
-                                        if (!groups[date]) {
-                                            groups[date] = [];
-                                        }
-                                        groups[date].push(item);
-                                        return groups;
-                                    }, {});
+                            <div className="grid grid-cols-3 gap-2">
+                                {[
+                                    ["Open", complaintStats?.openComplaints || 0],
+                                    ["Unassigned", complaintStats?.unassignedComplaints || 0],
+                                    ["Emergency", complaintStats?.emergencyComplaints || 0],
+                                ].map(([label, value]) => (
+                                    <div key={label} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+                                        <p className="text-lg font-black text-slate-900">{value}</p>
+                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
+                                    </div>
+                                ))}
+                            </div>
 
-                                    const sortedDates = Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a));
-
-                                    if (sortedDates.length === 0) {
-                                        return (
-                                            <p className="text-center text-xs text-slate-400 py-6">No matching complaints found.</p>
-                                        );
-                                    }
-
-                                    return sortedDates.map(date => (
-                                        <div key={date} className="space-y-2">
-                                            <div className="flex items-center gap-2 px-1">
-                                                <span className="h-1.5 w-1.5 rounded-full bg-[#0a649d]"></span>
-                                                <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">{formatGroupDate(date)}</h4>
+                            <div className="space-y-3">
+                                {complaintsLoading && complaints.length === 0 ? (
+                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real complaints...</p>
+                                ) : complaints.length === 0 ? (
+                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No complaints found. Use Add to create the first DB-backed ticket.</p>
+                                ) : complaints.map(c => (
+                                    <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedComplaint(c);
+                                            setModalTech(c.assignedTechnicianUserId || "");
+                                            setModalStatus(c.status || "UNASSIGNED");
+                                        }}
+                                        className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99]"
+                                    >
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="text-sm font-black text-slate-900">{c.complaintNo}</span>
+                                                    <span className={`rounded border px-2 py-0.5 text-[9px] font-black ${c.priority === "EMERGENCY" ? "bg-red-50 border-red-100 text-red-700" : "bg-slate-50 border-slate-100 text-slate-600"}`}>{c.priority}</span>
+                                                </div>
+                                                <p className="mt-1 text-xs font-bold text-slate-700">{c.customerName}</p>
+                                                <p className="mt-0.5 text-[10px] text-slate-400">{c.mobileNo || "-"} · {c.city || "-"}</p>
                                             </div>
-                                            <div className="space-y-2.5">
-                                                {grouped[date].map(c => (
-                                                    <div
-                                                        key={c.id}
-                                                        onClick={() => {
-                                                            setSelectedComplaint(c);
-                                                            setModalTech(c.assignedTech || "");
-                                                            setModalStatus(c.status || "Open");
-                                                        }}
-                                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between cursor-pointer hover:bg-slate-50 transition active:scale-[0.99]"
-                                                    >
-                                                        <div className="min-w-0">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-xs font-black text-slate-900">{c.id}</span>
-                                                                <span className={`text-[9px] font-extrabold px-1.5 py-0.2 rounded-sm border ${c.color}`}>
-                                                                    {c.priority}
-                                                                </span>
-                                                            </div>
-                                                            <p className="text-[10px] text-slate-500 mt-1 truncate">{c.customer}</p>
-                                                        </div>
-                                                        <div
-                                                            className={`text-[10px] font-bold px-3 py-1.5 rounded-xl border ${c.status === "Resolved" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                                c.status === "In Progress" ? "bg-red-50 border-red-100 text-red-700" :
-                                                                    "bg-amber-50 border-amber-100 text-amber-700"
-                                                                }`}
-                                                        >
-                                                            {c.status}
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                            <span className={`rounded-xl border px-2.5 py-1 text-[10px] font-black ${complaintStatusClass(c.status)}`}>{c.status?.replaceAll("_", " ")}</span>
                                         </div>
-                                    ));
-                                })()}
+                                        <p className="mt-3 line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{c.description}</p>
+                                        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px] font-bold text-slate-400">
+                                            <span>{formatComplaintDate(c.createdAt)}</span>
+                                            <span>{c.assignedTechnicianName ? `Worker: ${c.assignedTechnicianName}` : "Unassigned"}</span>
+                                        </div>
+                                    </button>
+                                ))}
                             </div>
                         </div>
                     )}
@@ -1777,7 +1843,7 @@ function AdmindashboardShell({ user }) {
                                             <div className="text-[10px] text-slate-500 font-semibold space-y-1.5 pt-1">
                                                 <div className="flex justify-between">
                                                     <span>Active Contracts:</span>
-                                                    <span className="font-extrabold text-slate-800">{kpiCounts.activeAMC}</span>
+                                                    <span className="font-extrabold text-slate-800">{liveKpiCounts.activeAMC}</span>
                                                 </div>
                                                 <div className="flex justify-between">
                                                     <span>Completed This Month:</span>
@@ -2099,7 +2165,7 @@ function AdmindashboardShell({ user }) {
                                             <p className="text-center text-xs text-slate-400 py-6">No material requests logged.</p>
                                         ) : (
                                             materialRequests
-                                                .filter(r => r.partName.toLowerCase().includes(searchQuery.toLowerCase()) || (r.technicianName || "Suresh R.").toLowerCase().includes(searchQuery.toLowerCase()))
+                                                .filter(r => r.partName.toLowerCase().includes(searchQuery.toLowerCase()) || (r.technicianName || r.technician || "Technician").toLowerCase().includes(searchQuery.toLowerCase()))
                                                 .map(r => (
                                                     <div key={r.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between">
                                                         <div className="flex justify-between items-start">
@@ -2115,7 +2181,7 @@ function AdmindashboardShell({ user }) {
                                                                     </span>
                                                                 </div>
                                                                 <h3 className="text-sm font-extrabold text-slate-900 mt-1 truncate">{r.partName} x {r.quantity}</h3>
-                                                                <p className="text-[10px] text-slate-400 mt-0.5">Technician: <span className="font-semibold text-slate-600">{r.technicianName || r.technician || "Suresh R."}</span></p>
+                                                                <p className="text-[10px] text-slate-400 mt-0.5">Technician: <span className="font-semibold text-slate-600">{r.technicianName || r.technician || "Technician"}</span></p>
                                                             </div>
                                                             <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
                                                                 r.status === "Approved" ? "bg-emerald-100 text-emerald-800" :
@@ -2346,14 +2412,24 @@ function AdmindashboardShell({ user }) {
                                         <div>
                                             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">DB Users Directory</h3>
                                             {usersLoading ? (
-                                                <p className="text-center text-xs text-slate-400 py-4">Querying database...</p>
+                                                <div className="space-y-2">
+                                                    {[1,2,3].map(i => (
+                                                        <div key={i} className="rounded-2xl border border-slate-200/80 bg-white p-3.5 flex items-center justify-between animate-pulse">
+                                                            <div className="space-y-1.5">
+                                                                <div className="h-3 w-28 bg-slate-200 rounded-full" />
+                                                                <div className="h-2.5 w-36 bg-slate-100 rounded-full" />
+                                                            </div>
+                                                            <div className="h-8.5 w-8.5 rounded-lg bg-slate-100" />
+                                                        </div>
+                                                    ))}
+                                                </div>
                                             ) : (
                                                 <div className="space-y-2">
                                                     {usersList.map(u => (
                                                         <div key={u.id} className="rounded-2xl border border-slate-200/80 bg-white p-3.5 flex items-center justify-between">
                                                             <div className="min-w-0">
                                                                 <p className="text-xs font-extrabold text-slate-800 truncate">{u.name}</p>
-                                                                <p className="text-[9px] text-slate-400 font-semibold mt-0.5">@{u.username} • <span className="capitalize text-[#0a649d]">{u.role}</span></p>
+                                                                <p className="text-[9px] text-slate-400 font-semibold mt-0.5">@{u.username} • <span className="text-[#0a649d]">{u.designation || formatUserRole(u.role)}</span></p>
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <button
@@ -2387,61 +2463,39 @@ function AdmindashboardShell({ user }) {
                         </div>
                     )}
                     </>
-                    )}
 
                 </main>
 
                 {/* BOTTOM NAVIGATION BAR */}
-                <div className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a2540] border-t border-slate-800 text-white flex justify-around items-start z-50 px-1 pt-2.5">
-                    <button
-                        onClick={() => openTab("dashboard")}
-                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 ${activeTab === "dashboard" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
-                    >
-                        <OverviewIcon className="h-5 w-5 mb-0.5" />
-                        <span className="text-[9px] font-bold tracking-tight">Dashboard</span>
-                    </button>
-
-                    <button
-                        onClick={() => openTab("complaints")}
-                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 relative ${activeTab === "complaints" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
-                    >
-                        <AlertIcon className="h-5 w-5 mb-0.5" />
-                        <span className="text-[9px] font-bold tracking-tight">Complaints</span>
-                        {kpiCounts.openComplaints > 0 && (
-                            <span className="absolute top-1 right-2 sm:right-4 inline-flex items-center justify-center h-4 w-4 text-[8px] font-black bg-red-500 text-white rounded-full">
-                                {kpiCounts.openComplaints}
-                            </span>
-                        )}
-                    </button>
-
-                    <button
-                        onClick={() => openTab("service")}
-                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 relative ${activeTab === "service" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
-                    >
-                        <ServiceIcon className="h-5 w-5 mb-0.5" />
-                        <span className="text-[9px] font-bold tracking-tight">Service</span>
-                        {kpiCounts.todayService > 0 && (
-                            <span className="absolute top-1 right-2 sm:right-4 inline-flex items-center justify-center h-4 w-4 text-[8px] font-black bg-[#59e0ff] text-[#0a2540] rounded-full">
-                                {kpiCounts.todayService}
-                            </span>
-                        )}
-                    </button>
-
-                    <button
-                        onClick={() => openTab("technicians")}
-                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 ${activeTab === "technicians" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
-                    >
-                        <TechniciansIcon className="h-5 w-5 mb-0.5" />
-                        <span className="text-[9px] font-bold tracking-tight">Techs</span>
-                    </button>
-
-                    <button
-                        onClick={() => openTab("more")}
-                        className={`flex flex-col items-center justify-center flex-1 rounded-2xl py-2 ${activeTab === "more" ? "text-[#59e0ff] bg-white/5" : "text-slate-400"}`}
-                    >
-                        <MoreIcon className="h-5 w-5 mb-0.5" />
-                        <span className="text-[9px] font-bold tracking-tight">More</span>
-                    </button>
+                <div className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a1f35]/95 backdrop-blur-xl border-t border-white/8 text-white flex justify-around items-start z-50 px-1 pt-2">
+                    {[
+                        { tab: "dashboard", label: "Dashboard", Icon: OverviewIcon, badge: null },
+                        { tab: "complaints", label: "Complaints", Icon: AlertIcon, badge: liveKpiCounts.openComplaints > 0 ? liveKpiCounts.openComplaints : null, badgeColor: "bg-red-500 text-white" },
+                        { tab: "service", label: "Service", Icon: ServiceIcon, badge: liveKpiCounts.todayService > 0 ? liveKpiCounts.todayService : null, badgeColor: "bg-[#59e0ff] text-[#0a1f35]" },
+                        { tab: "technicians", label: "Techs", Icon: TechniciansIcon, badge: null },
+                        { tab: "more", label: "More", Icon: MoreIcon, badge: null },
+                    ].map(({ tab, label, Icon, badge, badgeColor }) => {
+                        const active = activeTab === tab;
+                        return (
+                            <button
+                                key={tab}
+                                onClick={() => openTab(tab)}
+                                className="relative flex flex-col items-center justify-center flex-1 py-1.5 gap-0.5 active:scale-90 transition-transform duration-100"
+                            >
+                                <div className={`flex items-center justify-center rounded-xl px-3 py-1 transition-all duration-200 ${active ? "bg-[#59e0ff]/15" : ""}`}>
+                                    <Icon className={`h-5 w-5 transition-colors duration-200 ${active ? "text-[#59e0ff]" : "text-slate-400"}`} />
+                                </div>
+                                <span className={`text-[9.5px] font-semibold tracking-tight transition-colors duration-200 ${active ? "text-[#59e0ff]" : "text-slate-500"}`}>
+                                    {label}
+                                </span>
+                                {badge !== null && (
+                                    <span className={`absolute top-0.5 right-1 sm:right-3 inline-flex items-center justify-center h-4 min-w-4 px-1 text-[8px] font-black rounded-full ${badgeColor}`}>
+                                        {badge}
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
                 </div>
 
             </div>
@@ -2531,6 +2585,7 @@ function AdmindashboardShell({ user }) {
                                     <option value="admin">Admin</option>
                                     <option value="manager">Manager</option>
                                     <option value="worker">Worker</option>
+                                    <option value="front_office">Front Office</option>
                                     <option value="customer">Customer</option>
                                 </select>
                             </div>
@@ -2705,6 +2760,102 @@ function AdmindashboardShell({ user }) {
                 </div>
             )}
 
+            {/* MODAL: ADD COMPLAINT */}
+            {showAddComplaintModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+                        <div className="flex items-center justify-between bg-[#0a649d] px-5 py-4.5 text-white">
+                            <div>
+                                <h2 className="text-base font-bold">Add Complaint</h2>
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-white/80">Office / admin ticket</p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowAddComplaintModal(false)}
+                                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white"
+                            >
+                                <CloseIcon className="h-5 w-5" />
+                            </button>
+                        </div>
+                        <form onSubmit={handleCreateComplaint} className="max-h-[75vh] space-y-3 overflow-y-auto p-5">
+                            <input
+                                value={newComplaintData.customerName}
+                                onChange={(e) => setNewComplaintData({ ...newComplaintData, customerName: e.target.value })}
+                                placeholder="Customer name"
+                                required
+                                className="amardip-field w-full"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                                <input
+                                    value={newComplaintData.mobileNo}
+                                    onChange={(e) => setNewComplaintData({ ...newComplaintData, mobileNo: e.target.value })}
+                                    placeholder="Mobile"
+                                    className="amardip-field w-full"
+                                />
+                                <input
+                                    value={newComplaintData.city}
+                                    onChange={(e) => setNewComplaintData({ ...newComplaintData, city: e.target.value })}
+                                    placeholder="City"
+                                    className="amardip-field w-full"
+                                />
+                            </div>
+                            <input
+                                value={newComplaintData.address}
+                                onChange={(e) => setNewComplaintData({ ...newComplaintData, address: e.target.value })}
+                                placeholder="Address"
+                                className="amardip-field w-full"
+                            />
+                            <div className="grid grid-cols-2 gap-2">
+                                <select
+                                    value={newComplaintData.complaintType}
+                                    onChange={(e) => setNewComplaintData({ ...newComplaintData, complaintType: e.target.value })}
+                                    className="amardip-field"
+                                >
+                                    {COMPLAINT_TYPE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                                </select>
+                                <select
+                                    value={newComplaintData.priority}
+                                    onChange={(e) => setNewComplaintData({ ...newComplaintData, priority: e.target.value })}
+                                    className="amardip-field"
+                                >
+                                    {COMPLAINT_PRIORITY_OPTIONS.map(priority => <option key={priority} value={priority}>{priority}</option>)}
+                                </select>
+                            </div>
+                            <textarea
+                                value={newComplaintData.description}
+                                onChange={(e) => setNewComplaintData({ ...newComplaintData, description: e.target.value })}
+                                rows={4}
+                                required
+                                placeholder="Complaint description"
+                                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
+                            />
+                            <textarea
+                                value={newComplaintData.officeNotes}
+                                onChange={(e) => setNewComplaintData({ ...newComplaintData, officeNotes: e.target.value })}
+                                rows={3}
+                                placeholder="Office notes optional"
+                                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
+                            />
+                            <div className="flex gap-2 border-t border-slate-100 pt-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddComplaintModal(false)}
+                                    className="h-10 flex-1 rounded-xl border border-slate-200 text-xs font-bold text-slate-600"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="h-10 flex-1 rounded-xl bg-[#0a649d] text-xs font-bold text-white"
+                                >
+                                    Save Complaint
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
             {/* MODAL: COMPLAINT DETAILS & ASSIGNMENT */}
             {selectedComplaint && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
@@ -2712,7 +2863,7 @@ function AdmindashboardShell({ user }) {
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>
                                 <h2 className="text-base font-bold">Complaint Ticket</h2>
-                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.id}</p>
+                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.complaintNo}</p>
                             </div>
                             <button
                                 onClick={() => setSelectedComplaint(null)}
@@ -2723,20 +2874,21 @@ function AdmindashboardShell({ user }) {
                         </div>
 
                         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-                            {/* Detail items */}
                             <div>
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
-                                <p className="text-sm font-extrabold text-slate-800">{selectedComplaint.customer}</p>
+                                <p className="text-sm font-extrabold text-slate-800">{selectedComplaint.customerName}</p>
+                                <p className="mt-0.5 text-xs text-slate-500">{selectedComplaint.mobileNo || "-"} · {selectedComplaint.city || "-"}</p>
+                                {selectedComplaint.address && <p className="mt-1 text-xs text-slate-400">{selectedComplaint.address}</p>}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Logged Date</span>
-                                    <p className="text-xs font-bold text-slate-700">{formatGroupDate(selectedComplaint.date)}</p>
+                                    <p className="text-xs font-bold text-slate-700">{formatComplaintDate(selectedComplaint.createdAt)}</p>
                                 </div>
                                 <div>
                                     <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Priority</span>
-                                    <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded border mt-1 ${selectedComplaint.color}`}>
+                                    <span className={`inline-block text-[9px] font-black px-2 py-0.5 rounded border mt-1 ${selectedComplaint.priority === "EMERGENCY" ? "bg-red-50 border-red-100 text-red-700" : "bg-slate-50 border-slate-100 text-slate-700"}`}>
                                         {selectedComplaint.priority}
                                     </span>
                                 </div>
@@ -2751,26 +2903,21 @@ function AdmindashboardShell({ user }) {
 
                             <hr className="border-slate-100" />
 
-                            {/* Status Change */}
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Ticket Status</label>
                                 <select
                                     value={modalStatus}
-                                    onChange={(e) => {
-                                        setModalStatus(e.target.value);
-                                        handleUpdateComplaintStatus(selectedComplaint.id, e.target.value);
-                                    }}
+                                    onChange={(e) => updateSelectedComplaintStatus(e.target.value)}
                                     className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
                                 >
-                                    <option value="Open">Open</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Resolved">Resolved</option>
+                                    {COMPLAINT_STATUS_OPTIONS.map(status => (
+                                        <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
+                                    ))}
                                 </select>
                             </div>
 
-                            {/* Tech Assignment */}
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Technician</label>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Worker</label>
                                 <select
                                     value={modalTech}
                                     onChange={(e) => setModalTech(e.target.value)}
@@ -2778,61 +2925,20 @@ function AdmindashboardShell({ user }) {
                                 >
                                     <option value="">-- Unassigned --</option>
                                     {technicians.map(t => (
-                                        <option key={t.id} value={t.name}>{t.name} ({t.status})</option>
+                                        <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
                                     ))}
                                 </select>
                             </div>
 
-                            {/* Allocate Spare Parts */}
-                            <div className="space-y-2">
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase pl-0.5">Allocate Spare Parts</label>
-                                <div className="flex gap-2">
-                                    <select
-                                        value={tempPartName}
-                                        onChange={(e) => setTempPartName(e.target.value)}
-                                        className="h-9 flex-1 px-2.5 rounded-lg border border-slate-200 text-xs bg-white outline-none focus:border-[#0a649d] cursor-pointer"
-                                    >
-                                        <option>Door Roller Assembly</option>
-                                        <option>24V Control Relay</option>
-                                        <option>Limit Switch block</option>
-                                        <option>Traction Brake Lining</option>
-                                        <option>Governor Safety Cable</option>
-                                        <option>Car Guide Shoe</option>
-                                    </select>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        max={10}
-                                        value={tempPartQty}
-                                        onChange={(e) => setTempPartQty(parseInt(e.target.value) || 1)}
-                                        className="h-9 w-14 px-2 rounded-lg border border-slate-200 text-xs bg-white outline-none focus:border-[#0a649d] text-center font-bold"
-                                    />
-                                    <button
-                                        type="button"
-                                        onClick={handleAddPart}
-                                        className="h-9 px-3 bg-[#0a649d] text-white rounded-lg text-xs font-bold hover:bg-[#085282] transition cursor-pointer"
-                                    >
-                                        +
-                                    </button>
-                                </div>
-
-                                {/* Allocated list */}
-                                {allocatedParts.length > 0 && (
-                                    <div className="bg-slate-50 border border-slate-100 rounded-xl p-2.5 space-y-1.5">
-                                        {allocatedParts.map((p, idx) => (
-                                            <div key={idx} className="flex justify-between items-center text-xs">
-                                                <span className="font-semibold text-slate-700">{p.partName} x {p.quantity}</span>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleRemovePart(p.partName)}
-                                                    className="text-red-500 hover:text-red-700 font-extrabold text-[10px] bg-transparent border-0 cursor-pointer"
-                                                >
-                                                    Remove
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assignment Notes</label>
+                                <textarea
+                                    value={assignmentNotes}
+                                    onChange={(e) => setAssignmentNotes(e.target.value)}
+                                    rows={3}
+                                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
+                                    placeholder="Optional note for assignment"
+                                />
                             </div>
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
@@ -2845,7 +2951,7 @@ function AdmindashboardShell({ user }) {
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => handleAssignComplaint(selectedComplaint.id, modalTech)}
+                                    onClick={assignSelectedComplaint}
                                     className="h-10 px-4.5 bg-[#0a649d] text-white rounded-xl text-xs font-semibold hover:bg-[#085282] transition"
                                 >
                                     Save Assignment
@@ -2957,37 +3063,11 @@ function AdmindashboardShell({ user }) {
                             {/* Service Images */}
                             <div>
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Service Evidence Images</span>
-                                {selectedSchedule.status === "Completed" ? (
-                                    <div className="grid grid-cols-2 gap-2.5">
-                                        <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex flex-col">
-                                            <div className="h-24 bg-gradient-to-br from-slate-200 to-slate-300 relative flex items-center justify-center text-slate-500 font-bold text-xs select-none">
-                                                <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                                                <span className="absolute bottom-1 right-2 bg-emerald-500 text-white text-[8px] font-extrabold px-1.5 py-0.2 rounded">Post-Service</span>
-                                            </div>
-                                            <div className="p-1.5 bg-white border-t border-slate-100 text-center">
-                                                <p className="text-[9px] font-bold text-slate-700">Gearbox Lube Check</p>
-                                                <p className="text-[8px] text-slate-400 mt-0.5">Suresh R. • 10:45 AM</p>
-                                            </div>
-                                        </div>
-                                        <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-50 flex flex-col">
-                                            <div className="h-24 bg-gradient-to-br from-slate-200 to-slate-300 relative flex items-center justify-center text-slate-500 font-bold text-xs select-none">
-                                                <svg className="h-8 w-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                                                <span className="absolute bottom-1 right-2 bg-emerald-500 text-white text-[8px] font-extrabold px-1.5 py-0.2 rounded">Post-Service</span>
-                                            </div>
-                                            <div className="p-1.5 bg-white border-t border-slate-100 text-center">
-                                                <p className="text-[9px] font-bold text-slate-700">Door Rail Clearance</p>
-                                                <p className="text-[8px] text-slate-400 mt-0.5">Suresh R. • 11:15 AM</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-4 text-center">
-                                        <p className="text-xs text-slate-400 font-semibold leading-relaxed">
-                                            No photos available yet.<br />
-                                            Technician has not uploaded service evidence.
-                                        </p>
-                                    </div>
-                                )}
+                                <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-4 text-center">
+                                    <p className="text-xs text-slate-400 font-semibold leading-relaxed">
+                                        No service evidence has been uploaded for this record.
+                                    </p>
+                                </div>
                             </div>
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
