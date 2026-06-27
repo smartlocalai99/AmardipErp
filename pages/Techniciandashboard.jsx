@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { subscribeToPush } from "@/lib/pushClient";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
@@ -206,6 +207,18 @@ export default function Techniciandashboard({ user }) {
     const [jobs, setJobs] = useState([]);
     const [jobsError, setJobsError] = useState("");
 
+    // Voice note states for the job completion form
+    const [voiceLanguage, setVoiceLanguage] = useState("auto");
+    const [isRecording, setIsRecording] = useState(false);
+    const [voiceProcessing, setVoiceProcessing] = useState(false);
+    const [voiceTranscript, setVoiceTranscript] = useState("");
+    const [voiceEnglishNote, setVoiceEnglishNote] = useState("");
+    const [voiceError, setVoiceError] = useState("");
+    const [interimTranscript, setInterimTranscript] = useState("");
+    const recognitionRef = useRef(null);
+    const finalTranscriptRef = useRef("");
+    const [submittingJob, setSubmittingJob] = useState(false);
+
     // Material Request List
     const [materialRequests, setMaterialRequests] = useState([
         { id: "REQ-901", partName: "24V Control Relay", quantity: 2, reason: "Relay contacts burnt in panel", urgency: "High", status: "Approved", date: "June 20, 2026", qrCode: "INVENTORY_PASS_REQ901" },
@@ -262,6 +275,8 @@ export default function Techniciandashboard({ user }) {
     // Sync material requests from localStorage; assigned jobs come from PostgreSQL.
     useEffect(() => {
         fetchAssignedComplaints();
+        // Subscribe to push notifications (non-blocking — worker can still decline)
+        subscribeToPush().catch(() => {});
 
         const storedRequests = localStorage.getItem("amardip_material_requests");
         if (storedRequests) {
@@ -532,9 +547,9 @@ export default function Techniciandashboard({ user }) {
     };
 
     // Submit / Complete Job
-    const handleCompleteJob = (e) => {
+    const handleCompleteJob = async (e) => {
         e.preventDefault();
-        
+
         // Checklist validation
         const pendingItems = Object.entries(activeJob.checklist).filter(([_, val]) => !val);
         if (pendingItems.length > 0) {
@@ -566,7 +581,35 @@ export default function Techniciandashboard({ user }) {
             return;
         }
 
-        // Mark Completed
+        setSubmittingJob(true);
+
+        // Persist to DB — a network/DB failure must not block the field worker from completing the job
+        if (activeJob.dbId) {
+            try {
+                await fetch("/api/worker/complete-job", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        jobDbId: activeJob.dbId,
+                        problemIdentified: activeJob.workReport.problem,
+                        workPerformed: activeJob.workReport.workPerformed,
+                        sparePartsUsed: activeJob.workReport.sparePartsUsed,
+                        statusResolution: activeJob.workReport.status,
+                        gpsCheckedIn: activeJob.gpsCheckedIn,
+                        checklistData: activeJob.checklist,
+                        customerRepName: sigCustomerName,
+                        voiceLanguage: voiceLanguage !== "auto" ? voiceLanguage : null,
+                        voiceOriginalTranscript: voiceTranscript || null,
+                        voiceEnglishTranslation: voiceEnglishNote || null,
+                        voiceProcessingStatus: voiceTranscript ? "DONE" : null,
+                    }),
+                });
+            } catch (err) {
+                console.warn("complete-job save error (non-blocking):", err.message);
+            }
+        }
+
+        // Mark Completed locally
         const timeDone = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
         setJobs(prev => prev.map(j => {
             if (j.id === activeJob.id) {
@@ -588,11 +631,131 @@ export default function Techniciandashboard({ user }) {
         setSigCustomerName("");
         setSigConsentChecked(false);
         setSignatureCaptured(false);
+        resetVoiceNote();
+        setSubmittingJob(false);
 
         alert(`JOB COMPLETED SUCCESSFULLY!\n- Ticket ${activeJob.id} has been resolved.\n- Admin Portal notification dispatched.\n- Automated Service PDF report sent to customer.`);
-        
+
         setActiveJob(null);
         setActiveTab("dashboard");
+    };
+
+    // Voice note recording using the browser's built-in Web Speech API (free, no API key).
+    // Transcription runs locally in the browser. Only translation (Telugu/Hindi → English)
+    // hits the backend, and that only needs a free Groq or MyMemory key.
+    const startVoiceRecording = () => {
+        setVoiceError("");
+        setVoiceTranscript("");
+        setVoiceEnglishNote("");
+        setInterimTranscript("");
+        finalTranscriptRef.current = "";
+
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            setVoiceError("Voice recognition requires Chrome or Edge. Please type the note manually.");
+            return;
+        }
+
+        const recognition = new SpeechRecognition();
+        recognitionRef.current = recognition;
+
+        const langMap = { auto: "en-IN", telugu: "te-IN", hindi: "hi-IN", english: "en-IN" };
+        const capturedLang = voiceLanguage;
+        recognition.lang = langMap[capturedLang] || "en-IN";
+        recognition.continuous = true;   // keep listening until worker taps Stop
+        recognition.interimResults = true;
+        recognition.maxAlternatives = 1;
+
+        recognition.onstart = () => setIsRecording(true);
+
+        recognition.onresult = (event) => {
+            let interim = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                const text = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscriptRef.current += (finalTranscriptRef.current ? " " : "") + text;
+                    setVoiceTranscript(finalTranscriptRef.current.trim());
+                } else {
+                    interim += text;
+                }
+            }
+            setInterimTranscript(interim);
+        };
+
+        recognition.onerror = (event) => {
+            setIsRecording(false);
+            setInterimTranscript("");
+            const msgs = {
+                "not-allowed": "Microphone access denied. Please allow microphone access and try again.",
+                "no-speech": "No speech detected. Tap the mic and speak clearly.",
+                "network": "Network error during recognition. Please check your connection.",
+            };
+            setVoiceError(msgs[event.error] || "Voice recognition failed. Please type the note manually.");
+        };
+
+        recognition.onend = () => {
+            setIsRecording(false);
+            setInterimTranscript("");
+            const transcript = finalTranscriptRef.current.trim();
+            if (!transcript) return;
+            // Telugu and Hindi need English translation; English/auto are already in English
+            if (capturedLang === "telugu" || capturedLang === "hindi") {
+                translateVoiceTranscript(transcript, capturedLang);
+            } else {
+                // English or auto — no translation needed, fill directly
+                handleReportFieldChange("workPerformed", transcript);
+            }
+        };
+
+        recognition.start();
+    };
+
+    const stopVoiceRecording = () => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+        setIsRecording(false);
+    };
+
+    const translateVoiceTranscript = async (text, lang) => {
+        setVoiceProcessing(true);
+        try {
+            const res = await fetch("/api/worker/voice-note/translate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ text, fromLanguage: lang }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setVoiceEnglishNote(data.translatedText || "");
+                handleReportFieldChange("workPerformed", data.translatedText || text);
+            } else {
+                // Translation failed — fill with original so worker can edit manually
+                setVoiceEnglishNote(text);
+                handleReportFieldChange("workPerformed", text);
+                if (data.message) setVoiceError(data.message);
+            }
+        } catch {
+            setVoiceEnglishNote(text);
+            handleReportFieldChange("workPerformed", text);
+            setVoiceError("Translation unavailable. Original transcript filled — please edit if needed.");
+        } finally {
+            setVoiceProcessing(false);
+        }
+    };
+
+    const resetVoiceNote = () => {
+        setVoiceTranscript("");
+        setVoiceEnglishNote("");
+        setVoiceError("");
+        setInterimTranscript("");
+        setIsRecording(false);
+        setVoiceProcessing(false);
+        finalTranscriptRef.current = "";
+        if (recognitionRef.current) {
+            try { recognitionRef.current.abort(); } catch {}
+            recognitionRef.current = null;
+        }
     };
 
     // Material Request submission
@@ -1421,9 +1584,128 @@ export default function Techniciandashboard({ user }) {
                                                     />
                                                 </div>
 
+                                                {/* ── Voice Note Panel (Web Speech API — free, no API key needed) ── */}
+                                                <div className="rounded-2xl border border-[#0a649d]/20 bg-[#f0f7fd] p-3.5 space-y-3">
+                                                    {/* Header */}
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="h-6 w-6 rounded-lg bg-[#0a649d]/15 flex items-center justify-center shrink-0">
+                                                                <svg className="h-3 w-3 text-[#0a649d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3z" />
+                                                                </svg>
+                                                            </div>
+                                                            <p className="text-[10px] font-bold text-[#0a649d] uppercase tracking-wider">Speak Work Note</p>
+                                                        </div>
+                                                        <p className="text-[8.5px] text-slate-400 font-medium">Voice used only for this note</p>
+                                                    </div>
+
+                                                    {/* Language selector */}
+                                                    <div className="flex gap-1.5">
+                                                        {[
+                                                            { key: "auto", label: "Auto" },
+                                                            { key: "telugu", label: "Telugu" },
+                                                            { key: "hindi", label: "Hindi" },
+                                                            { key: "english", label: "English" },
+                                                        ].map(({ key, label }) => (
+                                                            <button
+                                                                key={key}
+                                                                type="button"
+                                                                disabled={isRecording || voiceProcessing}
+                                                                onClick={() => setVoiceLanguage(key)}
+                                                                className={`flex-1 h-7 rounded-xl text-[9px] font-black uppercase tracking-wide transition-colors ${
+                                                                    voiceLanguage === key
+                                                                        ? "bg-[#0a649d] text-white shadow-sm"
+                                                                        : "bg-white text-slate-500 border border-slate-200"
+                                                                }`}
+                                                            >
+                                                                {label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+
+                                                    {/* Idle: show mic button */}
+                                                    {!isRecording && !voiceProcessing && !voiceTranscript && !voiceError && (
+                                                        <div className="flex flex-col items-center gap-1.5 py-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={startVoiceRecording}
+                                                                className="h-14 w-14 rounded-full bg-[#0a649d] flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                                                            >
+                                                                <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3z" />
+                                                                </svg>
+                                                            </button>
+                                                            <p className="text-[9px] text-slate-400">Tap to record · auto-fills Work Performed</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Recording: stop button + live interim text */}
+                                                    {isRecording && (
+                                                        <div className="space-y-2">
+                                                            <div className="flex flex-col items-center gap-1.5 py-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={stopVoiceRecording}
+                                                                    className="relative h-14 w-14 rounded-full bg-red-500 flex items-center justify-center shadow-md active:scale-95 transition-transform"
+                                                                >
+                                                                    <span className="absolute inset-0 rounded-full animate-ping bg-red-400 opacity-50" />
+                                                                    <svg className="h-5 w-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                                                        <rect x="6" y="6" width="12" height="12" rx="1.5" />
+                                                                    </svg>
+                                                                </button>
+                                                                <p className="text-[9px] font-semibold text-red-500 animate-pulse">Listening… tap to stop</p>
+                                                            </div>
+                                                            {/* Real-time interim transcript */}
+                                                            <div className="rounded-xl bg-white/80 border border-red-100 px-3 py-2 min-h-[34px]">
+                                                                <p className="text-[11px] text-slate-500 italic leading-relaxed">
+                                                                    {interimTranscript || "Speak now…"}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Translating spinner */}
+                                                    {voiceProcessing && !isRecording && (
+                                                        <div className="flex items-center justify-center gap-2 py-2">
+                                                            <div className="h-4 w-4 rounded-full border-2 border-[#0a649d] border-t-transparent animate-spin" />
+                                                            <p className="text-[11px] font-semibold text-[#0a649d]">Translating to English…</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Error */}
+                                                    {voiceError && !isRecording && (
+                                                        <div className="rounded-xl bg-red-50 border border-red-200 p-2.5">
+                                                            <p className="text-[10px] font-bold text-red-600">{voiceError}</p>
+                                                            <p className="text-[9px] text-red-400 mt-0.5">Type the note in Work Performed below.</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Original transcript preview */}
+                                                    {voiceTranscript && !isRecording && !voiceProcessing && (
+                                                        <div className="rounded-xl bg-white border border-slate-200 p-2.5 space-y-1">
+                                                            <p className="text-[8.5px] font-bold text-slate-400 uppercase tracking-wider">
+                                                                Original · {voiceLanguage === "auto" ? "auto-detected" : voiceLanguage}
+                                                            </p>
+                                                            <p className="text-[11px] text-slate-600 leading-relaxed">{voiceTranscript}</p>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Record again */}
+                                                    {(voiceTranscript || voiceError) && !isRecording && !voiceProcessing && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={resetVoiceNote}
+                                                            className="text-[9.5px] font-bold text-[#0a649d] underline underline-offset-2"
+                                                        >
+                                                            Record again
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                {/* ─────────────────────────────────────────────────────────────── */}
+
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Work Performed</label>
-                                                    <textarea 
+                                                    <textarea
                                                         required
                                                         rows={2}
                                                         value={activeJob.workReport.workPerformed}
@@ -1551,9 +1833,14 @@ export default function Techniciandashboard({ user }) {
                                         <button
                                             type="button"
                                             onClick={handleCompleteJob}
-                                            className="h-13 w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-full text-xs font-black uppercase tracking-widest transition active:scale-98 shadow-md cursor-pointer"
+                                            disabled={submittingJob}
+                                            className={`h-13 w-full text-white rounded-full text-xs font-black uppercase tracking-widest transition shadow-md ${
+                                                submittingJob
+                                                    ? "bg-emerald-400 cursor-not-allowed"
+                                                    : "bg-emerald-600 active:scale-98 cursor-pointer"
+                                            }`}
                                         >
-                                            Complete & Close Job
+                                            {submittingJob ? "Saving…" : "Complete & Close Job"}
                                         </button>
                                     )}
                                 </div>

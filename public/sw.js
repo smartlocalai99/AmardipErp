@@ -23,6 +23,36 @@ self.addEventListener("activate", (event) => {
   self.clients.claim();
 });
 
+// ─── Push Notifications ──────────────────────────────────────────────────────
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+  let payload;
+  try { payload = event.data.json(); } catch { payload = { title: "Amardip Lifts", body: event.data.text() }; }
+
+  event.waitUntil(
+    self.registration.showNotification(payload.title || "Amardip Lifts", {
+      body: payload.body || "",
+      icon: payload.icon || "/adlogo-pwa-192.png",
+      badge: payload.badge || "/adlogo-pwa-192.png",
+      data: payload.data || {},
+      vibrate: [200, 100, 200],
+      requireInteraction: true,
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = event.notification.data?.url || "/Techniciandashboard";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const existing = wins.find((w) => w.url.includes(url));
+      if (existing) return existing.focus();
+      return clients.openWindow(url);
+    })
+  );
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);

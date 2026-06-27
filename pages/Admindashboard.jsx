@@ -990,7 +990,7 @@ function AdmindashboardShell({ user }) {
         );
     }
 
-    function handleAddSchedule(e) {
+    async function handleAddSchedule(e) {
         e.preventDefault();
         if (!newSchedule.location || !newSchedule.nextService) return;
 
@@ -1013,7 +1013,7 @@ function AdmindashboardShell({ user }) {
             upcomingMaintenance: k.upcomingMaintenance + 1
         }));
 
-        // Add notification
+        // Add in-app notification
         const newNotif = {
             id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
             category: "Service Scheduled",
@@ -1021,6 +1021,20 @@ function AdmindashboardShell({ user }) {
             time: "Just now"
         };
         setNotifications(prev => [newNotif, ...prev]);
+
+        // Send push notification to the assigned worker (non-blocking)
+        if (newSchedule.technician) {
+            fetch("/api/push/notify-worker", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    workerName: newSchedule.technician,
+                    title: "New Service Assigned",
+                    body: `Service at ${newSchedule.location} scheduled for ${newSchedule.nextService}`,
+                    data: { url: "/Techniciandashboard" },
+                }),
+            }).catch(() => {});
+        }
 
         // Reset form and close modal
         setNewSchedule({
@@ -1286,10 +1300,14 @@ function AdmindashboardShell({ user }) {
                                                 <p className="text-[10px] text-slate-400 mt-0.5 truncate">{v.building}</p>
                                                 <p className="text-[10px] font-medium text-slate-500 mt-1">Due <span className="text-slate-700">{v.dueDate}</span></p>
                                             </div>
-                                            <a href={`tel:${v.phone}`} className="h-9 px-3.5 rounded-xl flex items-center justify-center gap-1.5 active:scale-90 transition-transform text-[11px] font-bold text-white shrink-0" style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}>
-                                                <PhoneIcon className="h-3.5 w-3.5" />
-                                                Call
-                                            </a>
+                                            {v.phone ? (
+                                                <a href={`tel:${v.phone.replace(/\D/g, "").length === 10 ? "+91" + v.phone.replace(/\D/g, "") : v.phone}`} className="h-9 px-3.5 rounded-xl flex items-center justify-center gap-1.5 active:scale-90 transition-transform text-[11px] font-bold text-white shrink-0" style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}>
+                                                    <PhoneIcon className="h-3.5 w-3.5" />
+                                                    Call
+                                                </a>
+                                            ) : (
+                                                <span className="h-9 px-3.5 rounded-xl flex items-center justify-center text-[10px] font-bold text-slate-400 bg-slate-100 shrink-0">No number</span>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -1446,7 +1464,7 @@ function AdmindashboardShell({ user }) {
                                     <p className="text-xs text-slate-500 mt-0.5">Manage AMC visits and checkoff reports.</p>
                                 </div>
                                 <button
-                                    onClick={() => setShowScheduleModal(true)}
+                                    onClick={() => { setShowScheduleModal(true); fetchUsers(); }}
                                     className="h-9 w-9 rounded-xl bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
                                 >
                                     <PlusIcon className="h-5 w-5" />
@@ -1629,7 +1647,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1650,7 +1668,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1671,7 +1689,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1692,7 +1710,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1708,7 +1726,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1758,7 +1776,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1774,7 +1792,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1827,7 +1845,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -1923,7 +1941,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -2090,7 +2108,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -2107,7 +2125,7 @@ function AdmindashboardShell({ user }) {
                                     <div className="flex items-center justify-between">
                                         <div className="flex items-center gap-3">
                                             <button
-                                                onClick={() => openMoreSubTab(null)}
+                                                onClick={() => openTab("dashboard")}
                                                 className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                             >
                                                 <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -2151,7 +2169,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -2167,7 +2185,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">
                                         <button
-                                            onClick={() => openMoreSubTab(null)}
+                                            onClick={() => openTab("dashboard")}
                                             className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
                                         >
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
@@ -2750,8 +2768,11 @@ function AdmindashboardShell({ user }) {
                                     onChange={(e) => setNewSchedule({ ...newSchedule, technician: e.target.value })}
                                     className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
                                 >
+                                    <option value="">Select technician…</option>
+                                    {usersLoading && <option disabled>Loading…</option>}
+                                    {!usersLoading && technicians.length === 0 && <option disabled>No technicians found</option>}
                                     {technicians.map(t => (
-                                        <option key={t.id} value={t.name}>{t.name} ({t.role})</option>
+                                        <option key={t.id} value={t.name}>{t.name}</option>
                                     ))}
                                 </select>
                             </div>
