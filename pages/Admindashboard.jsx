@@ -70,8 +70,6 @@ export async function getServerSideProps(context) {
 }
 
 export default function Admindashboard({ user }) {
-    const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
-
     return (
         <AdminAppDataProvider user={user}>
             <AdmindashboardShell user={user} />
@@ -1213,6 +1211,8 @@ function AdmindashboardShell({ user }) {
             })
         );
     }
+
+    const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
 
     return (
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
