@@ -3,6 +3,8 @@ import { query } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
+const CACHE_TTL_MS = 5 * 60 * 1000;
+let statsCache = null;
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -27,6 +29,11 @@ export default async function handler(req, res) {
         success: false,
         message: "Not allowed",
       });
+    }
+
+    if (statsCache && Date.now() - statsCache.at < CACHE_TTL_MS) {
+      res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+      return res.status(200).json(statsCache.payload);
     }
 
     await ensureServiceSchedulesTable();
@@ -83,7 +90,7 @@ export default async function handler(req, res) {
     const scheduledUpcomingServices = row.scheduled_upcoming_services || 0;
     const toBeScheduledServices = row.to_be_scheduled_services || 0;
 
-    return res.status(200).json({
+    const payload = {
       success: true,
       stats: {
         totalServiceVisits: row.total_service_visits || 0,
@@ -100,7 +107,11 @@ export default async function handler(req, res) {
         currentMonthStart: row.current_month_start || null,
         currentMonthEnd: row.current_month_end || null,
       },
-    });
+    };
+
+    statsCache = { at: Date.now(), payload };
+    res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+    return res.status(200).json(payload);
   } catch (error) {
     console.error("Failed to fetch service visit stats:", error);
 
