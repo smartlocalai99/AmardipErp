@@ -4,6 +4,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
+import { clearAppBadgeCount } from "@/lib/appBadge";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -378,10 +379,12 @@ export default function Customerdashboard({ user }) {
 
     const handleMarkAllRead = () => {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+        clearAppBadgeCount();
     };
 
     const handleClearNotifications = () => {
         setNotifications([]);
+        clearAppBadgeCount();
     };
 
     const formatGroupDate = (dateStr) => {
@@ -444,7 +447,10 @@ export default function Customerdashboard({ user }) {
                     </div>
 
                     <button
-                        onClick={() => setShowNotificationCenter(!showNotificationCenter)}
+                        onClick={() => {
+                            clearAppBadgeCount();
+                            setShowNotificationCenter(!showNotificationCenter);
+                        }}
                         className="relative h-10 w-10 bg-white/10 hover:bg-white/18 active:scale-95 transition flex items-center justify-center rounded-full"
                     >
                         <BellIcon className="h-5.5 w-5.5 text-white" />

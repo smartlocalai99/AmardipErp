@@ -2428,6 +2428,7 @@ Push notification plumbing:
 - The Test action sends a real push notification to the currently logged-in user/device.
 - The service worker increments the installed PWA app icon badge count whenever a push notification arrives.
 - Clicking a notification clears the app icon badge count.
+- Opening/clearing in-app notifications also clears the app icon badge count and resets the service worker stored badge counter.
 - App icon notification count depends on browser/OS Badging API support and works only where the installed PWA/browser supports badges.
 - Notifications are sent for:
   - Customer raises a ticket: admin/manager/front office roles are notified.
@@ -2451,6 +2452,13 @@ Technician portal:
 - Completion still requires checklist, work report, client name/signature, and consent.
 - Job photos are optional evidence, not mandatory completion blockers.
 - Telugu/Hindi translation defaults to the free MyMemory provider when VOICE_NOTES_PROVIDER is not set.
+
+Complaint / ticket production behavior:
+- RESOLVED, CLOSED, and CANCELLED tickets are terminal states.
+- Terminal tickets cannot be reassigned.
+- Terminal tickets cannot be changed from the admin complaint modal.
+- Worker completion rejects already resolved/closed/cancelled jobs to prevent duplicate completion reports.
+- Admin complaint detail modal shows terminal tickets as read-only with no Save Assignment action.
 
 Customer portal:
 - Contract Maintenance / AMC panel opens a branded AMC summary using /adlogo.png.

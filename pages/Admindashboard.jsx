@@ -8,6 +8,7 @@ import { clearSessionCache } from "@/lib/adminCache";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
+import { clearAppBadgeCount } from "@/lib/appBadge";
 import { subscribeToPush } from "@/lib/pushClient";
 import {
     buildAdminKpiCounts,
@@ -69,6 +70,8 @@ export async function getServerSideProps(context) {
 }
 
 export default function Admindashboard({ user }) {
+    const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
+
     return (
         <AdminAppDataProvider user={user}>
             <AdmindashboardShell user={user} />
@@ -653,6 +656,10 @@ function AdmindashboardShell({ user }) {
 
     async function assignSelectedComplaint() {
         if (!selectedComplaint || !modalTech) return;
+        if (["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint.status || "").toUpperCase())) {
+            setComplaintError("This ticket is already resolved/closed and cannot be reassigned.");
+            return;
+        }
         setComplaintError("");
         try {
             const res = await fetch(`/api/complaints/${selectedComplaint.id}/assign`, {
@@ -676,6 +683,10 @@ function AdmindashboardShell({ user }) {
 
     async function updateSelectedComplaintStatus(nextStatus) {
         if (!selectedComplaint) return;
+        if (["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint.status || "").toUpperCase())) {
+            setComplaintError("This ticket is already resolved/closed and cannot be changed.");
+            return;
+        }
         setModalStatus(nextStatus);
         try {
             const res = await fetch(`/api/complaints/${selectedComplaint.id}`, {
@@ -1245,7 +1256,10 @@ function AdmindashboardShell({ user }) {
 
                     <div className="flex items-center gap-2">
                         <button
-                            onClick={() => setShowNotificationCenter(!showNotificationCenter)}
+                            onClick={() => {
+                                clearAppBadgeCount();
+                                setShowNotificationCenter(!showNotificationCenter);
+                            }}
                             className="relative h-9 w-9 bg-white/10 active:bg-white/20 active:scale-90 transition-all flex items-center justify-center rounded-xl"
                         >
                             <BellIcon className="h-5 w-5 text-white" />
@@ -1263,7 +1277,16 @@ function AdmindashboardShell({ user }) {
                     <div className="absolute top-[68px] left-0 right-0 z-40 mx-3 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_40px_rgba(4,24,43,0.18)] overflow-hidden animate-in slide-in-from-top-2 duration-200 select-none">
                         <div className="px-5 py-3.5 flex items-center justify-between border-b border-slate-100">
                             <span className="text-xs font-bold text-slate-900">Notifications</span>
-                            <button onClick={() => setShowNotificationCenter(false)} className="text-[11px] font-semibold text-slate-400 hover:text-slate-600">Clear all</button>
+                            <button
+                                onClick={() => {
+                                    setNotifications([]);
+                                    clearAppBadgeCount();
+                                    setShowNotificationCenter(false);
+                                }}
+                                className="text-[11px] font-semibold text-slate-400 hover:text-slate-600"
+                            >
+                                Clear all
+                            </button>
                         </div>
                         <div className="divide-y divide-slate-50 max-h-[280px] overflow-y-auto">
                             {notifications.map(n => (
@@ -2308,7 +2331,10 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                         {notifications.length > 0 && (
                                             <button
-                                                onClick={() => setNotifications([])}
+                                                onClick={() => {
+                                                    setNotifications([]);
+                                                    clearAppBadgeCount();
+                                                }}
                                                 className="text-[10px] text-slate-400 hover:text-red-500 font-extrabold uppercase transition"
                                             >
                                                 Clear
@@ -3118,12 +3144,19 @@ function AdmindashboardShell({ user }) {
 
                             <hr className="border-slate-100" />
 
+                            {selectedComplaintIsTerminal && (
+                                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-xs font-bold text-emerald-800">
+                                    This ticket is {selectedComplaint.status?.replaceAll("_", " ").toLowerCase()}. No further assignment or status actions are required.
+                                </div>
+                            )}
+
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Ticket Status</label>
                                 <select
                                     value={modalStatus}
                                     onChange={(e) => updateSelectedComplaintStatus(e.target.value)}
-                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
+                                    disabled={selectedComplaintIsTerminal}
+                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                 >
                                     {COMPLAINT_STATUS_OPTIONS.map(status => (
                                         <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
@@ -3136,7 +3169,8 @@ function AdmindashboardShell({ user }) {
                                 <select
                                     value={modalTech}
                                     onChange={(e) => setModalTech(e.target.value)}
-                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
+                                    disabled={selectedComplaintIsTerminal}
+                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                                 >
                                     <option value="">-- Unassigned --</option>
                                     {technicians.map(t => (
@@ -3151,7 +3185,8 @@ function AdmindashboardShell({ user }) {
                                     value={assignmentNotes}
                                     onChange={(e) => setAssignmentNotes(e.target.value)}
                                     rows={3}
-                                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
+                                    disabled={selectedComplaintIsTerminal}
+                                    className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d] disabled:bg-slate-100 disabled:text-slate-400"
                                     placeholder="Optional note for assignment"
                                 />
                             </div>
@@ -3164,13 +3199,15 @@ function AdmindashboardShell({ user }) {
                                 >
                                     Close
                                 </button>
-                                <button
-                                    type="button"
-                                    onClick={assignSelectedComplaint}
-                                    className="h-10 px-4.5 bg-[#0a649d] text-white rounded-xl text-xs font-semibold hover:bg-[#085282] transition"
-                                >
-                                    Save Assignment
-                                </button>
+                                {!selectedComplaintIsTerminal && (
+                                    <button
+                                        type="button"
+                                        onClick={assignSelectedComplaint}
+                                        className="h-10 px-4.5 bg-[#0a649d] text-white rounded-xl text-xs font-semibold hover:bg-[#085282] transition"
+                                    >
+                                        Save Assignment
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>

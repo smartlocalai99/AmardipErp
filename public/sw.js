@@ -59,6 +59,11 @@ self.addEventListener("notificationclick", (event) => {
   );
 });
 
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "CLEAR_BADGE") return;
+  event.waitUntil(clearBadgeCount());
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   const url = new URL(request.url);

@@ -72,7 +72,7 @@ export default async function handler(req, res) {
 
     // Confirm the complaint exists and is assigned to this worker
     const check = await query(
-      `SELECT id, complaint_no, customer_name, customer_user_id, assigned_technician_user_id FROM complaints WHERE id = $1`,
+      `SELECT id, complaint_no, customer_name, customer_user_id, assigned_technician_user_id, status FROM complaints WHERE id = $1`,
       [jobDbId]
     );
 
@@ -84,6 +84,12 @@ export default async function handler(req, res) {
       return res
         .status(403)
         .json({ success: false, message: "This job is not assigned to you." });
+    }
+
+    if (["RESOLVED", "CLOSED", "CANCELLED"].includes(check.rows[0].status)) {
+      return res
+        .status(409)
+        .json({ success: false, message: "This job is already resolved or closed." });
     }
 
     const provider = process.env.VOICE_NOTES_PROVIDER || null;

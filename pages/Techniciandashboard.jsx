@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
+import { clearAppBadgeCount } from "@/lib/appBadge";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -1956,7 +1957,10 @@ export default function Techniciandashboard({ user }) {
                                     <p className="text-xs text-slate-500 mt-0.5">Urgent dispatches and inventory status.</p>
                                 </div>
                                 <button 
-                                    onClick={() => setNotifications(prev => prev.map(n => ({ ...n, read: true })))}
+                                    onClick={() => {
+                                        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+                                        clearAppBadgeCount();
+                                    }}
                                     className="text-[10.5px] font-black text-[#0a649d] hover:underline bg-transparent border-0 cursor-pointer"
                                 >
                                     Mark all read
@@ -2214,7 +2218,10 @@ export default function Techniciandashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => handleTabChange("notifications")}
+                        onClick={() => {
+                            clearAppBadgeCount();
+                            handleTabChange("notifications");
+                        }}
                         className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "notifications" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <BellIcon className="h-5.5 w-5.5 mb-0.5" />
