@@ -30,7 +30,7 @@ self.addEventListener("push", (event) => {
   try { payload = event.data.json(); } catch { payload = { title: "Amardip Lifts", body: event.data.text() }; }
 
   event.waitUntil(
-    incrementBadgeCount()
+    incrementBadgeCount(payload.data || {})
       .catch(() => 1)
       .then((badgeCount) =>
         self.registration.showNotification(payload.title || "Amardip Lifts", {
@@ -49,7 +49,7 @@ self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const url = event.notification.data?.url || "/Techniciandashboard";
   event.waitUntil(
-    clearBadgeCount().then(() =>
+    acknowledgeBadgeItem(event.notification.data || {}).then(() =>
       clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
         const existing = wins.find((w) => w.url.includes(url));
         if (existing) return existing.focus();
@@ -60,8 +60,13 @@ self.addEventListener("notificationclick", (event) => {
 });
 
 self.addEventListener("message", (event) => {
-  if (event.data?.type !== "CLEAR_BADGE") return;
-  event.waitUntil(clearBadgeCount());
+  if (event.data?.type === "CLEAR_BADGE") {
+    event.waitUntil(clearBadgeCount());
+    return;
+  }
+  if (event.data?.type === "ACK_BADGE_ITEM") {
+    event.waitUntil(acknowledgeBadgeItem(event.data));
+  }
 });
 
 self.addEventListener("fetch", (event) => {
@@ -92,6 +97,8 @@ self.addEventListener("fetch", (event) => {
 const BADGE_DB_NAME = "amardip-pwa-badge";
 const BADGE_STORE_NAME = "badge";
 const BADGE_COUNT_KEY = "count";
+const BADGE_PENDING_KEY = "pending";
+const BADGE_LEGACY_ACK_KEY = "legacy-acknowledged";
 
 function openBadgeDb() {
   return new Promise((resolve, reject) => {
@@ -104,22 +111,22 @@ function openBadgeDb() {
   });
 }
 
-async function readBadgeCount() {
+async function readBadgeValue(key, fallback) {
   const db = await openBadgeDb();
   return new Promise((resolve) => {
     const tx = db.transaction(BADGE_STORE_NAME, "readonly");
-    const request = tx.objectStore(BADGE_STORE_NAME).get(BADGE_COUNT_KEY);
-    request.onsuccess = () => resolve(Number(request.result) || 0);
-    request.onerror = () => resolve(0);
+    const request = tx.objectStore(BADGE_STORE_NAME).get(key);
+    request.onsuccess = () => resolve(request.result ?? fallback);
+    request.onerror = () => resolve(fallback);
     tx.oncomplete = () => db.close();
   });
 }
 
-async function writeBadgeCount(count) {
+async function writeBadgeValue(key, value) {
   const db = await openBadgeDb();
   return new Promise((resolve) => {
     const tx = db.transaction(BADGE_STORE_NAME, "readwrite");
-    tx.objectStore(BADGE_STORE_NAME).put(count, BADGE_COUNT_KEY);
+    tx.objectStore(BADGE_STORE_NAME).put(value, key);
     tx.oncomplete = () => {
       db.close();
       resolve();
@@ -129,6 +136,14 @@ async function writeBadgeCount(count) {
       resolve();
     };
   });
+}
+
+async function readBadgeCount() {
+  return Number(await readBadgeValue(BADGE_COUNT_KEY, 0)) || 0;
+}
+
+async function writeBadgeCount(count) {
+  await writeBadgeValue(BADGE_COUNT_KEY, Math.max(0, Number(count) || 0));
 }
 
 async function applyAppBadge(count) {
@@ -147,8 +162,23 @@ async function applyAppBadge(count) {
   }
 }
 
-async function incrementBadgeCount() {
+async function incrementBadgeCount(data = {}) {
   const nextCount = (await readBadgeCount()) + 1;
+  const complaintId = data.complaintId ? String(data.complaintId) : "";
+  if (complaintId) {
+    const pending = await readBadgeValue(BADGE_PENDING_KEY, []);
+    pending.push({
+      id: data.notificationKey || `${complaintId}:${Date.now()}:${Math.random()}`,
+      complaintId,
+    });
+    await writeBadgeValue(BADGE_PENDING_KEY, pending);
+
+    const legacyAcknowledged = await readBadgeValue(BADGE_LEGACY_ACK_KEY, []);
+    await writeBadgeValue(
+      BADGE_LEGACY_ACK_KEY,
+      legacyAcknowledged.filter((id) => id !== complaintId)
+    );
+  }
   await writeBadgeCount(nextCount);
   await applyAppBadge(nextCount);
   return nextCount;
@@ -156,5 +186,47 @@ async function incrementBadgeCount() {
 
 async function clearBadgeCount() {
   await writeBadgeCount(0);
+  await writeBadgeValue(BADGE_PENDING_KEY, []);
+  await writeBadgeValue(BADGE_LEGACY_ACK_KEY, []);
   await applyAppBadge(0);
+}
+
+async function acknowledgeBadgeItem(data = {}) {
+  const complaintId = data.complaintId ? String(data.complaintId) : "";
+  const notificationKey = data.notificationKey ? String(data.notificationKey) : "";
+  const currentCount = await readBadgeCount();
+  const pending = await readBadgeValue(BADGE_PENDING_KEY, []);
+  const matches = pending.filter((item) =>
+    (complaintId && item.complaintId === complaintId) ||
+    (notificationKey && item.id === notificationKey)
+  );
+
+  let decrementBy = matches.length;
+  if (matches.length) {
+    const matchedIds = new Set(matches.map((item) => item.id));
+    await writeBadgeValue(BADGE_PENDING_KEY, pending.filter((item) => !matchedIds.has(item.id)));
+  } else if (complaintId && currentCount > 0) {
+    const legacyAcknowledged = await readBadgeValue(BADGE_LEGACY_ACK_KEY, []);
+    if (!legacyAcknowledged.includes(complaintId)) {
+      decrementBy = 1;
+      await writeBadgeValue(BADGE_LEGACY_ACK_KEY, [...legacyAcknowledged, complaintId]);
+    }
+  } else if (!complaintId && !notificationKey && currentCount > 0) {
+    decrementBy = 1;
+  }
+
+  const nextCount = Math.max(0, currentCount - decrementBy);
+  await writeBadgeCount(nextCount);
+  await applyAppBadge(nextCount);
+
+  const openNotifications = await self.registration.getNotifications();
+  openNotifications.forEach((notification) => {
+    const notificationData = notification.data || {};
+    if (
+      (complaintId && String(notificationData.complaintId || "") === complaintId) ||
+      (notificationKey && String(notificationData.notificationKey || "") === notificationKey)
+    ) {
+      notification.close();
+    }
+  });
 }

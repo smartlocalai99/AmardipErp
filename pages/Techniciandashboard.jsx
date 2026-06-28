@@ -4,7 +4,7 @@ import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
-import { clearAppBadgeCount } from "@/lib/appBadge";
+import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -290,6 +290,12 @@ export default function Techniciandashboard({ user }) {
         setActiveJob(null);
     };
 
+    const openJobDetails = (job) => {
+        acknowledgeTicketNotification(job?.dbId);
+        setActiveJob(job);
+        setActiveTab("jobs");
+    };
+
     // Start Journey
     const handleStartJourney = (job) => {
         updateJobStatus(job.id, "En Route");
@@ -384,8 +390,7 @@ export default function Techniciandashboard({ user }) {
                 // Find job with this lift
                 const matchJob = jobs.find(j => j.liftId === scannedLiftId);
                 if (matchJob) {
-                    setActiveJob(matchJob);
-                    setActiveTab("jobs");
+                    openJobDetails(matchJob);
                     alert(`Lift verified! Opening job Workspace for ${scannedLiftId}`);
                 } else {
                     alert(`QR Scan result: ${scannedLiftId}. No active service assigned for this unit.`);
@@ -1024,8 +1029,7 @@ export default function Techniciandashboard({ user }) {
                                         onClick={() => {
                                             const activeJ = jobs.find(j => j.status !== "Completed");
                                             if (activeJ) {
-                                                setActiveJob(activeJ);
-                                                setActiveTab("jobs");
+                                                openJobDetails(activeJ);
                                             } else {
                                                 alert("No active incomplete jobs to work on.");
                                             }
@@ -1052,7 +1056,7 @@ export default function Techniciandashboard({ user }) {
                                     {jobs.map(job => (
                                         <div 
                                             key={job.id} 
-                                            onClick={() => { setActiveJob(job); setActiveTab("jobs"); }}
+                                            onClick={() => openJobDetails(job)}
                                             className="p-3 border border-slate-100 rounded-2xl flex items-center justify-between cursor-pointer hover:bg-slate-50 transition active:scale-98"
                                         >
                                             <div>
@@ -1162,7 +1166,7 @@ export default function Techniciandashboard({ user }) {
                                                                     </button>
                                                             )}
                                                             <button
-                                                                onClick={() => setActiveJob(job)}
+                                                                onClick={() => openJobDetails(job)}
                                                                 className="h-9.5 flex-1 border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-full text-xs font-extrabold tracking-wide transition active:scale-95 cursor-pointer"
                                                             >
                                                                 VIEW DETAILS
@@ -1973,10 +1977,7 @@ export default function Techniciandashboard({ user }) {
                                     {activeAssignedJobs.map(job => (
                                         <button
                                             key={job.id}
-                                            onClick={() => {
-                                                setActiveJob(job);
-                                                setActiveTab("jobs");
-                                            }}
+                                            onClick={() => openJobDetails(job)}
                                             className="w-full rounded-3xl border border-sky-100 bg-sky-50/80 p-4 text-left shadow-sm active:scale-[0.99] transition"
                                         >
                                             <div className="flex items-start justify-between gap-3">

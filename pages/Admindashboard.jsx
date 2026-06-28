@@ -8,7 +8,7 @@ import { clearSessionCache } from "@/lib/adminCache";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
-import { clearAppBadgeCount } from "@/lib/appBadge";
+import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import { subscribeToPush } from "@/lib/pushClient";
 import {
     buildAdminKpiCounts,
@@ -355,6 +355,13 @@ function AdmindashboardShell({ user }) {
         description: "",
         officeNotes: "",
     });
+
+    const openComplaintDetails = (complaint) => {
+        acknowledgeTicketNotification(complaint?.id);
+        setSelectedComplaint(complaint);
+        setModalTech(complaint?.assignedTechnicianUserId || "");
+        setModalStatus(complaint?.status || "UNASSIGNED");
+    };
 
     useEffect(() => {
         subscribeToPush().catch(() => {});
@@ -1366,11 +1373,7 @@ function AdmindashboardShell({ user }) {
                                     ) : complaints.slice(0, 3).map(c => (
                                         <div
                                             key={c.id}
-                                            onClick={() => {
-                                                setSelectedComplaint(c);
-                                                setModalTech(c.assignedTechnicianUserId || "");
-                                                setModalStatus(c.status || "UNASSIGNED");
-                                            }}
+                                            onClick={() => openComplaintDetails(c)}
                                             className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 active:scale-[0.98] transition-transform cursor-pointer"
                                         >
                                             <div className="min-w-0">
@@ -1525,11 +1528,7 @@ function AdmindashboardShell({ user }) {
                                     <button
                                         key={c.id}
                                         type="button"
-                                        onClick={() => {
-                                            setSelectedComplaint(c);
-                                            setModalTech(c.assignedTechnicianUserId || "");
-                                            setModalStatus(c.status || "UNASSIGNED");
-                                        }}
+                                        onClick={() => openComplaintDetails(c)}
                                         className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99]"
                                     >
                                         <div className="flex items-start justify-between gap-3">
@@ -1785,7 +1784,7 @@ function AdmindashboardShell({ user }) {
                                                     {activeTicketsForWorker.slice(0, 2).map(ticket => (
                                                         <button
                                                             key={ticket.id}
-                                                            onClick={() => setSelectedComplaint(ticket)}
+                                                            onClick={() => openComplaintDetails(ticket)}
                                                             className="w-full rounded-xl bg-white px-3 py-2 text-left shadow-sm ring-1 ring-sky-100"
                                                         >
                                                             <div className="flex items-center justify-between gap-2">

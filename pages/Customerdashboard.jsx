@@ -4,7 +4,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
-import { clearAppBadgeCount } from "@/lib/appBadge";
+import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -387,6 +387,11 @@ export default function Customerdashboard({ user }) {
         clearAppBadgeCount();
     };
 
+    const openComplaintDetails = (complaint) => {
+        acknowledgeTicketNotification(complaint?.id);
+        setSelectedTrackComplaint(complaint);
+    };
+
     const formatGroupDate = (dateStr) => {
         if (!dateStr) return "";
         try {
@@ -663,7 +668,7 @@ export default function Customerdashboard({ user }) {
                                     ) : complaints.map(c => (
                                         <div
                                             key={c.id}
-                                            onClick={() => setSelectedTrackComplaint(c)}
+                                            onClick={() => openComplaintDetails(c)}
                                             className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3 cursor-pointer hover:bg-slate-50 transition active:scale-[0.99]"
                                         >
                                             <div className="flex justify-between items-start">
