@@ -3,6 +3,7 @@ import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
+import PushNotificationCard from "@/components/ui/PushNotificationCard";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -1265,6 +1266,8 @@ export default function Storedashboard({ user }) {
                                     <p><strong className="text-slate-800">Assigned Depot:</strong> Bangalore East Hub</p>
                                 </div>
                             </div>
+
+                            <PushNotificationCard />
 
                             {/* PASSWORD RESET */}
                             <form onSubmit={handlePasswordChange} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">

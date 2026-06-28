@@ -2416,9 +2416,15 @@ Admin reports:
 
 Push notification plumbing:
 - New helper: lib/pushNotifications.js
+- Browser helper: lib/pushClient.js
+- New UI card: components/ui/PushNotificationCard.jsx
+- Test API: POST /api/push/test
 - Push subscription API uses setup-safe push_subscriptions table creation.
 - Push sending soft-fails when VAPID env values are missing so normal ERP workflows do not break.
 - Admin, customer, technician, and store app shells subscribe to PWA push notifications when the browser allows it.
+- Profile/settings screens in all portals now show an Enable/Test Push Notifications card.
+- The Enable action is tap-driven so iPhone/Safari/Chrome treat it as a real user permission request.
+- The Test action sends a real push notification to the currently logged-in user/device.
 - Notifications are sent for:
   - Customer raises a ticket: admin/manager/front office roles are notified.
   - Admin assigns a complaint to a worker: assigned worker is notified.

@@ -7,6 +7,7 @@ import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
 import { clearSessionCache } from "@/lib/adminCache";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
+import PushNotificationCard from "@/components/ui/PushNotificationCard";
 import { subscribeToPush } from "@/lib/pushClient";
 import {
     buildAdminKpiCounts,
@@ -2173,6 +2174,8 @@ function AdmindashboardShell({ user }) {
                                             </button>
                                         </div>
                                     </div>
+
+                                    <PushNotificationCard />
 
                                     <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
                                         <div>

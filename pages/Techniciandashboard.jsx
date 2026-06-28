@@ -3,6 +3,7 @@ import { subscribeToPush } from "@/lib/pushClient";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
+import PushNotificationCard from "@/components/ui/PushNotificationCard";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -2064,6 +2065,8 @@ export default function Techniciandashboard({ user }) {
                                     <p><strong className="text-slate-800">Department:</strong> Bangalore East Hub</p>
                                 </div>
                             </div>
+
+                            <PushNotificationCard />
 
                             {/* CHANGE PASSWORD */}
                             <form onSubmit={handlePasswordChangeSubmit} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
