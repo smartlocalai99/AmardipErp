@@ -2417,6 +2417,7 @@ Admin reports:
 Push notification plumbing:
 - New helper: lib/pushNotifications.js
 - Browser helper: lib/pushClient.js
+- App badge helper: lib/appBadge.js
 - New UI card: components/ui/PushNotificationCard.jsx
 - Test API: POST /api/push/test
 - Push subscription API uses setup-safe push_subscriptions table creation.
@@ -2425,6 +2426,9 @@ Push notification plumbing:
 - Profile/settings screens in all portals now show an Enable/Test Push Notifications card.
 - The Enable action is tap-driven so iPhone/Safari/Chrome treat it as a real user permission request.
 - The Test action sends a real push notification to the currently logged-in user/device.
+- The service worker increments the installed PWA app icon badge count whenever a push notification arrives.
+- Clicking a notification clears the app icon badge count.
+- App icon notification count depends on browser/OS Badging API support and works only where the installed PWA/browser supports badges.
 - Notifications are sent for:
   - Customer raises a ticket: admin/manager/front office roles are notified.
   - Admin assigns a complaint to a worker: assigned worker is notified.
