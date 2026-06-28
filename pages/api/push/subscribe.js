@@ -1,19 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
-
-async function ensurePushTable() {
-  await query(`
-    CREATE TABLE IF NOT EXISTS push_subscriptions (
-      id SERIAL PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      endpoint TEXT NOT NULL UNIQUE,
-      p256dh TEXT NOT NULL,
-      auth TEXT NOT NULL,
-      created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
-    )
-  `);
-}
+import { ensurePushSubscriptionsTable } from "@/lib/pushNotifications";
 
 export default async function handler(req, res) {
   if (req.method === "POST") {
@@ -26,7 +13,7 @@ export default async function handler(req, res) {
     }
 
     try {
-      await ensurePushTable();
+      await ensurePushSubscriptionsTable();
       await query(
         `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, updated_at)
          VALUES ($1, $2, $3, $4, NOW())

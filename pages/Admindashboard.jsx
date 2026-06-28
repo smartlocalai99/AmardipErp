@@ -7,6 +7,7 @@ import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
 import { clearSessionCache } from "@/lib/adminCache";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
+import { subscribeToPush } from "@/lib/pushClient";
 import {
     buildAdminKpiCounts,
     buildStaffFromUsers,
@@ -352,6 +353,10 @@ function AdmindashboardShell({ user }) {
         description: "",
         officeNotes: "",
     });
+
+    useEffect(() => {
+        subscribeToPush().catch(() => {});
+    }, []);
 
     // Parts allocation states
     const [allocatedParts, setAllocatedParts] = useState([]);
@@ -1680,7 +1685,13 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             <div className="space-y-5">
-                                {technicians.map(t => (
+                                {technicians.map(t => {
+                                    const activeTicketsForWorker = complaints.filter(c =>
+                                        Number(c.assignedTechnicianUserId) === Number(t.id) &&
+                                        !["RESOLVED", "CLOSED", "CANCELLED"].includes(String(c.status || "").toUpperCase())
+                                    );
+
+                                    return (
                                     <div key={t.id} className="rounded-3xl border border-slate-200 bg-white px-6 py-5.5 shadow-md flex flex-col justify-between transition-all hover:shadow-lg">
                                         <div className="flex justify-between items-start">
                                             <div>
@@ -1689,6 +1700,11 @@ function AdmindashboardShell({ user }) {
                                                 <div className="flex items-center gap-2 mt-2">
                                                     <span className="text-[10px] font-semibold text-slate-400">Workload:</span>
                                                     <span className="text-[10px] font-extrabold text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded">{t.workload}</span>
+                                                    {activeTicketsForWorker.length > 0 && (
+                                                        <span className="text-[10px] font-extrabold text-sky-700 bg-sky-50 border border-sky-100 px-1.5 py-0.2 rounded">
+                                                            {activeTicketsForWorker.length} assigned
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                             <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-2xs select-none ${t.status === "Available" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
@@ -1738,6 +1754,30 @@ function AdmindashboardShell({ user }) {
                                             )}
                                         </div>
 
+                                        {activeTicketsForWorker.length > 0 && (
+                                            <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
+                                                <p className="text-[9px] font-black uppercase tracking-wider text-[#0a649d]">Live Assigned Tickets</p>
+                                                <div className="mt-2 space-y-2">
+                                                    {activeTicketsForWorker.slice(0, 2).map(ticket => (
+                                                        <button
+                                                            key={ticket.id}
+                                                            onClick={() => setSelectedComplaint(ticket)}
+                                                            className="w-full rounded-xl bg-white px-3 py-2 text-left shadow-sm ring-1 ring-sky-100"
+                                                        >
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <span className="truncate text-[10px] font-black text-slate-900">{ticket.complaintNo}</span>
+                                                                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[8px] font-black text-sky-700">{ticket.status}</span>
+                                                            </div>
+                                                            <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">{ticket.customerName || "Customer"} - {ticket.complaintType || "Ticket"}</p>
+                                                        </button>
+                                                    ))}
+                                                    {activeTicketsForWorker.length > 2 && (
+                                                        <p className="text-[9px] font-bold text-slate-400">+{activeTicketsForWorker.length - 2} more assigned tickets</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center gap-3">
                                             <a
                                                 href={`tel:${t.phone || "+919999999999"}`}
@@ -1758,7 +1798,8 @@ function AdmindashboardShell({ user }) {
                                             </select>
                                         </div>
                                     </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     )}

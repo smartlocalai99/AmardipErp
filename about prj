@@ -2383,3 +2383,70 @@ Rules preserved:
 - Login pages still use /logo.png.
 - Logged-in app shell uses /adlogo.png.
 - No portal business flow, auth redirect, DB/API behavior, or role behavior was intentionally changed.
+
+Latest Portal Reports / Notifications / Worker UX Upgrade
+
+Status:
+- Implemented.
+
+Purpose:
+- Make the ERP feel more like one polished mobile app across admin, customer, technician, and store portals.
+- Replace plain report-only views with graphical operational summaries.
+- Add push-notification plumbing for important field-service events.
+- Keep worker completion focused on location, work details, and client sign instead of selfie/Face ID.
+
+Admin reports:
+- /admin/reports now shows graphical bar-style summaries for:
+  - AMC / Warranty expiry
+  - Service planning
+  - Complaint / ticket status
+- Reports now include a Tickets & Worker Completion section showing:
+  - Open tickets
+  - Assigned tickets
+  - Resolved tickets
+  - Signed jobs
+  - Recent tickets
+  - Latest worker completion reports with client sign names
+- Reports still use real DB tables where available:
+  - elevator_service_customers
+  - elevator_service_visits
+  - service_schedules
+  - complaints
+  - technician_job_completions
+
+Push notification plumbing:
+- New helper: lib/pushNotifications.js
+- Push subscription API uses setup-safe push_subscriptions table creation.
+- Push sending soft-fails when VAPID env values are missing so normal ERP workflows do not break.
+- Admin, customer, technician, and store app shells subscribe to PWA push notifications when the browser allows it.
+- Notifications are sent for:
+  - Customer raises a ticket: admin/manager/front office roles are notified.
+  - Admin assigns a complaint to a worker: assigned worker is notified.
+  - Worker completes a job: admin/manager/front office roles are notified.
+  - Worker completes a customer-linked job: customer is notified when customer_user_id exists.
+
+Required production push env:
+- NEXT_PUBLIC_VAPID_PUBLIC_KEY
+- VAPID_PRIVATE_KEY
+- VAPID_SUBJECT
+
+Admin technicians view:
+- Technician cards now show live assigned ticket tags from the real complaints table.
+- Assigned tickets are visible per worker without opening the complaint list first.
+
+Technician portal:
+- Worker Alerts tab now shows assigned active jobs directly.
+- Worker check-in is now location-only.
+- Camera/selfie/Face ID is not required.
+- Completion still requires checklist, work report, client name/signature, and consent.
+- Job photos are optional evidence, not mandatory completion blockers.
+- Telugu/Hindi translation defaults to the free MyMemory provider when VOICE_NOTES_PROVIDER is not set.
+
+Customer portal:
+- Contract Maintenance / AMC panel opens a branded AMC summary using /adlogo.png.
+- Tickets bottom-nav action opens the raise-ticket flow directly.
+- Document preview shows a branded Amardip template/agreement-style view with logo and customer details instead of a plain PDF placeholder.
+
+WhatsApp UI:
+- Added shared component: components/ui/WhatsAppButton.jsx
+- Uses WhatsApp green palette and icon for future WhatsApp actions.

@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { safeSendPush } from "@/lib/pushNotifications";
 
 let tableReady = false;
 
@@ -71,7 +72,7 @@ export default async function handler(req, res) {
 
     // Confirm the complaint exists and is assigned to this worker
     const check = await query(
-      `SELECT id, assigned_technician_user_id FROM complaints WHERE id = $1`,
+      `SELECT id, complaint_no, customer_name, customer_user_id, assigned_technician_user_id FROM complaints WHERE id = $1`,
       [jobDbId]
     );
 
@@ -122,6 +123,26 @@ export default async function handler(req, res) {
        WHERE id = $1`,
       [jobDbId, workPerformed || null]
     );
+
+    const complaint = check.rows[0];
+    await safeSendPush(
+      { roles: ["superadmin", "admin", "manager", "front_office"] },
+      {
+        title: "Worker completed job",
+        body: `${complaint.complaint_no || "Ticket"} completed by ${actor.name || actor.username}.`,
+        data: { url: "/Admindashboard?tab=complaints", complaintId: jobDbId },
+      }
+    );
+    if (complaint.customer_user_id) {
+      await safeSendPush(
+        { userIds: [complaint.customer_user_id] },
+        {
+          title: "Service job completed",
+          body: `${complaint.complaint_no || "Your ticket"} has been marked resolved.`,
+          data: { url: "/Customerdashboard?tab=complaints", complaintId: jobDbId },
+        }
+      );
+    }
 
     return res.status(200).json({ success: true, message: "Job completed and saved." });
   } catch (err) {

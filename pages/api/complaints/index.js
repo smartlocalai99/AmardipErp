@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { createAuditLog } from "@/lib/auditLog";
 import { createComplaint, listComplaints } from "@/lib/complaints";
+import { safeSendPush } from "@/lib/pushNotifications";
 
 const LIST_ROLES = new Set(["superadmin", "admin", "manager", "front_office"]);
 const CREATE_ROLES = new Set(["superadmin", "admin", "manager", "front_office", "customer"]);
@@ -60,6 +61,14 @@ export default async function handler(req, res) {
         newValues: complaint,
         changedFields: ["complaint"],
       });
+      await safeSendPush(
+        { roles: ["superadmin", "admin", "manager", "front_office"] },
+        {
+          title: "New customer ticket",
+          body: `${complaint.complaintNo} raised by ${complaint.customerName || "customer"}.`,
+          data: { url: "/Admindashboard?tab=complaints", complaintId: complaint.id },
+        }
+      );
       return res.status(201).json({ success: true, complaint });
     } catch (err) {
       console.error("Create complaint error:", err);

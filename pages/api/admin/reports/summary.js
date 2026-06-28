@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
+import { ensureComplaintsTable } from "@/lib/complaints";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const LIST_LIMIT = 25;
@@ -97,6 +98,32 @@ async function fetchRows(sql, params = []) {
   return result.rows;
 }
 
+async function ensureCompletionReportTable() {
+  await query(`
+    CREATE EXTENSION IF NOT EXISTS pgcrypto;
+    CREATE TABLE IF NOT EXISTS technician_job_completions (
+      id                        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      complaint_id              UUID NOT NULL,
+      worker_user_id            INTEGER NOT NULL,
+      problem_identified        TEXT,
+      work_performed            TEXT,
+      spare_parts_used          TEXT,
+      status_resolution         TEXT,
+      gps_checked_in            BOOLEAN DEFAULT false,
+      checklist_data            JSONB,
+      customer_rep_name         TEXT,
+      completed_at              TIMESTAMPTZ DEFAULT NOW(),
+      voice_language            TEXT,
+      voice_original_transcript TEXT,
+      voice_english_translation TEXT,
+      voice_audio_url           TEXT,
+      voice_processing_status   TEXT,
+      voice_provider            TEXT,
+      created_at                TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+}
+
 export default async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({
@@ -115,6 +142,8 @@ export default async function handler(req, res) {
     }
 
     await ensureServiceSchedulesTable();
+    await ensureComplaintsTable();
+    await ensureCompletionReportTable();
 
     const [
       expiryCounts,
@@ -139,6 +168,10 @@ export default async function handler(req, res) {
       missingServiceDateRows,
       missingServiceTypeRows,
       missingTechnicianRows,
+      complaintReportCounts,
+      recentComplaints,
+      workerCompletionCounts,
+      recentWorkerCompletions,
     ] = await Promise.all([
       fetchRows(`
         ${parsedCustomerCte}
@@ -362,6 +395,59 @@ export default async function handler(req, res) {
         ORDER BY service_date DESC NULLS LAST, customer_name_snapshot ASC
         LIMIT $1
       `, [LIST_LIMIT]),
+      fetchRows(`
+        SELECT
+          COUNT(*)::int AS total_complaints,
+          COUNT(*) FILTER (WHERE status IN ('UNASSIGNED', 'ASSIGNED', 'IN_PROGRESS'))::int AS open_complaints,
+          COUNT(*) FILTER (WHERE status = 'UNASSIGNED')::int AS unassigned_complaints,
+          COUNT(*) FILTER (WHERE status = 'ASSIGNED')::int AS assigned_complaints,
+          COUNT(*) FILTER (WHERE status IN ('RESOLVED', 'CLOSED'))::int AS resolved_complaints,
+          COUNT(*) FILTER (WHERE priority = 'EMERGENCY')::int AS emergency_complaints
+        FROM complaints
+      `),
+      fetchRows(`
+        SELECT
+          id,
+          created_at AS service_date,
+          complaint_no AS customer_code,
+          customer_name AS customer_name_snapshot,
+          mobile_no AS mobile_no_snapshot,
+          city AS city_snapshot,
+          complaint_type AS service_type,
+          assigned_technician_name AS technician_1,
+          status AS schedule_status,
+          priority
+        FROM complaints
+        ORDER BY created_at DESC
+        LIMIT $1
+      `, [LIST_LIMIT]),
+      fetchRows(`
+        SELECT
+          COUNT(*)::int AS total_completed_jobs,
+          COUNT(*) FILTER (WHERE customer_rep_name IS NOT NULL AND TRIM(customer_rep_name) <> '')::int AS signed_jobs,
+          COUNT(*) FILTER (WHERE gps_checked_in = true)::int AS location_captured_jobs,
+          COUNT(*) FILTER (WHERE voice_english_translation IS NOT NULL AND TRIM(voice_english_translation) <> '')::int AS translated_voice_notes
+        FROM technician_job_completions
+      `),
+      fetchRows(`
+        SELECT
+          tjc.id,
+          tjc.completed_at AS service_date,
+          c.complaint_no AS customer_code,
+          c.customer_name AS customer_name_snapshot,
+          c.mobile_no AS mobile_no_snapshot,
+          c.city AS city_snapshot,
+          tjc.status_resolution AS service_type,
+          u.name AS technician_1,
+          tjc.customer_rep_name,
+          tjc.work_performed,
+          tjc.problem_identified
+        FROM technician_job_completions tjc
+        LEFT JOIN complaints c ON c.id = tjc.complaint_id
+        LEFT JOIN users u ON u.id = tjc.worker_user_id
+        ORDER BY tjc.completed_at DESC
+        LIMIT $1
+      `, [LIST_LIMIT]),
     ]);
 
     const payload = {
@@ -397,6 +483,14 @@ export default async function handler(req, res) {
           missingServiceDate: missingServiceDateRows,
           missingServiceType: missingServiceTypeRows,
           missingTechnicianName: missingTechnicianRows,
+        },
+        complaints: {
+          counts: complaintReportCounts[0] || {},
+          recent: recentComplaints,
+        },
+        workerCompletions: {
+          counts: workerCompletionCounts[0] || {},
+          recent: recentWorkerCompletions,
         },
       },
     };

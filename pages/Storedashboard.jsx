@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
+import { subscribeToPush } from "@/lib/pushClient";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -105,6 +106,10 @@ function LogoutIcon({ className = "h-5 w-5" }) {
 
 export default function Storedashboard({ user }) {
     const router = useRouter();
+
+    useEffect(() => {
+        subscribeToPush().catch(() => {});
+    }, []);
 
     const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, inventory, requests, transactions, profile
     const [searchQuery, setSearchQuery] = useState("");

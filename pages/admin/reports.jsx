@@ -50,6 +50,36 @@ function MetricCard({ label, value, tone = "blue" }) {
   );
 }
 
+function ChartPanel({ title, subtitle, items }) {
+  const maxValue = Math.max(1, ...items.map((item) => Number(item.value || 0)));
+
+  return (
+    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-4">
+        <h2 className="text-sm font-black text-slate-900">{title}</h2>
+        {subtitle && <p className="mt-1 text-xs font-semibold text-slate-500">{subtitle}</p>}
+      </div>
+      <div className="space-y-3">
+        {items.map((item) => {
+          const value = Number(item.value || 0);
+          const width = `${Math.max(5, Math.round((value / maxValue) * 100))}%`;
+          return (
+            <div key={item.label}>
+              <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-black">
+                <span className="text-slate-600">{item.label}</span>
+                <span className={item.textClass || "text-[#0a649d]"}>{formatCount(value)}</span>
+              </div>
+              <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                <div className={`h-full rounded-full ${item.barClass || "bg-[#0a649d]"}`} style={{ width }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 function CustomerCard({ row }) {
   return (
     <article className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -99,6 +129,12 @@ function ServiceCard({ row }) {
           <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Mobile</span>
           {displayValue(row.mobile_no || row.mobile_no_snapshot)}
         </div>
+        {row.customer_rep_name && (
+          <div className="col-span-2 rounded-xl bg-emerald-50 px-3 py-2 text-emerald-800">
+            <span className="block text-[9px] font-black uppercase tracking-wider text-emerald-500">Client Sign</span>
+            {displayValue(row.customer_rep_name)}
+          </div>
+        )}
       </div>
     </article>
   );
@@ -324,6 +360,36 @@ export default function AdminReportsPage({ user }) {
 
         {reports && (
           <>
+            <section className="grid gap-3 lg:grid-cols-3">
+              <ChartPanel
+                title="AMC Expiry Graph"
+                subtitle="Visual expiry pressure across active records."
+                items={[
+                  { label: "This Month", value: reports.amcWarrantyExpiry.counts.due_this_month, barClass: "bg-amber-500", textClass: "text-amber-600" },
+                  { label: "Next 30 Days", value: reports.amcWarrantyExpiry.counts.due_next_30_days, barClass: "bg-sky-500", textClass: "text-sky-600" },
+                  { label: "Expired", value: reports.amcWarrantyExpiry.counts.expired, barClass: "bg-red-500", textClass: "text-red-600" },
+                ]}
+              />
+              <ChartPanel
+                title="Service Planning Graph"
+                subtitle="Monthly service pipeline health."
+                items={[
+                  { label: "To Schedule", value: reports.monthlyServiceDue.counts.to_be_scheduled, barClass: "bg-amber-500", textClass: "text-amber-600" },
+                  { label: "Scheduled", value: reports.monthlyServiceDue.counts.scheduled, barClass: "bg-emerald-500", textClass: "text-emerald-600" },
+                  { label: "Completed", value: reports.monthlyServiceDue.counts.completed_current_month, barClass: "bg-[#0a649d]", textClass: "text-[#0a649d]" },
+                ]}
+              />
+              <ChartPanel
+                title="Ticket Graph"
+                subtitle="Live complaint workload."
+                items={[
+                  { label: "Open Tickets", value: reports.complaints?.counts?.open_complaints, barClass: "bg-red-500", textClass: "text-red-600" },
+                  { label: "Assigned", value: reports.complaints?.counts?.assigned_complaints, barClass: "bg-sky-500", textClass: "text-sky-600" },
+                  { label: "Resolved", value: reports.complaints?.counts?.resolved_complaints, barClass: "bg-emerald-500", textClass: "text-emerald-600" },
+                ]}
+              />
+            </section>
+
             <section className="space-y-3">
               <h2 className="px-1 text-xs font-black uppercase tracking-wider text-slate-400">AMC / Warranty Expiry</h2>
               <div className="grid grid-cols-3 gap-3">
@@ -375,6 +441,18 @@ export default function AdminReportsPage({ user }) {
               </div>
               <ReportList title="Unlinked Service Visits" rows={filterRows(reports.serviceDataQuality.unlinkedVisits)} type="service" />
               <ReportList title="Service Visits Missing Technician" rows={filterRows(reports.serviceDataQuality.missingTechnicianName)} type="service" />
+            </section>
+
+            <section className="space-y-3">
+              <h2 className="px-1 text-xs font-black uppercase tracking-wider text-slate-400">Tickets & Worker Completion</h2>
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <MetricCard label="Open Tickets" value={reports.complaints?.counts?.open_complaints} tone="red" />
+                <MetricCard label="Assigned" value={reports.complaints?.counts?.assigned_complaints} tone="blue" />
+                <MetricCard label="Resolved" value={reports.complaints?.counts?.resolved_complaints} tone="green" />
+                <MetricCard label="Signed Jobs" value={reports.workerCompletions?.counts?.signed_jobs} tone="green" />
+              </div>
+              <ReportList title="Recent Tickets" rows={filterRows(reports.complaints?.recent)} type="service" />
+              <ReportList title="Latest Worker Completion Reports With Client Sign" rows={filterRows(reports.workerCompletions?.recent)} type="service" />
             </section>
           </>
         )}

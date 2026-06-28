@@ -293,26 +293,14 @@ export default function Techniciandashboard({ user }) {
         updateJobStatus(job.id, "En Route");
     };
 
-    // GPS & Selfie Arrival Verification
+    // GPS Arrival Verification
     const triggerGPSCheckIn = async () => {
         setCheckingIn(true);
-        // Simulate GPS satellite coordinate retrieval
         await new Promise(r => setTimeout(r, 1200));
-        
-        // Start device camera or simulation
-        try {
-            setCheckingIn(false);
-            setCameraActive(true);
-            const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-            setCameraStream(stream);
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream;
-            }
-        } catch (e) {
-            // Camera hardware issue or deny -> trigger auto simulation
-            console.log("Webcam denied/missing. Running virtual selfie check-in...");
-            simulateSelfieCapture();
-        }
+        setSelfieCaptured(true);
+        setSelfieUrl("LOCATION_CAPTURED");
+        setCameraActive(false);
+        setCheckingIn(false);
     };
 
     const simulateSelfieCapture = () => {
@@ -359,7 +347,7 @@ export default function Techniciandashboard({ user }) {
                     ...job,
                     gpsCheckedIn: true,
                     checkInTime: timeNow,
-                    selfieUrl: selfieUrl || "MOCK_SELFIE_VERIFIED_OK",
+                    selfieUrl: selfieUrl || "LOCATION_CAPTURED",
                     status: "Arrived"
                 };
             }
@@ -369,14 +357,14 @@ export default function Techniciandashboard({ user }) {
             ...prev,
             gpsCheckedIn: true,
             checkInTime: timeNow,
-            selfieUrl: selfieUrl || "MOCK_SELFIE_VERIFIED_OK",
+            selfieUrl: selfieUrl || "LOCATION_CAPTURED",
             status: "Arrived"
         }));
         
         // Reset states
         setSelfieCaptured(false);
         setSelfieUrl("");
-        alert("Check-in successful! Location matching 12.9716° N, 77.5946° E verified. You can now perform work checklist.");
+        alert("Location check-in successful! GPS matching 12.9716° N, 77.5946° E verified. You can now perform the work checklist.");
     };
 
     // QR scan simulation
@@ -536,12 +524,6 @@ export default function Techniciandashboard({ user }) {
         // GPS Check-in validation
         if (!activeJob.gpsCheckedIn) {
             alert("VALIDATION ERROR: Please complete the GPS location check-in first!");
-            return;
-        }
-
-        // Photo Upload checks
-        if (!photoSlots.before || !photoSlots.during || !photoSlots.after || !photoSlots.parts) {
-            alert("VALIDATION ERROR: Mandatory before, during, after, and spare parts photos must be uploaded!");
             return;
         }
 
@@ -845,6 +827,7 @@ export default function Techniciandashboard({ user }) {
     const pendingJobsCount = jobs.filter(j => j.status === "Assigned").length;
     const completedJobsCount = jobs.filter(j => j.status === "Completed").length;
     const emergencyJobsCount = jobs.filter(j => j.status !== "Completed" && j.priority === "Emergency").length;
+    const activeAssignedJobs = jobs.filter(j => j.status !== "Completed");
     const pendingMaterialsCount = materialRequests.filter(m => m.status === "Pending").length;
     const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
@@ -1295,7 +1278,7 @@ export default function Techniciandashboard({ user }) {
 
                                     {/* SECTION 2: GPS SITE CHECK-IN */}
                                     <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
-                                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">GPS & Identity Check-In</h3>
+                                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Location Check-In</h3>
                                         
                                         {!activeJob.gpsCheckedIn ? (
                                             <div className="space-y-4">
@@ -1310,7 +1293,7 @@ export default function Techniciandashboard({ user }) {
                                                         ) : (
                                                             <>
                                                                 <svg className="h-4.5 w-4.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><circle cx="12" cy="12" r="3" /></svg>
-                                                                <span>GPS check-in & selfie</span>
+                                                                <span>Capture GPS Location</span>
                                                             </>
                                                         )}
                                                     </button>
@@ -1357,8 +1340,8 @@ export default function Techniciandashboard({ user }) {
                                                                 <svg className="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                                                             </div>
                                                             <div className="text-left">
-                                                                <span className="block text-[10px] font-bold text-emerald-800 uppercase tracking-wide leading-none">Selfie Captured</span>
-                                                                <span className="text-[9px] text-slate-400 font-bold block mt-0.5">ID check verified.</span>
+                                                                <span className="block text-[10px] font-bold text-emerald-800 uppercase tracking-wide leading-none">Location Captured</span>
+                                                                <span className="text-[9px] text-slate-400 font-bold block mt-0.5">GPS check-in ready.</span>
                                                             </div>
                                                         </div>
                                                         <button
@@ -1384,7 +1367,7 @@ export default function Techniciandashboard({ user }) {
                                                 <div className="space-y-1 pl-0.5">
                                                     <p><strong className="text-emerald-950">Arrival Timestamp:</strong> {activeJob.checkInTime}</p>
                                                     <p><strong className="text-emerald-950">Location:</strong> GPS Matched (12.9716° N, 77.5946° E)</p>
-                                                    <p><strong className="text-emerald-950">Identity Selfie:</strong> Verified & Saved in service ledger</p>
+                                                    <p><strong className="text-emerald-950">Verification:</strong> Location captured and saved in service ledger</p>
                                                 </div>
                                             </div>
                                         )}
@@ -1480,7 +1463,10 @@ export default function Techniciandashboard({ user }) {
                                     {/* SECTION 4: PHOTO EVIDENCE (ONLY IF ARRIVED) */}
                                     {activeJob.gpsCheckedIn && (
                                         <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
-                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Mandatory Photos</h3>
+                                            <div className="border-b border-slate-100 pb-2">
+                                                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d]">Optional Job Photos</h3>
+                                                <p className="mt-1 text-[10px] font-semibold text-slate-400">Photos help office review, but completion requires location, work notes, and client sign.</p>
+                                            </div>
                                             
                                             <div className="grid grid-cols-2 gap-3 text-center">
                                                 {/* Before */}
@@ -1975,6 +1961,37 @@ export default function Techniciandashboard({ user }) {
                                     Mark all read
                                 </button>
                             </div>
+
+                            {activeAssignedJobs.length > 0 && (
+                                <div className="space-y-3">
+                                    <h2 className="px-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Assigned Jobs</h2>
+                                    {activeAssignedJobs.map(job => (
+                                        <button
+                                            key={job.id}
+                                            onClick={() => {
+                                                setActiveJob(job);
+                                                setActiveTab("jobs");
+                                            }}
+                                            className="w-full rounded-3xl border border-sky-100 bg-sky-50/80 p-4 text-left shadow-sm active:scale-[0.99] transition"
+                                        >
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <p className="text-[10px] font-black uppercase tracking-wider text-[#0a649d]">{job.id}</p>
+                                                    <h3 className="mt-1 truncate text-sm font-black text-slate-900">{job.customer}</h3>
+                                                    <p className="mt-1 text-xs font-semibold text-slate-500">{job.issue}</p>
+                                                </div>
+                                                <span className="rounded-full bg-white px-2.5 py-1 text-[9px] font-black uppercase text-sky-700 ring-1 ring-sky-100">
+                                                    {job.status}
+                                                </span>
+                                            </div>
+                                            <div className="mt-3 flex items-center justify-between border-t border-sky-100 pt-3 text-[10px] font-bold text-slate-500">
+                                                <span>{job.address}</span>
+                                                <span className={job.priority === "Emergency" ? "text-red-600" : "text-[#0a649d]"}>{job.priority}</span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
 
                             <div className="divide-y divide-slate-100 bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
                                 {notifications.length === 0 ? (

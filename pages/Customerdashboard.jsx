@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
+import { subscribeToPush } from "@/lib/pushClient";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -121,6 +122,7 @@ export default function Customerdashboard({ user }) {
     const [complaintSubTab, setComplaintSubTab] = useState("logs"); // logs, raise
 
     useEffect(() => {
+        subscribeToPush().catch(() => {});
         if (router.isReady) {
             if (router.query.tab) {
                 setActiveTab(router.query.tab);
@@ -180,6 +182,7 @@ export default function Customerdashboard({ user }) {
     ]);
     const [docSearch, setDocSearch] = useState("");
     const [viewingDoc, setViewingDoc] = useState(null);
+    const [viewingAmc, setViewingAmc] = useState(false);
 
     // Profile Settings State
     const [customerProfile, setCustomerProfile] = useState({
@@ -491,7 +494,12 @@ export default function Customerdashboard({ user }) {
                     {activeTab === "home" && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             {/* AMC Badge / Highlight Banner */}
-                            <div className="rounded-3xl p-5 text-white shadow-md relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${PRIMARY_COLOR} 0%, #1e4b7a 65%, #0e2a4a 100%)` }}>
+                            <button
+                                type="button"
+                                onClick={() => setViewingAmc(true)}
+                                className="w-full rounded-3xl p-5 text-left text-white shadow-md relative overflow-hidden active:scale-[0.99] transition"
+                                style={{ background: `linear-gradient(135deg, ${PRIMARY_COLOR} 0%, #1e4b7a 65%, #0e2a4a 100%)` }}
+                            >
                                 <div className="absolute top-0 right-0 h-28 w-28 bg-white/5 rounded-full -mr-8 -mt-8"></div>
                                 <div className="absolute bottom-0 left-0 h-20 w-20 bg-white/5 rounded-full -ml-8 -mb-8"></div>
                                 <div className="flex justify-between items-start">
@@ -502,11 +510,12 @@ export default function Customerdashboard({ user }) {
                                         <h2 className="text-xl font-black mt-3 leading-tight">{amcData.number}</h2>
                                         <p className="text-[10.5px] text-white/80 font-semibold mt-1">Valid till {amcData.endDate} ({remainingDays} Days Left)</p>
                                     </div>
-                                    <div className="h-10.5 w-10.5 rounded-xl bg-emerald-500/20 text-[#0a649d] border border-emerald-400/30 flex items-center justify-center font-black text-sm">
+                                    <div className="h-10.5 w-10.5 rounded-xl bg-white text-[#0a649d] border border-white/70 flex items-center justify-center font-black text-sm">
                                         AMC
                                     </div>
                                 </div>
-                            </div>
+                                <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/70">Tap to view contract maintenance</p>
+                            </button>
 
                             {/* KPI Grid */}
                             <div>
@@ -1232,13 +1241,27 @@ export default function Customerdashboard({ user }) {
                             </div>
 
                             <div className="p-5 space-y-4">
-                                <div className="h-44 w-full rounded-2xl bg-slate-100 border border-slate-200 flex flex-col items-center justify-center gap-2.5 p-4 text-center select-none shadow-inner">
-                                    <div className="h-10 w-10 bg-white text-[#0a649d] rounded-xl flex items-center justify-center border border-slate-200 shadow-sm">
-                                        <DocumentIcon className="h-5 w-5" />
+                                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-inner">
+                                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                        <div className="relative h-11 w-11 rounded-2xl bg-white">
+                                            <Image src="/adlogo.png" alt="Amardip Lifts" fill className="object-contain" sizes="44px" />
+                                        </div>
+                                        <div className="text-right">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-[#0a649d]">Amardip Lifts</p>
+                                            <p className="text-[9px] font-bold text-slate-400">{viewingDoc.category}</p>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <span className="text-[10px] text-slate-400 font-extrabold uppercase tracking-wider leading-none">Document Preview Mockup</span>
-                                        <p className="text-xs text-slate-500 font-bold mt-1">Uploaded on {viewingDoc.date}</p>
+                                    <div className="mt-4 space-y-3">
+                                        <h3 className="text-sm font-black text-slate-900">{viewingDoc.name}</h3>
+                                        <p className="text-[11px] font-semibold leading-relaxed text-slate-500">
+                                            This branded template preview represents the document available to the customer portal.
+                                        </p>
+                                        <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600">
+                                            <p className="rounded-xl bg-slate-50 p-2">Customer<br /><span className="text-slate-900">{customerProfile.name}</span></p>
+                                            <p className="rounded-xl bg-slate-50 p-2">Document ID<br /><span className="text-slate-900">{viewingDoc.id}</span></p>
+                                            <p className="rounded-xl bg-slate-50 p-2">AMC No<br /><span className="text-slate-900">{amcData.number}</span></p>
+                                            <p className="rounded-xl bg-slate-50 p-2">Date<br /><span className="text-slate-900">{viewingDoc.date}</span></p>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -1277,6 +1300,45 @@ export default function Customerdashboard({ user }) {
                     </div>
                 )}
 
+                {viewingAmc && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                        <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
+                            <div className="bg-[#0a649d] px-5 py-4 text-white">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className="relative h-11 w-11 overflow-hidden rounded-2xl bg-white">
+                                            <Image src="/adlogo.png" alt="Amardip Lifts" fill className="object-contain p-1" sizes="44px" />
+                                        </div>
+                                        <div>
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-white/70">Contract Maintenance</p>
+                                            <h2 className="text-base font-black">AMC Summary</h2>
+                                        </div>
+                                    </div>
+                                    <button onClick={() => setViewingAmc(false)} className="h-8 w-8 rounded-full bg-white/10">
+                                        <CloseIcon className="mx-auto h-5 w-5" />
+                                    </button>
+                                </div>
+                            </div>
+                            <div className="space-y-4 p-5">
+                                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Active Contract</p>
+                                    <p className="mt-1 text-xl font-black text-slate-900">{amcData.number}</p>
+                                    <p className="mt-1 text-xs font-bold text-slate-500">{amcData.startDate} to {amcData.endDate}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2 text-xs font-bold">
+                                    <p className="rounded-2xl bg-slate-50 p-3">Status<br /><span className="text-emerald-700">{amcData.status}</span></p>
+                                    <p className="rounded-2xl bg-slate-50 p-3">Remaining<br /><span className="text-[#0a649d]">{remainingDays} days</span></p>
+                                    <p className="rounded-2xl bg-slate-50 p-3">Lifts Covered<br /><span className="text-slate-900">{lifts.length}</span></p>
+                                    <p className="rounded-2xl bg-slate-50 p-3">Next Check<br /><span className="text-slate-900">{upcomingChecks}</span></p>
+                                </div>
+                                <button onClick={() => { setViewingAmc(false); setActiveTab("documents"); }} className="h-11 w-full rounded-2xl bg-[#0a649d] text-xs font-black text-white">
+                                    View Agreement Documents
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* Bottom Navigation Menu */}
                 <nav className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a1f35]/95 backdrop-blur-xl border-t border-white/8 text-white flex justify-around items-start z-50 px-1 pt-2 select-none">
                     <button
@@ -1288,7 +1350,7 @@ export default function Customerdashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => { setActiveTab("complaints"); setComplaintSubTab("logs"); }}
+                        onClick={() => { setActiveTab("complaints"); setComplaintSubTab("raise"); }}
                         className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "complaints" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <ComplaintIcon className="h-5.5 w-5.5 mb-0.5" />
