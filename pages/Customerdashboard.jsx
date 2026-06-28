@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
-import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -116,30 +115,6 @@ function LogoutIcon({ className = "h-5 w-5" }) {
 
 export default function Customerdashboard({ user }) {
     const router = useRouter();
-
-    async function handleWaitingLogout() {
-        await fetch("/api/auth/logout", { method: "POST" });
-        router.push("/Customerlogin");
-    }
-
-    return (
-        <div className="min-h-screen bg-[#f1f5f9] p-4 text-[#0f172a]">
-            <div className="mx-auto flex min-h-[calc(100dvh-32px)] max-w-md flex-col justify-center gap-4">
-                <ModuleComingSoon
-                    title="Customer Portal"
-                    primaryText="Customer portal data is not linked yet."
-                    reason="This module is ready to connect once the customer login is linked to real elevator customer records."
-                />
-                <button
-                    type="button"
-                    onClick={handleWaitingLogout}
-                    className="h-11 rounded-2xl bg-[#0a649d] text-xs font-black text-white shadow-sm active:scale-95"
-                >
-                    Logout
-                </button>
-            </div>
-        </div>
-    );
 
     const [activeTab, setActiveTab] = useState("home"); // home, complaints, documents, support, profile
     const [complaintSubTab, setComplaintSubTab] = useState("logs"); // logs, raise
