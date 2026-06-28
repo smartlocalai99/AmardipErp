@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
+import Image from "next/image";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -417,14 +418,22 @@ export default function Customerdashboard({ user }) {
                 </div>
 
                 {/* App Bar Header */}
-                <header className="sticky top-0 z-30 bg-[#0a649d] text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-md">
+                <header className="sticky top-0 z-30 text-white px-5 py-4 flex items-center justify-between shrink-0"
+                    style={{ background: "linear-gradient(135deg, #04182b 0%, #073354 45%, #0a4f7a 100%)", boxShadow: "0 1px 0 rgba(255,255,255,0.06), 0 4px 20px rgba(0,0,0,0.3)" }}>
                     <div className="flex items-center gap-3">
-                        <div className="h-10.5 w-10.5 rounded-full bg-white/20 border border-white/30 flex items-center justify-center font-extrabold text-sm text-[#59e0ff] uppercase shadow-inner">
-                            SL
+                        <div className="relative h-10.5 w-10.5 overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_8px_24px_rgba(2,6,23,0.18)] shrink-0">
+                            <Image
+                                src="/adlogo.png"
+                                alt="Amardip Lifts"
+                                fill
+                                sizes="42px"
+                                className="object-contain p-1"
+                                priority
+                            />
                         </div>
                         <div>
                             <span className="text-[10px] text-white/80 font-bold uppercase tracking-widest leading-none block">
-                                Smart Lift AI
+                                Amardip Lifts
                             </span>
                             <span className="text-base font-extrabold tracking-tight leading-normal">Apex Business Complex</span>
                         </div>
@@ -476,7 +485,7 @@ export default function Customerdashboard({ user }) {
                 )}
 
                 {/* Main Tab Content */}
-                <main className="flex-1 overflow-y-auto bg-[#f1f5f9] pb-24">
+                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {/* VIEW: HOME TAB */}
                     {activeTab === "home" && (
@@ -493,7 +502,7 @@ export default function Customerdashboard({ user }) {
                                         <h2 className="text-xl font-black mt-3 leading-tight">{amcData.number}</h2>
                                         <p className="text-[10.5px] text-white/80 font-semibold mt-1">Valid till {amcData.endDate} ({remainingDays} Days Left)</p>
                                     </div>
-                                    <div className="h-10.5 w-10.5 rounded-xl bg-emerald-500/20 text-[#59e0ff] border border-emerald-400/30 flex items-center justify-center font-black text-sm">
+                                    <div className="h-10.5 w-10.5 rounded-xl bg-emerald-500/20 text-[#0a649d] border border-emerald-400/30 flex items-center justify-center font-black text-sm">
                                         AMC
                                     </div>
                                 </div>
@@ -530,7 +539,7 @@ export default function Customerdashboard({ user }) {
                                         onClick={() => { setActiveTab("complaints"); setComplaintSubTab("raise"); }}
                                         className="rounded-2xl bg-[#0a649d] hover:bg-[#085282] text-white p-3 shadow flex flex-col items-center text-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                                     >
-                                        <ComplaintIcon className="h-5 w-5 text-[#59e0ff]" />
+                                        <ComplaintIcon className="h-5 w-5 text-[#0a649d]" />
                                         <span className="text-[9.5px] font-bold tracking-tight">Raise Ticket</span>
                                     </button>
                                     <button
@@ -1269,10 +1278,10 @@ export default function Customerdashboard({ user }) {
                 )}
 
                 {/* Bottom Navigation Menu */}
-                <nav className="absolute bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200/80 px-4 py-2.5 flex justify-between shrink-0 shadow-[0_-4px_16px_rgba(15,23,42,0.03)] select-none">
+                <nav className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a1f35]/95 backdrop-blur-xl border-t border-white/8 text-white flex justify-around items-start z-50 px-1 pt-2 select-none">
                     <button
                         onClick={() => setActiveTab("home")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "home" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "home" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <HomeIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Home</span>
@@ -1280,7 +1289,7 @@ export default function Customerdashboard({ user }) {
 
                     <button
                         onClick={() => { setActiveTab("complaints"); setComplaintSubTab("logs"); }}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "complaints" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "complaints" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <ComplaintIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Tickets</span>
@@ -1288,7 +1297,7 @@ export default function Customerdashboard({ user }) {
 
                     <button
                         onClick={() => setActiveTab("documents")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "documents" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "documents" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <DocumentIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Documents</span>
@@ -1296,7 +1305,7 @@ export default function Customerdashboard({ user }) {
 
                     <button
                         onClick={() => setActiveTab("support")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "support" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "support" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <SupportIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Support</span>
@@ -1304,7 +1313,7 @@ export default function Customerdashboard({ user }) {
 
                     <button
                         onClick={() => setActiveTab("profile")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "profile" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "profile" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <ProfileIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Profile</span>

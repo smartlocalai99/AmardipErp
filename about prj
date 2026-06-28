@@ -2356,3 +2356,30 @@ Latest Quotation UI Verification:
 - node scripts/dashboard-quotation-card.test.mjs passed.
 - Targeted ESLint passed for quotation dashboard helper, quotation helper, dashboard KPI grid, quotation page, quotation print page, and dashboard quotation test.
 - rg found no remaining legacy wall-dimension wording under pages, components, lib, or scripts.
+
+Portal Shell Alignment
+
+Status:
+- Implemented.
+
+Purpose:
+- Make customer, technician, and store logged-in portals feel closer to the Admin mobile app shell.
+- Keep each portal's existing workflow tabs and data behavior unchanged.
+
+Files:
+- pages/Customerdashboard.jsx
+- pages/Techniciandashboard.jsx
+- pages/Storedashboard.jsx
+
+Implemented behavior:
+- Customer, Technician, and Store dashboard headers now use logged-in app logo /adlogo.png in a white rounded logo tile, matching the Admin dashboard direction.
+- Customer, Technician, and Store headers now use the same deeper Amardip blue gradient style used by the Admin shell.
+- Customer, Technician, and Store main scroll areas now use .amardip-app-main so page content has safe bottom padding and does not sit under the bottom nav on phones.
+- Customer, Technician, and Store bottom navigation bars now use .amardip-bottom-nav with iPhone safe-area padding.
+- Customer, Technician, and Store bottom navigation bars now use the dark Amardip app-nav style with cyan active state, matching the Admin dashboard feel.
+- Technician bottom nav labels were shortened from Jobs Workspace to Jobs and Notifications to Alerts so text fits better on mobile.
+
+Rules preserved:
+- Login pages still use /logo.png.
+- Logged-in app shell uses /adlogo.png.
+- No portal business flow, auth redirect, DB/API behavior, or role behavior was intentionally changed.

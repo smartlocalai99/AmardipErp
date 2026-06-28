@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { subscribeToPush } from "@/lib/pushClient";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
+import Image from "next/image";
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -864,14 +865,22 @@ export default function Techniciandashboard({ user }) {
                 </div>
 
                 {/* Navigation Header */}
-                <header className="sticky top-0 z-30 bg-[#0a649d] text-white px-5 py-4 flex items-center justify-between shrink-0 shadow-md">
+                <header className="sticky top-0 z-30 text-white px-5 py-4 flex items-center justify-between shrink-0"
+                    style={{ background: "linear-gradient(135deg, #04182b 0%, #073354 45%, #0a4f7a 100%)", boxShadow: "0 1px 0 rgba(255,255,255,0.06), 0 4px 20px rgba(0,0,0,0.3)" }}>
                     <div className="flex items-center gap-3">
-                        <div className="h-10.5 w-10.5 rounded-full bg-white/20 border border-white/30 flex items-center justify-center font-extrabold text-sm text-[#59e0ff] uppercase shadow-inner">
-                            Tech
+                        <div className="relative h-10.5 w-10.5 overflow-hidden rounded-2xl border border-white/70 bg-white shadow-[0_8px_24px_rgba(2,6,23,0.18)] shrink-0">
+                            <Image
+                                src="/adlogo.png"
+                                alt="Amardip Lifts"
+                                fill
+                                sizes="42px"
+                                className="object-contain p-1"
+                                priority
+                            />
                         </div>
                         <div>
                             <span className="text-[10px] text-white/80 font-bold uppercase tracking-widest leading-none block">
-                                Smart Lift AI
+                                Amardip Lifts
                             </span>
                             <span className="text-base font-extrabold tracking-tight leading-normal">
                                 {user?.name || "Suresh R. (Lead)"}
@@ -906,7 +915,7 @@ export default function Techniciandashboard({ user }) {
                         <div className="my-auto flex flex-col items-center">
                             <div className="relative h-64 w-64 border-2 border-dashed border-[#59e0ff] rounded-2xl flex items-center justify-center overflow-hidden">
                                 <div className="absolute inset-x-0 h-0.5 bg-red-500 animate-bounce"></div>
-                                <ScanIcon className="h-16 w-16 text-[#59e0ff]/30" />
+                                <ScanIcon className="h-16 w-16 text-[#0a649d]/30" />
                             </div>
                             <p className="text-sm font-semibold mt-6 text-slate-300 animate-pulse">{qrStatusText}</p>
                         </div>
@@ -932,7 +941,7 @@ export default function Techniciandashboard({ user }) {
                 )}
 
                 {/* Main Workspace content */}
-                <main className="flex-1 overflow-y-auto bg-[#f1f5f9] pb-24">
+                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {/* VIEW: DASHBOARD TAB */}
                     {activeTab === "dashboard" && !activeJob && (
@@ -2159,10 +2168,10 @@ export default function Techniciandashboard({ user }) {
                 )}
 
                 {/* Bottom Navigation Tabs */}
-                <nav className="absolute bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200/80 px-4 py-2.5 flex justify-between shrink-0 shadow-[0_-4px_16px_rgba(15,23,42,0.03)] select-none">
+                <nav className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a1f35]/95 backdrop-blur-xl border-t border-white/8 text-white flex justify-around items-start z-50 px-1 pt-2 select-none">
                     <button
                         onClick={() => handleTabChange("dashboard")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "dashboard" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "dashboard" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <DashboardIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Dashboard</span>
@@ -2170,15 +2179,15 @@ export default function Techniciandashboard({ user }) {
 
                     <button
                         onClick={() => handleTabChange("jobs")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "jobs" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "jobs" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <JobsIcon className="h-5.5 w-5.5 mb-0.5" />
-                        <span className="text-[9px] font-black tracking-tight leading-none">Jobs Workspace</span>
+                        <span className="text-[9px] font-black tracking-tight leading-none">Jobs</span>
                     </button>
 
                     <button
                         onClick={() => handleTabChange("inventory")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "inventory" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "inventory" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <InventoryIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Inventory</span>
@@ -2186,15 +2195,15 @@ export default function Techniciandashboard({ user }) {
 
                     <button
                         onClick={() => handleTabChange("notifications")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "notifications" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "notifications" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <BellIcon className="h-5.5 w-5.5 mb-0.5" />
-                        <span className="text-[9px] font-black tracking-tight leading-none">Notifications</span>
+                        <span className="text-[9px] font-black tracking-tight leading-none">Alerts</span>
                     </button>
 
                     <button
                         onClick={() => handleTabChange("profile")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "profile" ? "text-[#0a649d]" : "text-slate-400"}`}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "profile" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
                         <ProfileIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Profile</span>
