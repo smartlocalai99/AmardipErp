@@ -3,6 +3,7 @@ import { subscribeToPush } from "@/lib/pushClient";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
 import Image from "next/image";
+import QRCode from "qrcode";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 
@@ -156,18 +157,23 @@ export default function Techniciandashboard({ user }) {
     const [showQrScanner, setShowQrScanner] = useState(false);
     const [qrStatusText, setQrStatusText] = useState("Align Lift QR inside frame");
 
-    // QR Inventory states
-    const [activePickupRequest, setActivePickupRequest] = useState(null);
-    const [showPickupQrModal, setShowPickupQrModal] = useState(false);
-    const [isPickingUp, setIsPickingUp] = useState(false);
+    // Store Material Pass (real QR job-pass image) states
+    const [jobPassJob, setJobPassJob] = useState(null);
+    const [showJobPassModal, setShowJobPassModal] = useState(false);
+    const [jobPassLoading, setJobPassLoading] = useState(false);
+    const [jobPassImage, setJobPassImage] = useState(null);
 
-    // Form inputs for Material Request
+    // Form inputs for Material Request (real inventory item search)
     const [requestForm, setRequestForm] = useState({
-        partName: "Door Roller Assembly",
+        complaintId: "",
+        itemQuery: "",
+        itemId: null,
+        itemName: "",
         quantity: 1,
-        reason: "",
-        urgency: "Medium"
+        reason: ""
     });
+    const [itemSearchResults, setItemSearchResults] = useState([]);
+    const [submittingRequest, setSubmittingRequest] = useState(false);
 
     // Profile password states
     const [passwordVal, setPasswordVal] = useState("tech123");
@@ -197,12 +203,8 @@ export default function Techniciandashboard({ user }) {
     const finalTranscriptRef = useRef("");
     const [submittingJob, setSubmittingJob] = useState(false);
 
-    // Material Request List
-    const [materialRequests, setMaterialRequests] = useState([
-        { id: "REQ-901", partName: "24V Control Relay", quantity: 2, reason: "Relay contacts burnt in panel", urgency: "High", status: "Approved", date: "June 20, 2026", qrCode: "INVENTORY_PASS_REQ901" },
-        { id: "REQ-802", partName: "Door Roller Assembly", quantity: 4, reason: "Worn rubber rollers causing squeaks", urgency: "Medium", status: "Pending", date: "June 20, 2026", qrCode: null },
-        { id: "REQ-791", partName: "Brake Lining Pad", quantity: 1, reason: "General wear renewal", urgency: "Low", status: "Rejected", date: "June 19, 2026", qrCode: null }
-    ]);
+    // Material Request List — populated from real /api/worker/materials calls
+    const [materialRequests, setMaterialRequests] = useState([]);
 
     // Notification List
     const [notifications, setNotifications] = useState([
@@ -244,32 +246,55 @@ export default function Techniciandashboard({ user }) {
             const res = await fetch("/api/worker/assigned-complaints?page=1&pageSize=50");
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to load assigned complaints");
-            setJobs((data.complaints || []).map(mapAssignedComplaintToJob));
+            const mapped = (data.complaints || []).map(mapAssignedComplaintToJob);
+            setJobs(mapped);
+            refreshMaterialRequests(mapped);
         } catch (err) {
             setJobsError(err.message || "Failed to load assigned complaints");
         }
     }
 
-    // Sync material requests from localStorage; assigned jobs come from PostgreSQL.
+    // Material requests live in Postgres, scoped per job — fetch and merge
+    // across every active (non-completed) job for the "QR Inventory" feed.
+    async function refreshMaterialRequests(jobList) {
+        const activeJobs = (jobList || jobs).filter(j => j.status !== "Completed");
+        const results = await Promise.all(activeJobs.map(async (job) => {
+            try {
+                const res = await fetch(`/api/worker/materials?complaintId=${job.dbId}`);
+                const data = await res.json();
+                if (!data.success) return [];
+                return data.requests.map(r => ({ ...r, jobLabel: job.id }));
+            } catch {
+                return [];
+            }
+        }));
+        setMaterialRequests(results.flat());
+    }
+
     useEffect(() => {
         fetchAssignedComplaints();
         // Subscribe to push notifications (non-blocking — worker can still decline)
         subscribeToPush().catch(() => {});
-
-        const storedRequests = localStorage.getItem("amardip_material_requests");
-        if (storedRequests) {
-            try {
-                setMaterialRequests(JSON.parse(storedRequests));
-            } catch (e) {
-                console.error("Failed to parse amardip_material_requests", e);
-            }
-        }
     }, []);
 
-    // Sync back materialRequests state to localStorage
+    // Debounced real inventory item search for the material request form
     useEffect(() => {
-        localStorage.setItem("amardip_material_requests", JSON.stringify(materialRequests));
-    }, [materialRequests]);
+        const query = requestForm.itemQuery.trim();
+        if (!query) {
+            setItemSearchResults([]);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/inventory?search=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                if (data.success) setItemSearchResults(data.items);
+            } catch {
+                setItemSearchResults([]);
+            }
+        }, 350);
+        return () => clearTimeout(timer);
+    }, [requestForm.itemQuery]);
 
     // Track active job timeline and checklists
     const updateJobStatus = (jobId, nextStatus) => {
@@ -723,86 +748,69 @@ export default function Techniciandashboard({ user }) {
         }
     };
 
-    // Material Request submission
-    const handleMaterialRequestSubmit = (e) => {
+    // Material Request submission — posts a real request against a real job + inventory item
+    const handleMaterialRequestSubmit = async (e) => {
         e.preventDefault();
+        if (!requestForm.complaintId) {
+            alert("Please select which job this request is for.");
+            return;
+        }
+        if (!requestForm.itemId) {
+            alert("Please search for and select a real inventory item.");
+            return;
+        }
         if (!requestForm.reason.trim()) {
             alert("Please provide the reason for request.");
             return;
         }
 
-        const nextNum = materialRequests.length + 1;
-        const newReq = {
-            id: `REQ-${900 + nextNum}`,
-            partName: requestForm.partName,
-            quantity: parseInt(requestForm.quantity),
-            reason: requestForm.reason,
-            urgency: requestForm.urgency,
-            status: "Pending",
-            date: "Today",
-            qrCode: null
-        };
-
-        setMaterialRequests(prev => [newReq, ...prev]);
-        setRequestForm({
-            partName: "Door Roller Assembly",
-            quantity: 1,
-            reason: "",
-            urgency: "Medium"
-        });
-
-        alert("Spare parts request logged successfully. Waiting for administrator approval.");
-    };
-
-    // Pickup QR Simulator
-    const startStorePickupSimulation = (req) => {
-        setActivePickupRequest(req);
-        setShowPickupQrModal(true);
-    };
-
-    const confirmPickupQRScan = () => {
-        setIsPickingUp(true);
-        setTimeout(() => {
-            if (activePickupRequest.isPreAllocated) {
-                const targetJobId = activePickupRequest.jobId;
-                setJobs(prev => prev.map(j => {
-                    if (j.id === targetJobId) {
-                        const partStrings = j.allocatedParts.map(p => `${p.quantity}x ${p.partName}`).join(", ");
-                        const currentParts = j.workReport.sparePartsUsed;
-                        const newPartsList = currentParts ? `${currentParts}, ${partStrings}` : partStrings;
-                        return {
-                            ...j,
-                            allocatedPartsIssued: true,
-                            workReport: { ...j.workReport, sparePartsUsed: newPartsList }
-                        };
-                    }
-                    return j;
-                }));
-                if (activeJob && activeJob.id === targetJobId) {
-                    setActiveJob(prev => {
-                        const partStrings = prev.allocatedParts.map(p => `${p.quantity}x ${p.partName}`).join(", ");
-                        const currentParts = prev.workReport.sparePartsUsed;
-                        const newPartsList = currentParts ? `${currentParts}, ${partStrings}` : partStrings;
-                        return {
-                            ...prev,
-                            allocatedPartsIssued: true,
-                            workReport: { ...prev.workReport, sparePartsUsed: newPartsList }
-                        };
-                    });
-                }
-                alert(`Store inventory updated!\nPre-allocated parts issued to you.`);
-            } else {
-                setMaterialRequests(prev => prev.map(r => {
-                    if (r.id === activePickupRequest.id) {
-                        return { ...r, status: "Issued" };
-                    }
-                    return r;
-                }));
-                alert(`Store inventory updated!\nIssued: ${activePickupRequest.quantity}x ${activePickupRequest.partName}`);
+        setSubmittingRequest(true);
+        try {
+            const res = await fetch("/api/worker/materials", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    complaintId: requestForm.complaintId,
+                    items: [{ itemId: requestForm.itemId, quantity: parseInt(requestForm.quantity) || 1 }],
+                }),
+            });
+            const data = await res.json();
+            if (!data.success) {
+                alert(data.message || "Failed to submit request.");
+                return;
             }
-            setIsPickingUp(false);
-            setShowPickupQrModal(false);
-        }, 1200);
+            setRequestForm({ complaintId: "", itemQuery: "", itemId: null, itemName: "", quantity: 1, reason: "" });
+            setItemSearchResults([]);
+            await refreshMaterialRequests();
+            alert("Spare parts request logged successfully. Waiting for administrator approval.");
+        } finally {
+            setSubmittingRequest(false);
+        }
+    };
+
+    // Generate a real, camera-scannable Store Material Pass QR for a job
+    const openJobPass = async (job) => {
+        if (!job?.dbId) return;
+        setJobPassJob(job);
+        setShowJobPassModal(true);
+        setJobPassLoading(true);
+        setJobPassImage(null);
+        try {
+            const res = await fetch(`/api/worker/job-qr?complaintId=${job.dbId}`);
+            const data = await res.json();
+            if (!data.success) {
+                alert(data.message || "Failed to generate store pass.");
+                setShowJobPassModal(false);
+                return;
+            }
+            const dataUrl = await QRCode.toDataURL(data.token, { width: 320, margin: 2 });
+            setJobPassImage(dataUrl);
+        } catch (err) {
+            alert("Failed to generate store pass.");
+            setShowJobPassModal(false);
+        } finally {
+            setJobPassLoading(false);
+        }
     };
 
     // Password reset
@@ -1244,43 +1252,20 @@ export default function Techniciandashboard({ user }) {
                                         </div>
                                     </div>
 
-                                    {/* SECTION 1B: PRE-ALLOCATED SPARE PARTS */}
-                                    {activeJob.allocatedParts && activeJob.allocatedParts.length > 0 && (
-                                        <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
-                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Pre-allocated Spare Parts</h3>
-                                            <div className="space-y-3">
-                                                {activeJob.allocatedParts.map((p, idx) => (
-                                                    <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-2xl border border-slate-100 text-xs">
-                                                        <div>
-                                                            <span className="font-extrabold text-slate-800">{p.partName}</span>
-                                                            <span className="block text-[10px] text-slate-400">Qty: {p.quantity}</span>
-                                                        </div>
-                                                        {activeJob.allocatedPartsIssued ? (
-                                                            <span className="text-[10px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full uppercase">Issued</span>
-                                                        ) : (
-                                                            <span className="text-[10px] font-black text-amber-600 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full uppercase">Pending Pickup</span>
-                                                        )}
-                                                    </div>
-                                                ))}
-
-                                                {!activeJob.allocatedPartsIssued && (
-                                                    <button
-                                                        onClick={() => startStorePickupSimulation({
-                                                            id: `QR-${activeJob.id}-ALLOCATED`,
-                                                            partName: activeJob.allocatedParts.map(p => `${p.quantity}x ${p.partName}`).join(", "),
-                                                            quantity: 1,
-                                                            isPreAllocated: true,
-                                                            jobId: activeJob.id
-                                                        })}
-                                                        className="h-10.5 w-full bg-[#0a649d] text-white hover:bg-[#085282] rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition active:scale-98 shadow-sm cursor-pointer"
-                                                    >
-                                                        <ScanIcon className="h-4.5 w-4.5" />
-                                                        Generate Store Pickup Pass
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    )}
+                                    {/* SECTION 1B: STORE MATERIAL PASS */}
+                                    <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-3">
+                                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Store Material Pass</h3>
+                                        <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                                            Generate a real QR pass for this job. The storekeeper scans it to issue any spare parts requested for {activeJob.id}.
+                                        </p>
+                                        <button
+                                            onClick={() => openJobPass(activeJob)}
+                                            className="h-10.5 w-full bg-[#0a649d] text-white hover:bg-[#085282] rounded-xl text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 transition active:scale-98 shadow-sm cursor-pointer"
+                                        >
+                                            <ScanIcon className="h-4.5 w-4.5" />
+                                            Generate Store Pass QR
+                                        </button>
+                                    </div>
 
                                     {/* SECTION 2: GPS SITE CHECK-IN */}
                                     <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
@@ -1838,51 +1823,64 @@ export default function Techniciandashboard({ user }) {
 
                                 <div className="space-y-4 text-xs">
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Part Name</label>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Job</label>
                                         <select
-                                            value={requestForm.partName}
-                                            onChange={(e) => setRequestForm(prev => ({ ...prev, partName: e.target.value }))}
+                                            required
+                                            value={requestForm.complaintId}
+                                            onChange={(e) => setRequestForm(prev => ({ ...prev, complaintId: e.target.value }))}
                                             className="h-11 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
                                         >
-                                            <option>Door Roller Assembly</option>
-                                            <option>24V Control Relay</option>
-                                            <option>Limit Switch block</option>
-                                            <option>Traction Brake Lining</option>
-                                            <option>Governor Safety Cable</option>
-                                            <option>Car Guide Shoe</option>
+                                            <option value="">Select a job...</option>
+                                            {jobs.filter(j => j.status !== "Completed").map(job => (
+                                                <option key={job.dbId} value={job.dbId}>{job.id} — {job.customerName}</option>
+                                            ))}
                                         </select>
                                     </div>
 
-                                    <div className="grid grid-cols-2 gap-3.5">
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Quantity Required</label>
-                                            <input 
-                                                type="number"
-                                                required
-                                                min={1}
-                                                max={10}
-                                                value={requestForm.quantity}
-                                                onChange={(e) => setRequestForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
-                                                className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] font-bold"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Urgency Level</label>
-                                            <select
-                                                value={requestForm.urgency}
-                                                onChange={(e) => setRequestForm(prev => ({ ...prev, urgency: e.target.value }))}
-                                                className="h-11 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
-                                            >
-                                                <option>Low</option>
-                                                <option>Medium</option>
-                                                <option>High</option>
-                                            </select>
-                                        </div>
+                                    <div className="relative">
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Part Name (search real inventory)</label>
+                                        <input
+                                            type="text"
+                                            required
+                                            value={requestForm.itemName || requestForm.itemQuery}
+                                            onChange={(e) => setRequestForm(prev => ({ ...prev, itemQuery: e.target.value, itemName: "", itemId: null }))}
+                                            placeholder="e.g. Door Roller, Relay, MCB..."
+                                            className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] font-semibold"
+                                        />
+                                        {itemSearchResults.length > 0 && !requestForm.itemId && (
+                                            <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                                {itemSearchResults.map(item => (
+                                                    <button
+                                                        type="button"
+                                                        key={item.id}
+                                                        onClick={() => {
+                                                            setRequestForm(prev => ({ ...prev, itemId: item.id, itemName: item.name, itemQuery: "" }));
+                                                            setItemSearchResults([]);
+                                                        }}
+                                                        className="block w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
+                                                    >
+                                                        {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit} in stock)</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Quantity Required</label>
+                                        <input
+                                            type="number"
+                                            required
+                                            min={1}
+                                            value={requestForm.quantity}
+                                            onChange={(e) => setRequestForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
+                                            className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] font-bold"
+                                        />
                                     </div>
 
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Reason for Request</label>
-                                        <textarea 
+                                        <textarea
                                             required
                                             rows={2}
                                             value={requestForm.reason}
@@ -1895,58 +1893,53 @@ export default function Techniciandashboard({ user }) {
 
                                 <button
                                     type="submit"
-                                    className="h-11 w-full bg-[#0a649d] text-white hover:bg-[#085282] rounded-full text-xs font-black uppercase tracking-wider transition active:scale-95 shadow-sm mt-2 cursor-pointer"
+                                    disabled={submittingRequest}
+                                    className="h-11 w-full bg-[#0a649d] text-white hover:bg-[#085282] rounded-full text-xs font-black uppercase tracking-wider transition active:scale-95 shadow-sm mt-2 cursor-pointer disabled:opacity-50"
                                 >
-                                    Log Spare Request
+                                    {submittingRequest ? "Logging..." : "Log Spare Request"}
                                 </button>
                             </form>
 
                             {/* MATERIAL REQUESTS FEED */}
                             <div className="space-y-4">
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] px-1">Spare Parts Status Logs</h3>
-                                
-                                <div className="space-y-3.5">
-                                    {materialRequests.map(req => (
-                                        <div key={req.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <span className="text-xs font-black text-slate-800">{req.partName}</span>
-                                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                                                        Req ID: {req.id} • Qty: {req.quantity}
-                                                    </p>
-                                                </div>
-                                                <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
-                                                    req.status === "Approved" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                    req.status === "Issued" ? "bg-blue-50 border-blue-100 text-blue-700" :
-                                                    req.status === "Pending" ? "bg-amber-50 border-amber-100 text-amber-700" :
-                                                    "bg-red-50 border-red-100 text-red-700"
-                                                }`}>
-                                                    {req.status}
-                                                </span>
-                                            </div>
 
-                                            {/* Details & QR Pickup action */}
-                                            <div className="flex items-center justify-between border-t border-slate-50 pt-2.5 text-[10.5px]">
-                                                <span className="text-slate-400 font-medium">{req.date}</span>
-                                                {req.status === "Approved" && (
-                                                    <button
-                                                        onClick={() => startStorePickupSimulation(req)}
-                                                        className="text-[#0a649d] hover:underline font-black flex items-center gap-1 bg-transparent border-0 cursor-pointer"
-                                                    >
-                                                        <ScanIcon className="h-3.5 w-3.5" />
-                                                        Get Barcode QR &rarr;
-                                                    </button>
-                                                )}
-                                                {req.status === "Issued" && (
-                                                    <span className="text-slate-500 font-bold">Picked Up Successfully</span>
-                                                )}
-                                                {req.status === "Rejected" && (
-                                                    <span className="text-red-500 font-bold">Rejected: Budget limit</span>
-                                                )}
+                                <div className="space-y-3.5">
+                                    {materialRequests.length === 0 ? (
+                                        <p className="text-xs text-slate-400 text-center py-6 font-semibold">No spare parts requests logged yet.</p>
+                                    ) : (
+                                        materialRequests.map(req => (
+                                            <div key={req.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                                                <div className="flex justify-between items-start">
+                                                    <div>
+                                                        <span className="text-xs font-black text-slate-800">{req.itemName}</span>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                                                            {req.jobLabel} • Qty: {req.requestedQuantity} {req.itemUnit}
+                                                        </p>
+                                                    </div>
+                                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase ${
+                                                        req.status === "approved" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
+                                                        req.status === "issued" || req.status === "partially_issued" ? "bg-blue-50 border-blue-100 text-blue-700" :
+                                                        req.status === "pending" ? "bg-amber-50 border-amber-100 text-amber-700" :
+                                                        "bg-red-50 border-red-100 text-red-700"
+                                                    }`}>
+                                                        {req.status}
+                                                    </span>
+                                                </div>
+
+                                                <div className="flex items-center justify-between border-t border-slate-50 pt-2.5 text-[10.5px]">
+                                                    <span className="text-slate-400 font-medium">{new Date(req.createdAt).toLocaleDateString("en-IN")}</span>
+                                                    {(req.status === "issued" || req.status === "partially_issued") && (
+                                                        <span className="text-slate-500 font-bold">Issued: {req.issuedQuantity} {req.itemUnit}</span>
+                                                    )}
+                                                </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        ))
+                                    )}
                                 </div>
+                                <p className="text-[10px] text-slate-400 text-center px-2">
+                                    Open a job and tap &quot;Generate Store Pass QR&quot; to have the storekeeper scan and issue these items.
+                                </p>
                             </div>
 
                         </div>
@@ -2113,80 +2106,43 @@ export default function Techniciandashboard({ user }) {
                     )}
                 </main>
 
-                {/* MODAL: QR Pickup Pass */}
-                {showPickupQrModal && activePickupRequest && (
+                {/* MODAL: Store Material Pass (real QR image) */}
+                {showJobPassModal && jobPassJob && (
                     <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 select-none">
                             <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center">
                                 <div>
-                                    <h2 className="text-sm font-bold truncate">Inventory pickup pass</h2>
-                                    <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">Gate Authorization Code</p>
+                                    <h2 className="text-sm font-bold truncate">Store Material Pass</h2>
+                                    <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">{jobPassJob.id}</p>
                                 </div>
-                                <button onClick={() => setShowPickupQrModal(false)} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
+                                <button onClick={() => setShowJobPassModal(false)} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
                                     <CloseIcon className="h-5 w-5" />
                                 </button>
                             </div>
 
                             <div className="p-6 text-center space-y-6">
-                                {/* Visual QR Code Box */}
-                                <div className="h-44 w-44 rounded-2xl border border-slate-200 bg-white flex flex-col items-center justify-center mx-auto shadow-inner p-3 relative">
-                                    {/* Visual mock QR design using pure SVGs */}
-                                    <svg viewBox="0 0 100 100" className="h-full w-full text-slate-800">
-                                        {/* Corners squares */}
-                                        <rect x="5" y="5" width="25" height="25" fill="currentColor" />
-                                        <rect x="8" y="8" width="19" height="19" fill="white" />
-                                        <rect x="12" y="12" width="11" height="11" fill="currentColor" />
-
-                                        <rect x="70" y="5" width="25" height="25" fill="currentColor" />
-                                        <rect x="73" y="8" width="19" height="19" fill="white" />
-                                        <rect x="77" y="12" width="11" height="11" fill="currentColor" />
-
-                                        <rect x="5" y="70" width="25" height="25" fill="currentColor" />
-                                        <rect x="8" y="73" width="19" height="19" fill="white" />
-                                        <rect x="12" y="77" width="11" height="11" fill="currentColor" />
-                                        
-                                        {/* Scattered random dots for mock QR look */}
-                                        <rect x="40" y="5" width="8" height="8" fill="currentColor" />
-                                        <rect x="55" y="10" width="6" height="12" fill="currentColor" />
-                                        <rect x="40" y="25" width="12" height="6" fill="currentColor" />
-                                        <rect x="45" y="45" width="10" height="10" fill="currentColor" />
-                                        <rect x="10" y="45" width="14" height="6" fill="currentColor" />
-                                        <rect x="75" y="45" width="15" height="15" fill="currentColor" />
-                                        <rect x="45" y="75" width="8" height="14" fill="currentColor" />
-                                        <rect x="70" y="75" width="18" height="8" fill="currentColor" />
-                                    </svg>
-                                    <span className="absolute bottom-0 text-[8.5px] font-black text-slate-400 uppercase tracking-widest mt-1 bg-white px-2 py-0.5 rounded border border-slate-100">
-                                        {activePickupRequest.id}
-                                    </span>
+                                <div className="h-64 w-64 rounded-2xl border border-slate-200 bg-white flex items-center justify-center mx-auto shadow-inner p-3">
+                                    {jobPassLoading ? (
+                                        <span className="text-xs text-slate-400 font-bold">Generating pass...</span>
+                                    ) : jobPassImage ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={jobPassImage} alt="Store pass QR" className="h-full w-full object-contain" />
+                                    ) : (
+                                        <span className="text-xs text-red-500 font-bold">Failed to generate pass.</span>
+                                    )}
                                 </div>
 
                                 <div className="space-y-1.5 text-xs text-slate-650 leading-relaxed font-semibold">
-                                    {activePickupRequest.isPreAllocated ? (
-                                        <>
-                                            <p className="text-slate-800 font-extrabold">Pre-Allocated Parts Pass</p>
-                                            <p className="text-slate-650 text-[11px]">{activePickupRequest.partName}</p>
-                                        </>
-                                    ) : (
-                                        <p className="text-slate-800 font-extrabold">{activePickupRequest.quantity}x {activePickupRequest.partName}</p>
-                                    )}
-                                    <p className="text-[10px] text-slate-400">Request approved by Admin ERP. Ready for storekeeper pickup verification scan.</p>
+                                    <p className="text-slate-800 font-extrabold">{jobPassJob.customerName}</p>
+                                    <p className="text-[10px] text-slate-400">Show this to the storekeeper. Valid until this job is closed.</p>
                                 </div>
 
-                                <div className="flex gap-2.5">
-                                    <button
-                                        onClick={() => setShowPickupQrModal(false)}
-                                        className="h-10.5 flex-1 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={confirmPickupQRScan}
-                                        disabled={isPickingUp}
-                                        className="h-10.5 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition active:scale-95"
-                                    >
-                                        {isPickingUp ? "PICKING UP..." : "Simulate Store Scan"}
-                                    </button>
-                                </div>
+                                <button
+                                    onClick={() => setShowJobPassModal(false)}
+                                    className="h-10.5 w-full border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
+                                >
+                                    Close
+                                </button>
                             </div>
                         </div>
                     </div>
