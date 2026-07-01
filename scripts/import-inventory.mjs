@@ -78,7 +78,7 @@ async function main() {
 
   console.log(`Parsed ${items.length} inventory items from ${rawFile}`);
   console.table(items.slice(0, 10));
-  console.log(`${dryRun ? "Dry run" : "Apply"}: pass --apply to write to the database.`);
+  console.log(dryRun ? "Dry run: pass --apply to write to the database." : "Applying to the database...");
 
   if (dryRun) return;
 
