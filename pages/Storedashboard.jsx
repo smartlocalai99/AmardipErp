@@ -5,6 +5,8 @@ import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
 
+const UNITS = ["Nos", "Meter", "Kg", "Set", "Roll", "Box", "Packet", "Litre", "Other"];
+
 const PRIMARY_COLOR = "#0a649d";
 
 export async function getServerSideProps(context) {
@@ -114,15 +116,17 @@ export default function Storedashboard({ user }) {
 
     const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, inventory, requests, transactions, profile
     const [searchQuery, setSearchQuery] = useState("");
-    const [categoryFilter, setCategoryFilter] = useState("All");
 
     // Modals
     const [showAddStockModal, setShowAddStockModal] = useState(false);
     const [showUpdateStockModal, setShowUpdateStockModal] = useState(false);
     const [selectedInventoryItem, setSelectedInventoryItem] = useState(null);
     const [showQrScanner, setShowQrScanner] = useState(false);
-    const [qrScanResult, setQrScanResult] = useState(null);
-    const [scannerStatus, setScannerStatus] = useState("Align Technician Pass inside the box");
+    const [scanResult, setScanResult] = useState(null); // { token, job, editableItems }
+    const [scannerStatus, setScannerStatus] = useState("Point the camera at the technician's Store Pass QR");
+    const scannerRef = useRef(null);
+    const [addItemSearchResults, setAddItemSearchResults] = useState([]);
+    const [addItemQuery, setAddItemQuery] = useState("");
 
     // Profile password states
     const [passwordVal, setPasswordVal] = useState("store123");
@@ -131,126 +135,76 @@ export default function Storedashboard({ user }) {
 
     // Return Form state
     const [returnForm, setReturnForm] = useState({
-        techName: "Suresh R.",
-        partName: "24V Control Relay",
+        techName: "",
+        partName: "",
         quantity: 1,
-        reason: "Unused spare leftover from ticket repair"
+        reason: ""
     });
 
     // Form inputs for adding stock
     const [newStock, setNewStock] = useState({
-        partName: "Door Roller Assembly",
-        partNumber: "",
-        category: "Door Parts",
-        quantity: 10,
-        minStock: 5,
-        location: "Rack B-04",
-        supplier: "Elevator Components Ltd.",
-        purchaseDate: "2026-06-20",
-        invoiceNumber: "INV-98211",
-        remarks: "Fresh batch arrival"
+        partName: "",
+        unit: "Nos",
+        quantity: 0
     });
 
     // Form inputs for updating stock
     const [updateStockQty, setUpdateStockQty] = useState(0);
     const [updateRemarks, setUpdateRemarks] = useState("");
 
-    // Initial Inventory Seed State
-    const [inventory, setInventory] = useState([
-        { id: 1, partName: "24V Control Relay", partNumber: "SP-CON-04", category: "Relays", quantity: 24, minStock: 5, location: "Rack A-12", status: "In Stock" },
-        { id: 2, partName: "Door Roller Assembly", partNumber: "SP-DOO-09", category: "Door Parts", quantity: 18, minStock: 6, location: "Rack B-04", status: "In Stock" },
-        { id: 3, partName: "Infrared Door Sensor", partNumber: "SP-SEN-02", category: "Sensors", quantity: 12, minStock: 4, location: "Rack C-01", status: "In Stock" },
-        { id: 4, partName: "Microprocessor Board V4", partNumber: "SP-CON-22", category: "Controller Parts", quantity: 2, minStock: 3, location: "Cabinet E-05", status: "Low Stock" },
-        { id: 5, partName: "Geared Traction Motor", partNumber: "SP-MOT-15", category: "Motors", quantity: 1, minStock: 2, location: "Floor Section A", status: "Low Stock" },
-        { id: 6, partName: "Guide Shoes (Safety)", partNumber: "SP-SAF-08", category: "Safety Devices", quantity: 0, minStock: 4, location: "Rack D-10", status: "Out of Stock" },
-        { id: 7, partName: "Steel Wire Rope (10mm)", partNumber: "SP-CAB-01", category: "Cables", quantity: 150, minStock: 50, location: "Drum C-03", status: "In Stock" },
-        { id: 8, partName: "Emergency Cabin Battery", partNumber: "SP-BAT-05", category: "Batteries", quantity: 10, minStock: 3, location: "Rack B-08", status: "In Stock" },
-        { id: 9, partName: "Limit Switch", partNumber: "SP-SAF-02", category: "Safety Devices", quantity: 8, minStock: 4, location: "Rack A-05", status: "In Stock" }
-    ]);
+    // Real inventory/requests/transactions — fetched from Postgres-backed APIs
+    const [inventory, setInventory] = useState([]);
+    const [materialRequests, setMaterialRequests] = useState([]);
+    const [transactions, setTransactions] = useState([]);
+    const [loadingInventory, setLoadingInventory] = useState(true);
 
-    // Initial Material Requests Seed State
-    const [materialRequests, setMaterialRequests] = useState([
-        { id: "REQ-901", technicianName: "Suresh R.", jobNumber: "COMP-402", partName: "24V Control Relay", quantity: 2, requestDate: "June 20, 2026", priority: "High", status: "Approved" },
-        { id: "REQ-802", technicianName: "Vijay K.", jobNumber: "COMP-415", partName: "Door Roller Assembly", quantity: 4, requestDate: "June 20, 2026", priority: "Medium", status: "Pending" }
-    ]);
+    async function refreshInventory() {
+        setLoadingInventory(true);
+        try {
+            const res = await fetch("/api/inventory");
+            const data = await res.json();
+            if (data.success) setInventory(data.items);
+        } finally {
+            setLoadingInventory(false);
+        }
+    }
 
-    // Transactions log State
-    const [transactions, setTransactions] = useState([
-        { id: "TXN-8812", type: "Material Issued", date: "June 20, 2026", technician: "Suresh R.", details: "Issued 2x 24V Control Relay for COMP-402" },
-        { id: "TXN-8811", type: "Material Received", date: "June 19, 2026", technician: "Supplier Shipment", details: "Restocked 50x Steel Wire Rope (10mm) - INV-98200" },
-        { id: "TXN-8810", type: "Stock Adjustment", date: "June 18, 2026", technician: "Rajesh K. (Store)", details: "Corrected guide shoe stock level from -1 to 0" }
-    ]);
+    async function refreshRequests() {
+        const res = await fetch("/api/admin/materials");
+        const data = await res.json();
+        if (data.success) setMaterialRequests(data.requests);
+    }
 
-    // sync with localStorage
+    async function refreshTransactions() {
+        const res = await fetch("/api/store/transactions");
+        const data = await res.json();
+        if (data.success) setTransactions(data.transactions);
+    }
+
     useEffect(() => {
-        const storedInventory = localStorage.getItem("amardip_store_inventory");
-        if (storedInventory) {
-            try {
-                setInventory(JSON.parse(storedInventory));
-            } catch (e) {
-                console.error("Failed to load inventory from localStorage", e);
-            }
-        } else {
-            localStorage.setItem("amardip_store_inventory", JSON.stringify(inventory));
-        }
-
-        const storedRequests = localStorage.getItem("amardip_material_requests");
-        if (storedRequests) {
-            try {
-                setMaterialRequests(JSON.parse(storedRequests));
-            } catch (e) {
-                console.error("Failed to load requests from localStorage", e);
-            }
-        } else {
-            // Write default requests mapped
-            const initRequests = [
-                { id: "REQ-901", technicianName: "Suresh R.", jobNumber: "COMP-402", partName: "24V Control Relay", quantity: 2, requestDate: "June 20, 2026", priority: "High", status: "Approved", qrCode: "INVENTORY_PASS_REQ901" },
-                { id: "REQ-802", technicianName: "Vijay K.", jobNumber: "COMP-415", partName: "Door Roller Assembly", quantity: 4, requestDate: "June 20, 2026", priority: "Medium", status: "Pending", qrCode: null }
-            ];
-            localStorage.setItem("amardip_material_requests", JSON.stringify(initRequests));
-            setMaterialRequests(initRequests);
-        }
-
-        const storedTxns = localStorage.getItem("amardip_store_transactions");
-        if (storedTxns) {
-            try {
-                setTransactions(JSON.parse(storedTxns));
-            } catch (e) {
-                console.error("Failed to load transactions", e);
-            }
-        } else {
-            localStorage.setItem("amardip_store_transactions", JSON.stringify(transactions));
-        }
+        refreshInventory();
+        refreshRequests();
+        refreshTransactions();
     }, []);
 
-    // Helper to sync state changes back to localStorage
-    const updateInventoryState = (newInv) => {
-        setInventory(newInv);
-        localStorage.setItem("amardip_store_inventory", JSON.stringify(newInv));
-    };
-
-    const updateRequestsState = (newRequests) => {
-        setMaterialRequests(newRequests);
-        localStorage.setItem("amardip_material_requests", JSON.stringify(newRequests));
-    };
-
-    const updateTransactionsState = (newTxns) => {
-        setTransactions(newTxns);
-        localStorage.setItem("amardip_store_transactions", JSON.stringify(newTxns));
-    };
-
-    // Categories list
-    const categories = [
-        "Controller Parts",
-        "Door Parts",
-        "Sensors",
-        "Motors",
-        "Relays",
-        "Batteries",
-        "Safety Devices",
-        "Cables",
-        "Accessories"
-    ];
+    // Debounced real inventory search for adding an ad-hoc item during a scan
+    useEffect(() => {
+        const query = addItemQuery.trim();
+        if (!query) {
+            setAddItemSearchResults([]);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/inventory?search=${encodeURIComponent(query)}`);
+                const data = await res.json();
+                if (data.success) setAddItemSearchResults(data.items);
+            } catch {
+                setAddItemSearchResults([]);
+            }
+        }, 350);
+        return () => clearTimeout(timer);
+    }, [addItemQuery]);
 
     // Password reset
     const handlePasswordChange = (e) => {
@@ -277,408 +231,162 @@ export default function Storedashboard({ user }) {
     };
 
     // Issue request directly from Requests Tab
-    const handleRequestAction = (reqId, newStatus) => {
-        const req = materialRequests.find(r => r.id === reqId);
-        if (!req) return;
-
-        if (newStatus === "Issued") {
-            // Deduct stock if in inventory
-            const targetItem = inventory.find(i => i.partName.toLowerCase() === req.partName.toLowerCase());
-            if (targetItem) {
-                if (targetItem.quantity < req.quantity) {
-                    alert(`INSUFFICIENT STOCK! Only ${targetItem.quantity} units of ${req.partName} available.`);
-                    return;
-                }
-                const updatedInv = inventory.map(item => {
-                    if (item.id === targetItem.id) {
-                        const newQty = item.quantity - req.quantity;
-                        return {
-                            ...item,
-                            quantity: newQty,
-                            status: newQty === 0 ? "Out of Stock" : (newQty <= item.minStock ? "Low Stock" : "In Stock")
-                        };
-                    }
-                    return item;
-                });
-                updateInventoryState(updatedInv);
+    // Real camera-based QR scanning (html5-qrcode) — feeds /api/store/scan
+    async function startCameraScanner() {
+        setShowQrScanner(true);
+        setScannerStatus("Point the camera at the technician's Store Pass QR");
+        setTimeout(async () => {
+            const { Html5Qrcode } = await import("html5-qrcode");
+            const scanner = new Html5Qrcode("qr-reader");
+            scannerRef.current = scanner;
+            try {
+                await scanner.start(
+                    { facingMode: "environment" },
+                    { fps: 10, qrbox: 240 },
+                    async (decodedText) => {
+                        try { await scanner.stop(); } catch {}
+                        scannerRef.current = null;
+                        setShowQrScanner(false);
+                        await handleTokenScanned(decodedText);
+                    },
+                    () => {}
+                );
+            } catch (err) {
+                setScannerStatus("Camera unavailable: " + err.message);
             }
+        }, 50);
+    }
 
-            // Create Transaction Log
-            const newTxn = {
-                id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-                type: "Material Issued",
-                date: "June 20, 2026",
-                technician: req.technicianName || "Technician",
-                details: `Issued ${req.quantity}x ${req.partName} for request ${req.id}`
-            };
-            updateTransactionsState([newTxn, ...transactions]);
+    async function stopCameraScanner() {
+        if (scannerRef.current) {
+            try { await scannerRef.current.stop(); } catch {}
+            scannerRef.current = null;
         }
+        setShowQrScanner(false);
+    }
 
-        const updatedRequests = materialRequests.map(r => {
-            if (r.id === reqId) {
-                return { ...r, status: newStatus };
-            }
-            return r;
+    async function handleTokenScanned(token) {
+        const res = await fetch("/api/store/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
         });
-        updateRequestsState(updatedRequests);
-        alert(`Request ${reqId} has been marked as ${newStatus}.`);
-    };
-
-    // Scan simulator trigger
-    const startQrSimulation = (scannedCode) => {
-        setScannerStatus("Scanning...");
-        setTimeout(() => {
-            setScannerStatus("MATCH FOUND!");
-            setTimeout(() => {
-                setShowQrScanner(false);
-                processScannedQrCode(scannedCode);
-            }, 600);
-        }, 1000);
-    };
-
-    const processScannedQrCode = (code) => {
-        // Cases:
-        // 1. Pre-allocated Job Pass: `QR-COMP-402-ALLOCATED`
-        if (code.startsWith("QR-") && code.endsWith("-ALLOCATED")) {
-            const complaintId = code.split("-")[1]; // e.g. COMP-402
-            // Load complaints from localStorage
-            const stored = localStorage.getItem("amardip_complaints");
-            if (stored) {
-                try {
-                    const allComplaints = JSON.parse(stored);
-                    const complaint = allComplaints.find(c => c.id === `COMP-${complaintId}` || c.id === complaintId);
-                    if (complaint) {
-                        if (complaint.allocatedPartsIssued) {
-                            alert("This pre-allocated job pass has ALREADY been issued.");
-                            return;
-                        }
-                        setQrScanResult({
-                            type: "allocated_job",
-                            jobId: complaint.id,
-                            technician: complaint.assignedTech || "Suresh R.",
-                            customer: complaint.customer || "Apex Business Park",
-                            parts: complaint.allocatedParts || [],
-                            rawComplaint: complaint
-                        });
-                        return;
-                    }
-                } catch (e) {
-                    console.error(e);
-                }
-            }
-            // Fallback mock if localStorage empty
-            setQrScanResult({
-                type: "allocated_job",
-                jobId: `COMP-${complaintId}`,
-                technician: "Suresh R.",
-                customer: "Apex Business Park",
-                parts: [
-                    { partName: "24V Control Relay", quantity: 2 },
-                    { partName: "Door Roller Assembly", quantity: 1 }
-                ],
-                rawComplaint: null
-            });
-        } 
-        // 2. Standard Material request: `INVENTORY_PASS_REQ901`
-        else if (code.startsWith("INVENTORY_PASS_")) {
-            const reqId = code.replace("INVENTORY_PASS_", "REQ-");
-            // Find in material requests
-            const req = materialRequests.find(r => r.id === reqId || r.id === code.replace("INVENTORY_PASS_", ""));
-            if (req) {
-                if (req.status === "Issued") {
-                    alert("This material request has ALREADY been issued.");
-                    return;
-                }
-                setQrScanResult({
-                    type: "material_request",
-                    requestId: req.id,
-                    technician: req.technicianName || "Technician",
-                    jobNumber: req.jobNumber || "N/A",
-                    partName: req.partName,
-                    quantity: req.quantity,
-                    rawRequest: req
-                });
-            } else {
-                alert(`Scanned standard Request code: ${code}. Request record not found in system.`);
-            }
-        } else {
-            alert(`Unknown/Invalid Barcode or QR Code scanned: ${code}`);
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.message || "Invalid or expired store pass.");
+            return;
         }
-    };
-
-    const handleAdjustScannedPartQty = (index, newQty) => {
-        if (newQty < 0) return;
-        setQrScanResult(prev => {
-            if (!prev) return prev;
-            const updatedParts = prev.parts.map((p, idx) => {
-                if (idx === index) {
-                    return { ...p, quantity: newQty };
-                }
-                return p;
-            });
-            return { ...prev, parts: updatedParts };
+        setScanResult({
+            token,
+            job: data.job,
+            editableItems: data.materialRequests.map(r => ({ itemId: r.itemId, name: r.itemName, unit: r.itemUnit, quantity: r.requestedQuantity })),
         });
-    };
+    }
 
-    const handleAdjustRequestQty = (newQty) => {
-        if (newQty < 0) return;
-        setQrScanResult(prev => {
-            if (!prev) return prev;
-            return { ...prev, quantity: newQty };
-        });
-    };
+    function adjustScanItemQty(index, quantity) {
+        if (quantity < 0) return;
+        setScanResult(prev => ({ ...prev, editableItems: prev.editableItems.map((it, i) => i === index ? { ...it, quantity } : it) }));
+    }
 
-    // Confirm Issue from QR Scanner Result Modal
-    const handleConfirmQrIssue = () => {
-        if (!qrScanResult) return;
+    function removeScanItem(index) {
+        setScanResult(prev => ({ ...prev, editableItems: prev.editableItems.filter((_, i) => i !== index) }));
+    }
 
-        if (qrScanResult.type === "allocated_job") {
-            const parts = qrScanResult.parts;
-            // Deduct each part from inventory
-            const updatedInv = inventory.map(item => {
-                const match = parts.find(p => p.partName.toLowerCase() === item.partName.toLowerCase());
-                if (match) {
-                    const newQty = Math.max(0, item.quantity - match.quantity);
-                    return {
-                        ...item,
-                        quantity: newQty,
-                        status: newQty === 0 ? "Out of Stock" : (newQty <= item.minStock ? "Low Stock" : "In Stock")
-                    };
-                }
-                return item;
-            });
-            updateInventoryState(updatedInv);
+    function addScanItem(item) {
+        setScanResult(prev => ({ ...prev, editableItems: [...prev.editableItems, { itemId: item.id, name: item.name, unit: item.unit, quantity: 1 }] }));
+        setAddItemQuery("");
+        setAddItemSearchResults([]);
+    }
 
-            // Update complaint status in localStorage
-            const stored = localStorage.getItem("amardip_complaints");
-            if (stored) {
-                try {
-                    const allComplaints = JSON.parse(stored);
-                    const updatedComplaints = allComplaints.map(c => {
-                        if (c.id === qrScanResult.jobId) {
-                            return { 
-                                ...c, 
-                                allocatedPartsIssued: true,
-                                allocatedParts: parts
-                            };
-                        }
-                        return c;
-                    });
-                    localStorage.setItem("amardip_complaints", JSON.stringify(updatedComplaints));
-                } catch (e) {
-                    console.error(e);
-                }
-            }
-
-            // Create Transaction Log
-            const txnDetails = parts.map(p => `${p.quantity}x ${p.partName}`).join(", ");
-            const newTxn = {
-                id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-                type: "Material Issued",
-                date: "June 20, 2026",
-                technician: qrScanResult.technician,
-                details: `Pre-allocated parts (${txnDetails}) issued to technician for job ${qrScanResult.jobId}`
-            };
-            updateTransactionsState([newTxn, ...transactions]);
-
-            alert(`SUCCESS!\nAll pre-allocated parts handed over to ${qrScanResult.technician}.\nInventory levels updated.`);
-        } 
-        else if (qrScanResult.type === "material_request") {
-            const req = qrScanResult.rawRequest;
-            // Deduct stock
-            const targetItem = inventory.find(i => i.partName.toLowerCase() === qrScanResult.partName.toLowerCase());
-            if (targetItem) {
-                const updatedInv = inventory.map(item => {
-                    if (item.id === targetItem.id) {
-                        const newQty = Math.max(0, item.quantity - qrScanResult.quantity);
-                        return {
-                            ...item,
-                            quantity: newQty,
-                            status: newQty === 0 ? "Out of Stock" : (newQty <= item.minStock ? "Low Stock" : "In Stock")
-                        };
-                    }
-                    return item;
-                });
-                updateInventoryState(updatedInv);
-            }
-
-            // Update request status to Issued
-            const updatedReqs = materialRequests.map(r => {
-                if (r.id === qrScanResult.requestId) {
-                    return { ...r, status: "Issued" };
-                }
-                return r;
-            });
-            updateRequestsState(updatedReqs);
-
-            // Log Transaction
-            const newTxn = {
-                id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-                type: "Material Issued",
-                date: "June 20, 2026",
-                technician: qrScanResult.technician,
-                details: `Request pickup scan issued ${qrScanResult.quantity}x ${qrScanResult.partName} to technician`
-            };
-            updateTransactionsState([newTxn, ...transactions]);
-
-            alert(`SUCCESS!\nIssued ${qrScanResult.quantity}x ${qrScanResult.partName} to ${qrScanResult.technician}.`);
+    async function confirmScanIssue() {
+        const items = scanResult.editableItems.filter(it => it.quantity > 0).map(it => ({ itemId: it.itemId, quantity: it.quantity }));
+        if (items.length === 0) {
+            alert("Add at least one item before confirming.");
+            return;
         }
-
-        setQrScanResult(null);
-    };
+        const res = await fetch("/api/store/issue", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token: scanResult.token, items }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            alert(data.message || "Failed to issue materials.");
+            return;
+        }
+        alert(`Issued to ${scanResult.job.assignedTechnicianName}:\n` + data.issued.map(i => `${i.quantity} ${i.unit} x ${i.name}`).join("\n"));
+        setScanResult(null);
+        refreshInventory();
+        refreshRequests();
+        refreshTransactions();
+    }
 
     // Save Stock form
-    const handleSaveStock = (e) => {
+    async function handleSaveStock(e) {
         e.preventDefault();
-
-        // Check if item exists to update or create
-        const exists = inventory.find(i => i.partName.toLowerCase() === newStock.partName.toLowerCase());
-        if (exists) {
-            const updated = inventory.map(item => {
-                if (item.id === exists.id) {
-                    const newQty = item.quantity + parseInt(newStock.quantity);
-                    return {
-                        ...item,
-                        quantity: newQty,
-                        status: newQty === 0 ? "Out of Stock" : (newQty <= item.minStock ? "Low Stock" : "In Stock")
-                    };
-                }
-                return item;
-            });
-            updateInventoryState(updated);
-        } else {
-            const partNum = newStock.partNumber || `SP-${newStock.category.substring(0,3).toUpperCase()}-${Math.floor(10 + Math.random() * 90)}`;
-            const newItem = {
-                id: inventory.length + 1,
-                partName: newStock.partName,
-                partNumber: partNum,
-                category: newStock.category,
-                quantity: parseInt(newStock.quantity),
-                minStock: parseInt(newStock.minStock),
-                location: newStock.location,
-                status: parseInt(newStock.quantity) === 0 ? "Out of Stock" : (parseInt(newStock.quantity) <= parseInt(newStock.minStock) ? "Low Stock" : "In Stock")
-            };
-            updateInventoryState([...inventory, newItem]);
-        }
-
-        // Add to Transaction Logs
-        const newTxn = {
-            id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-            type: "Material Received",
-            date: "June 20, 2026",
-            technician: newStock.supplier || "Supplier",
-            details: `Received ${newStock.quantity}x ${newStock.partName}. Invoice: ${newStock.invoiceNumber || "N/A"}`
-        };
-        updateTransactionsState([newTxn, ...transactions]);
-
+        const res = await fetch("/api/inventory", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: newStock.partName, unit: newStock.unit, stockQuantity: Number(newStock.quantity) }),
+        });
+        const data = await res.json();
+        if (!data.success) { alert(data.message); return; }
         setShowAddStockModal(false);
-        alert(`Stock saved successfully!\n${newStock.quantity}x ${newStock.partName} added to inventory.`);
-    };
+        setNewStock({ partName: "", unit: "Nos", quantity: 0 });
+        refreshInventory();
+        refreshTransactions();
+        alert(`Stock saved successfully!\n${newStock.quantity} ${newStock.unit} of ${newStock.partName} added to inventory.`);
+    }
 
     // Update Stock modal save
-    const handleSaveUpdateStock = (e) => {
+    async function handleSaveUpdateStock(e) {
         e.preventDefault();
         if (!selectedInventoryItem) return;
-
-        const updated = inventory.map(item => {
-            if (item.id === selectedInventoryItem.id) {
-                const newQty = parseInt(updateStockQty);
-                return {
-                    ...item,
-                    quantity: newQty,
-                    status: newQty === 0 ? "Out of Stock" : (newQty <= item.minStock ? "Low Stock" : "In Stock")
-                };
-            }
-            return item;
+        const res = await fetch(`/api/inventory/${selectedInventoryItem.id}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ newQuantity: Number(updateStockQty), notes: updateRemarks }),
         });
-        updateInventoryState(updated);
-
-        // Transaction log
-        const qtyDiff = parseInt(updateStockQty) - selectedInventoryItem.quantity;
-        const newTxn = {
-            id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-            type: "Stock Adjustments",
-            date: "June 20, 2026",
-            technician: "Rajesh K. (Store)",
-            details: `Adjusted ${selectedInventoryItem.partName} stock level by ${qtyDiff >= 0 ? "+" : ""}${qtyDiff} units. Remarks: ${updateRemarks || "Manual audit"}`
-        };
-        updateTransactionsState([newTxn, ...transactions]);
-
+        const data = await res.json();
+        if (!data.success) { alert(data.message); return; }
         setShowUpdateStockModal(false);
         setSelectedInventoryItem(null);
+        refreshInventory();
+        refreshTransactions();
         alert("Stock level adjusted successfully!");
-    };
+    }
 
     // Material return form submission
-    const handleReturnSubmit = (e) => {
+    async function handleReturnSubmit(e) {
         e.preventDefault();
-        
-        // Find item in inventory
-        const targetItem = inventory.find(i => i.partName.toLowerCase() === returnForm.partName.toLowerCase());
-        if (targetItem) {
-            const updated = inventory.map(item => {
-                if (item.id === targetItem.id) {
-                    const newQty = item.quantity + parseInt(returnForm.quantity);
-                    return {
-                        ...item,
-                        quantity: newQty,
-                        status: newQty === 0 ? "Out of Stock" : (newQty <= item.minStock ? "Low Stock" : "In Stock")
-                    };
-                }
-                return item;
-            });
-            updateInventoryState(updated);
-        } else {
-            // Create new
-            const newItem = {
-                id: inventory.length + 1,
-                partName: returnForm.partName,
-                partNumber: `SP-RET-${Math.floor(10 + Math.random()*90)}`,
-                category: "Accessories",
-                quantity: parseInt(returnForm.quantity),
-                minStock: 2,
-                location: "Return Rack R-01",
-                status: "In Stock"
-            };
-            updateInventoryState([...inventory, newItem]);
+        const targetItem = inventory.find(i => i.name.toLowerCase() === returnForm.partName.toLowerCase());
+        if (!targetItem) {
+            alert("Item not found in inventory — add it first via the Inventory tab.");
+            return;
         }
-
-        // Transaction log
-        const newTxn = {
-            id: `TXN-${Math.floor(1000 + Math.random() * 9000)}`,
-            type: "Returns",
-            date: "June 20, 2026",
-            technician: returnForm.techName,
-            details: `Unused parts returned: ${returnForm.quantity}x ${returnForm.partName}. Reason: ${returnForm.reason}`
-        };
-        updateTransactionsState([newTxn, ...transactions]);
-
-        setReturnForm({
-            techName: "Suresh R.",
-            partName: "24V Control Relay",
-            quantity: 1,
-            reason: "Unused spare leftover from ticket repair"
+        const res = await fetch("/api/store/return", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ itemId: targetItem.id, quantity: Number(returnForm.quantity), notes: returnForm.reason }),
         });
+        const data = await res.json();
+        if (!data.success) { alert(data.message); return; }
 
+        setReturnForm({ techName: "", partName: "", quantity: 1, reason: "" });
+        refreshInventory();
+        refreshTransactions();
         alert("Returned parts credited to store inventory!");
-    };
+    }
 
     // Dynamic metrics counts
     const totalPartsCount = inventory.length;
-    const lowStockCount = inventory.filter(i => i.status === "Low Stock").length;
-    const outOfStockCount = inventory.filter(i => i.status === "Out of Stock").length;
-    const pendingReqsCount = materialRequests.filter(r => r.status === "Pending" || r.status === "Approved").length;
-    const todayIssuesCount = transactions.filter(t => t.type === "Material Issued" && t.date.includes("June 20")).length;
+    const outOfStockCount = inventory.filter(i => i.stockQuantity <= 0).length;
+    const pendingReqsCount = materialRequests.filter(r => r.status === "pending" || r.status === "approved").length;
+    const todayIssuesCount = transactions.filter(t => t.type === "issue" && new Date(t.createdAt).toDateString() === new Date().toDateString()).length;
     const recentTxnsCount = transactions.length;
 
     // Filtered inventory listing
-    const filteredInventory = inventory.filter(item => {
-        const matchesSearch = item.partName.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                             item.partNumber.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                             item.location.toLowerCase().includes(searchQuery.toLowerCase());
-        const matchesCat = categoryFilter === "All" || item.category === categoryFilter;
-        return matchesSearch && matchesCat;
-    });
+    const filteredInventory = inventory.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
     return (
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
@@ -721,7 +429,7 @@ export default function Storedashboard({ user }) {
                     </div>
 
                     <button
-                        onClick={() => { setShowQrScanner(true); setScannerStatus("Align Technician Pass inside the box"); }}
+                        onClick={startCameraScanner}
                         className="h-10 px-3 bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition flex items-center gap-1 text-[11px] font-black uppercase tracking-wider rounded-xl shadow-sm border border-emerald-500"
                     >
                         <ScanIcon className="h-4.5 w-4.5" />
@@ -729,135 +437,122 @@ export default function Storedashboard({ user }) {
                     </button>
                 </header>
 
-                {/* QR Scanner simulator overlay */}
+                {/* Real camera QR scanner (html5-qrcode) */}
                 {showQrScanner && (
                     <div className="absolute inset-0 z-50 bg-black/90 flex flex-col justify-between text-white p-6">
                         <div className="flex justify-between items-center mt-6">
-                            <span className="font-extrabold text-base tracking-tight">QR Scanner Simulator</span>
-                            <button onClick={() => setShowQrScanner(false)} className="h-9 w-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20">
+                            <span className="font-extrabold text-base tracking-tight">Scan Store Pass</span>
+                            <button onClick={stopCameraScanner} className="h-9 w-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20">
                                 <CloseIcon className="h-5 w-5" />
                             </button>
                         </div>
 
-                        {/* Scanner Box frame */}
                         <div className="my-auto flex flex-col items-center">
-                            <div className="relative h-64 w-64 border-2 border-dashed border-[#59e0ff] rounded-2xl flex items-center justify-center overflow-hidden">
-                                <div className="absolute inset-x-0 h-0.5 bg-red-500 animate-bounce"></div>
-                                <ScanIcon className="h-16 w-16 text-[#0a649d]/30" />
-                            </div>
-                            <p className="text-sm font-semibold mt-6 text-slate-300 animate-pulse">{scannerStatus}</p>
+                            <div id="qr-reader" className="h-64 w-64 rounded-2xl overflow-hidden border-2 border-dashed border-[#59e0ff]" />
+                            <p className="text-sm font-semibold mt-6 text-slate-300 text-center px-4">{scannerStatus}</p>
                         </div>
 
-                        <div className="space-y-3 mb-6">
-                            <span className="block text-[10px] text-center text-slate-500 font-bold uppercase tracking-wider">Simulate Technician Passes</span>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={() => startQrSimulation("QR-COMP-402-ALLOCATED")}
-                                    className="h-12 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-bold transition active:scale-95"
-                                >
-                                    Suresh COMP-402 Pass
-                                </button>
-                                <button
-                                    onClick={() => startQrSimulation("INVENTORY_PASS_REQ901")}
-                                    className="h-12 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-bold transition active:scale-95"
-                                >
-                                    Suresh REQ-901 Pass
-                                </button>
-                            </div>
-                        </div>
+                        <div className="mb-6" />
                     </div>
                 )}
 
-                {/* QR Scan Result Confirmation Modal */}
-                {qrScanResult && (
+                {/* Scan Result: editable material issue */}
+                {scanResult && (
                     <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-                        <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                            <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center">
+                        <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90dvh] flex flex-col">
+                            <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center shrink-0">
                                 <div>
                                     <h2 className="text-sm font-bold truncate">Confirm Material Issue</h2>
-                                    <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">Verifying Tech Handover</p>
+                                    <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">{scanResult.job.complaintNo}</p>
                                 </div>
-                                <button onClick={() => setQrScanResult(null)} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
+                                <button onClick={() => setScanResult(null)} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
                                     <CloseIcon className="h-5 w-5" />
                                 </button>
                             </div>
 
-                            <div className="p-6 text-left space-y-4">
+                            <div className="p-6 text-left space-y-4 overflow-y-auto">
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
-                                    <p><strong className="text-slate-800">Technician:</strong> {qrScanResult.technician}</p>
-                                    {qrScanResult.type === "allocated_job" ? (
-                                        <>
-                                            <p><strong className="text-slate-800">Job Reference:</strong> {qrScanResult.jobId}</p>
-                                            <p><strong className="text-slate-800">Customer:</strong> {qrScanResult.customer}</p>
-                                        </>
-                                    ) : (
-                                        <>
-                                            <p><strong className="text-slate-800">Request ID:</strong> {qrScanResult.requestId}</p>
-                                            <p><strong className="text-slate-800">Job Number:</strong> {qrScanResult.jobNumber}</p>
-                                        </>
-                                    )}
+                                    <p><strong className="text-slate-800">Technician:</strong> {scanResult.job.assignedTechnicianName}</p>
+                                    <p><strong className="text-slate-800">Customer:</strong> {scanResult.job.customerName}</p>
                                 </div>
 
                                 <div>
                                     <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 pl-0.5">Parts to be Handed Over</h4>
                                     <div className="space-y-2">
-                                        {qrScanResult.type === "allocated_job" ? (
-                                            qrScanResult.parts.map((p, idx) => (
-                                                <div key={idx} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
-                                                    <span className="font-extrabold text-slate-800">{p.partName}</span>
+                                        {scanResult.editableItems.length === 0 && (
+                                            <p className="text-xs text-slate-400 text-center py-3">No items yet — search below to add one.</p>
+                                        )}
+                                        {scanResult.editableItems.map((it, idx) => (
+                                            <div key={`${it.itemId}-${idx}`} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
+                                                <div>
+                                                    <span className="font-extrabold text-slate-800">{it.name}</span>
+                                                    <span className="block text-[10px] text-slate-400">{it.unit}</span>
+                                                </div>
+                                                <div className="flex items-center gap-1.5">
                                                     <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                                                        <button 
+                                                        <button
                                                             type="button"
-                                                            onClick={() => handleAdjustScannedPartQty(idx, p.quantity - 1)}
+                                                            onClick={() => adjustScanItemQty(idx, it.quantity - 1)}
                                                             className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
                                                         >
                                                             -
                                                         </button>
-                                                        <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{p.quantity}</span>
-                                                        <button 
+                                                        <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{it.quantity}</span>
+                                                        <button
                                                             type="button"
-                                                            onClick={() => handleAdjustScannedPartQty(idx, p.quantity + 1)}
+                                                            onClick={() => adjustScanItemQty(idx, it.quantity + 1)}
                                                             className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
                                                         >
                                                             +
                                                         </button>
                                                     </div>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <div className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
-                                                <span className="font-extrabold text-slate-800">{qrScanResult.partName}</span>
-                                                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                                                    <button 
+                                                    <button
                                                         type="button"
-                                                        onClick={() => handleAdjustRequestQty(qrScanResult.quantity - 1)}
-                                                        className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                        onClick={() => removeScanItem(idx)}
+                                                        className="h-6 w-6 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-50 active:scale-90 transition"
                                                     >
-                                                        -
-                                                    </button>
-                                                    <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{qrScanResult.quantity}</span>
-                                                    <button 
-                                                        type="button"
-                                                        onClick={() => handleAdjustRequestQty(qrScanResult.quantity + 1)}
-                                                        className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
-                                                    >
-                                                        +
+                                                        <CloseIcon className="h-3.5 w-3.5" />
                                                     </button>
                                                 </div>
                                             </div>
-                                        )}
+                                        ))}
                                     </div>
+                                </div>
+
+                                <div className="relative">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Add another item</label>
+                                    <input
+                                        type="text"
+                                        value={addItemQuery}
+                                        onChange={(e) => setAddItemQuery(e.target.value)}
+                                        placeholder="Search inventory..."
+                                        className="h-10 w-full px-3 rounded-xl border border-slate-200 text-sm outline-none bg-white focus:border-[#0a649d]"
+                                    />
+                                    {addItemSearchResults.length > 0 && (
+                                        <div className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            {addItemSearchResults.map(item => (
+                                                <button
+                                                    type="button"
+                                                    key={item.id}
+                                                    onClick={() => addScanItem(item)}
+                                                    className="block w-full px-3 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
+                                                >
+                                                    {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit})</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="flex gap-2.5 pt-2">
                                     <button
-                                        onClick={() => setQrScanResult(null)}
+                                        onClick={() => setScanResult(null)}
                                         className="h-11 flex-1 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
                                     >
                                         Cancel
                                     </button>
                                     <button
-                                        onClick={handleConfirmQrIssue}
+                                        onClick={confirmScanIssue}
                                         className="h-11 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition active:scale-95"
                                     >
                                         Confirm Issue
@@ -890,7 +585,7 @@ export default function Storedashboard({ user }) {
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Quick Operations</h3>
                                 <div className="grid grid-cols-2 gap-3">
                                     <button
-                                        onClick={() => { setShowQrScanner(true); setScannerStatus("Align Technician Pass inside the box"); }}
+                                        onClick={startCameraScanner}
                                         className="h-20 bg-white border border-slate-200/60 rounded-3xl p-4.5 flex flex-col justify-between items-start text-left shadow-sm active:scale-98 transition cursor-pointer"
                                     >
                                         <div className="h-7 w-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
@@ -941,11 +636,6 @@ export default function Storedashboard({ user }) {
                                     </div>
 
                                     <div className="rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm h-24 flex flex-col justify-between">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Low Stock Items</span>
-                                        <span className="text-3xl font-black text-amber-600">{lowStockCount}</span>
-                                    </div>
-
-                                    <div className="rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm h-24 flex flex-col justify-between">
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Today&apos;s Issues</span>
                                         <span className="text-3xl font-black text-emerald-600">{todayIssuesCount}</span>
                                     </div>
@@ -977,35 +667,14 @@ export default function Storedashboard({ user }) {
                                 <p className="text-xs text-slate-500 mt-0.5">Add, update and search elevator spare parts.</p>
                             </div>
 
-                            {/* Search and filter controls */}
-                            <div className="space-y-3">
-                                <input
-                                    type="text"
-                                    placeholder="Search by Part Name, Number, Rack..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="h-11 w-full px-4 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition font-medium"
-                                />
-
-                                {/* Category Horizontal Slider */}
-                                <div className="flex gap-2 overflow-x-auto pb-1 select-none scrollbar-none">
-                                    <button
-                                        onClick={() => setCategoryFilter("All")}
-                                        className={`h-8 px-4 rounded-full text-xs font-bold transition shrink-0 ${categoryFilter === "All" ? "bg-[#0a649d] text-white" : "bg-white border border-slate-200 text-slate-600"}`}
-                                    >
-                                        All Parts
-                                    </button>
-                                    {categories.map((cat, idx) => (
-                                        <button
-                                            key={idx}
-                                            onClick={() => setCategoryFilter(cat)}
-                                            className={`h-8 px-4 rounded-full text-xs font-bold transition shrink-0 ${categoryFilter === cat ? "bg-[#0a649d] text-white" : "bg-white border border-slate-200 text-slate-600"}`}
-                                        >
-                                            {cat}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
+                            {/* Search controls */}
+                            <input
+                                type="text"
+                                placeholder="Search by part name..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="h-11 w-full px-4 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition font-medium"
+                            />
 
                             {/* Add stock trigger */}
                             <button
@@ -1018,7 +687,9 @@ export default function Storedashboard({ user }) {
 
                             {/* Inventory List */}
                             <div className="space-y-3">
-                                {filteredInventory.length === 0 ? (
+                                {loadingInventory ? (
+                                    <p className="text-xs text-slate-400 text-center py-8 font-semibold">Loading inventory...</p>
+                                ) : filteredInventory.length === 0 ? (
                                     <p className="text-xs text-slate-400 text-center py-8 font-semibold">No spare parts match your filters.</p>
                                 ) : (
                                     filteredInventory.map((item) => (
@@ -1026,17 +697,13 @@ export default function Storedashboard({ user }) {
                                             {/* Top info row */}
                                             <div className="flex justify-between items-start">
                                                 <div>
-                                                    <span className="text-[10px] text-[#0a649d] font-extrabold uppercase bg-sky-50 px-2 py-0.5 rounded-full border border-sky-100">
-                                                        {item.category}
-                                                    </span>
-                                                    <h3 className="text-sm font-black text-slate-800 mt-2">{item.partName}</h3>
-                                                    <p className="text-[10.5px] text-slate-400 font-bold mt-0.5">Part #: {item.partNumber} • Rack: {item.location}</p>
+                                                    <h3 className="text-sm font-black text-slate-800">{item.name}</h3>
+                                                    <p className="text-[10.5px] text-slate-400 font-bold mt-0.5">Unit: {item.unit}</p>
                                                 </div>
                                                 <span className={`text-[10px] font-black px-2 py-0.5 rounded-full uppercase ${
-                                                    item.status === "In Stock" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
-                                                    (item.status === "Low Stock" ? "bg-amber-50 text-amber-600 border border-amber-100" : "bg-red-50 text-red-600 border border-red-100")
+                                                    item.stockQuantity > 0 ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : "bg-red-50 text-red-600 border border-red-100"
                                                 }`}>
-                                                    {item.status}
+                                                    {item.stockQuantity > 0 ? "In Stock" : "Out of Stock"}
                                                 </span>
                                             </div>
 
@@ -1044,11 +711,7 @@ export default function Storedashboard({ user }) {
                                             <div className="flex justify-between items-center pt-1 text-xs">
                                                 <div>
                                                     <span className="text-slate-400 font-bold block">Available Qty</span>
-                                                    <span className="text-lg font-black text-slate-800">{item.quantity} units</span>
-                                                </div>
-                                                <div className="text-right">
-                                                    <span className="text-slate-400 font-bold block">Min Stock Level</span>
-                                                    <span className="font-extrabold text-slate-700">{item.minStock} units</span>
+                                                    <span className="text-lg font-black text-slate-800">{item.stockQuantity} {item.unit}</span>
                                                 </div>
                                             </div>
 
@@ -1057,19 +720,13 @@ export default function Storedashboard({ user }) {
                                                 <button
                                                     onClick={() => {
                                                         setSelectedInventoryItem(item);
-                                                        setUpdateStockQty(item.quantity);
+                                                        setUpdateStockQty(item.stockQuantity);
                                                         setUpdateRemarks("");
                                                         setShowUpdateStockModal(true);
                                                     }}
                                                     className="h-9 flex-1 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200"
                                                 >
                                                     Update Quantity
-                                                </button>
-                                                <button
-                                                    onClick={() => alert(`Part Details:\n- Name: ${item.partName}\n- Code: ${item.partNumber}\n- Category: ${item.category}\n- Qty: ${item.quantity}\n- Min level: ${item.minStock}\n- Shelf Location: ${item.location}`)}
-                                                    className="h-9 px-4 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg text-xs font-bold transition border border-slate-200"
-                                                >
-                                                    View Details
                                                 </button>
                                             </div>
                                         </div>
@@ -1087,6 +744,10 @@ export default function Storedashboard({ user }) {
                                 <p className="text-xs text-slate-500 mt-0.5">Approve, reject or dispatch requested technician materials.</p>
                             </div>
 
+                            <p className="text-[10px] text-slate-400 -mt-2 px-1">
+                                Approval happens in the admin app. Scan a technician&apos;s Store Pass QR to actually issue parts.
+                            </p>
+
                             <div className="space-y-3.5">
                                 {materialRequests.length === 0 ? (
                                     <p className="text-xs text-slate-400 text-center py-8 font-semibold">No active material requests.</p>
@@ -1096,14 +757,14 @@ export default function Storedashboard({ user }) {
                                             {/* Top Line */}
                                             <div className="flex justify-between items-start border-b border-slate-50 pb-2">
                                                 <div>
-                                                    <span className="text-[10px] text-slate-400 font-extrabold uppercase block">{req.id} • {req.requestDate}</span>
-                                                    <h3 className="text-sm font-black text-slate-800 mt-1">{req.partName}</h3>
-                                                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Requested by: {req.technicianName} ({req.jobNumber})</p>
+                                                    <span className="text-[10px] text-slate-400 font-extrabold uppercase block">REQ-{req.id} • {new Date(req.createdAt).toLocaleDateString("en-IN")}</span>
+                                                    <h3 className="text-sm font-black text-slate-800 mt-1">{req.itemName}</h3>
+                                                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Requested by: {req.requestedByName || "Technician"}</p>
                                                 </div>
                                                 <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase ${
-                                                    req.status === "Approved" ? "bg-sky-50 text-[#0a649d] border border-sky-100" :
-                                                    (req.status === "Issued" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" : 
-                                                     (req.status === "Rejected" ? "bg-red-50 text-red-600 border border-red-100" : "bg-amber-50 text-amber-600 border border-amber-100"))
+                                                    req.status === "approved" ? "bg-sky-50 text-[#0a649d] border border-sky-100" :
+                                                    (req.status === "issued" || req.status === "partially_issued" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
+                                                     (req.status === "rejected" ? "bg-red-50 text-red-600 border border-red-100" : "bg-amber-50 text-amber-600 border border-amber-100"))
                                                 }`}>
                                                     {req.status}
                                                 </span>
@@ -1113,43 +774,13 @@ export default function Storedashboard({ user }) {
                                             <div className="grid grid-cols-2 gap-3 text-xs leading-relaxed">
                                                 <div>
                                                     <span className="block text-[9.5px] font-bold text-slate-400 uppercase">Quantity Requested</span>
-                                                    <span className="font-extrabold text-slate-800">{req.quantity} units</span>
+                                                    <span className="font-extrabold text-slate-800">{req.requestedQuantity} {req.itemUnit}</span>
                                                 </div>
                                                 <div>
-                                                    <span className="block text-[9.5px] font-bold text-slate-400 uppercase">Priority Rating</span>
-                                                    <span className={`font-black uppercase ${req.priority === "High" ? "text-red-600" : "text-amber-600"}`}>{req.priority}</span>
+                                                    <span className="block text-[9.5px] font-bold text-slate-400 uppercase">Issued So Far</span>
+                                                    <span className="font-extrabold text-slate-800">{req.issuedQuantity} {req.itemUnit}</span>
                                                 </div>
                                             </div>
-
-                                            {/* Actions */}
-                                            {req.status === "Pending" && (
-                                                <div className="flex gap-2 pt-2 border-t border-slate-50">
-                                                    <button
-                                                        onClick={() => handleRequestAction(req.id, "Approved")}
-                                                        className="h-9 flex-1 bg-[#0a649d] hover:bg-[#085282] text-white rounded-lg text-xs font-bold transition active:scale-95"
-                                                    >
-                                                        Approve
-                                                    </button>
-                                                    <button
-                                                        onClick={() => handleRequestAction(req.id, "Rejected")}
-                                                        className="h-9 px-4 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg text-xs font-bold transition border border-red-100"
-                                                    >
-                                                        Reject
-                                                    </button>
-                                                </div>
-                                            )}
-
-                                            {req.status === "Approved" && (
-                                                <div className="pt-2 border-t border-slate-50">
-                                                    <button
-                                                        onClick={() => handleRequestAction(req.id, "Issued")}
-                                                        className="h-10 w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition active:scale-95 flex items-center justify-center gap-1.5"
-                                                    >
-                                                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                        Issue Material
-                                                    </button>
-                                                </div>
-                                            )}
                                         </div>
                                     ))
                                 )}
@@ -1224,16 +855,22 @@ export default function Storedashboard({ user }) {
                             <div>
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Transaction Ledger</h3>
                                 <div className="space-y-3">
-                                    {transactions.map((t, idx) => (
-                                        <div key={idx} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm text-xs space-y-1.5">
-                                            <div className="flex justify-between items-center">
-                                                <span className="font-extrabold text-slate-800">{t.type}</span>
-                                                <span className="text-[10px] text-slate-400 font-bold">{t.date}</span>
+                                    {transactions.length === 0 ? (
+                                        <p className="text-xs text-slate-400 text-center py-8 font-semibold">No stock movements logged yet.</p>
+                                    ) : (
+                                        transactions.map((t) => (
+                                            <div key={t.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm text-xs space-y-1.5">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="font-extrabold text-slate-800 capitalize">{t.type}</span>
+                                                    <span className="text-[10px] text-slate-400 font-bold">{new Date(t.createdAt).toLocaleDateString("en-IN")}</span>
+                                                </div>
+                                                <p className="text-slate-600 font-medium">
+                                                    {Math.abs(t.quantityDelta)} {t.itemUnit} x {t.itemName}
+                                                </p>
+                                                <span className="block text-[9.5px] text-slate-400 font-bold uppercase">Log: TXN-{t.id} • Operator: {t.performedByName || t.workerName || "—"}</span>
                                             </div>
-                                            <p className="text-slate-600 font-medium">{t.details}</p>
-                                            <span className="block text-[9.5px] text-slate-400 font-bold uppercase">Log: {t.id} • Operator: {t.technician}</span>
-                                        </div>
-                                    ))}
+                                        ))
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1326,33 +963,26 @@ export default function Storedashboard({ user }) {
                             <form onSubmit={handleSaveStock} className="p-5 text-left text-xs font-semibold space-y-3 max-h-[500px] overflow-y-auto">
                                 <div>
                                     <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Part Name</label>
-                                    <select
+                                    <input
+                                        type="text"
+                                        required
                                         value={newStock.partName}
                                         onChange={(e) => setNewStock(prev => ({ ...prev, partName: e.target.value }))}
+                                        placeholder="e.g. Door Roller Assembly"
                                         className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                    >
-                                        <option value="24V Control Relay">24V Control Relay</option>
-                                        <option value="Door Roller Assembly">Door Roller Assembly</option>
-                                        <option value="Infrared Door Sensor">Infrared Door Sensor</option>
-                                        <option value="Microprocessor Board V4">Microprocessor Board V4</option>
-                                        <option value="Geared Traction Motor">Geared Traction Motor</option>
-                                        <option value="Guide Shoes (Safety)">Guide Shoes (Safety)</option>
-                                        <option value="Steel Wire Rope (10mm)">Steel Wire Rope (10mm)</option>
-                                        <option value="Emergency Cabin Battery">Emergency Cabin Battery</option>
-                                        <option value="Limit Switch">Limit Switch</option>
-                                    </select>
+                                    />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-3.5">
                                     <div>
-                                        <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Category</label>
+                                        <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Unit</label>
                                         <select
-                                            value={newStock.category}
-                                            onChange={(e) => setNewStock(prev => ({ ...prev, category: e.target.value }))}
+                                            value={newStock.unit}
+                                            onChange={(e) => setNewStock(prev => ({ ...prev, unit: e.target.value }))}
                                             className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
                                         >
-                                            {categories.map((c, idx) => (
-                                                <option key={idx} value={c}>{c}</option>
+                                            {UNITS.map((u) => (
+                                                <option key={u} value={u}>{u}</option>
                                             ))}
                                         </select>
                                     </div>
@@ -1361,66 +991,10 @@ export default function Storedashboard({ user }) {
                                         <input
                                             type="number"
                                             required
-                                            min="1"
+                                            min="0"
+                                            step="0.01"
                                             value={newStock.quantity}
                                             onChange={(e) => setNewStock(prev => ({ ...prev, quantity: e.target.value }))}
-                                            className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3.5">
-                                    <div>
-                                        <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Min. Alert Qty</label>
-                                        <input
-                                            type="number"
-                                            required
-                                            min="1"
-                                            value={newStock.minStock}
-                                            onChange={(e) => setNewStock(prev => ({ ...prev, minStock: e.target.value }))}
-                                            className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Depot Rack Location</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            value={newStock.location}
-                                            onChange={(e) => setNewStock(prev => ({ ...prev, location: e.target.value }))}
-                                            className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                        />
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Supplier Name</label>
-                                    <input
-                                        type="text"
-                                        required
-                                        value={newStock.supplier}
-                                        onChange={(e) => setNewStock(prev => ({ ...prev, supplier: e.target.value }))}
-                                        className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                    />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3.5">
-                                    <div>
-                                        <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Invoice Number</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            value={newStock.invoiceNumber}
-                                            onChange={(e) => setNewStock(prev => ({ ...prev, invoiceNumber: e.target.value }))}
-                                            className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">Remarks</label>
-                                        <input
-                                            type="text"
-                                            value={newStock.remarks}
-                                            onChange={(e) => setNewStock(prev => ({ ...prev, remarks: e.target.value }))}
                                             className="h-10 w-full px-3 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
                                         />
                                     </div>
@@ -1461,7 +1035,7 @@ export default function Storedashboard({ user }) {
                             </div>
 
                             <form onSubmit={handleSaveUpdateStock} className="p-5 text-left text-xs font-semibold space-y-4">
-                                <p className="text-slate-500">Adjusting level for: <strong className="text-slate-850">{selectedInventoryItem.partName}</strong></p>
+                                <p className="text-slate-500">Adjusting level for: <strong className="text-slate-850">{selectedInventoryItem.name}</strong></p>
                                 
                                 <div>
                                     <label className="block text-[9.5px] font-bold text-slate-400 uppercase tracking-wider mb-1">New Absolute Quantity</label>
