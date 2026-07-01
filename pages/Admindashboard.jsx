@@ -712,6 +712,32 @@ function AdmindashboardShell({ user }) {
         setMaterialRequests(newRequests);
     };
 
+    async function fetchInventoryItems() {
+        try {
+            const res = await fetch("/api/inventory");
+            const data = await res.json();
+            if (data.success) setInventory(data.items || []);
+        } catch (err) {
+            console.error("Failed to load inventory:", err);
+        }
+    }
+
+    async function fetchMaterialRequests() {
+        try {
+            const res = await fetch("/api/admin/materials");
+            const data = await res.json();
+            if (data.success) setMaterialRequests(data.requests || []);
+        } catch (err) {
+            console.error("Failed to load material requests:", err);
+        }
+    }
+
+    useEffect(() => {
+        if (activeTab !== "more") return;
+        if (moreSubTab === "inventory") fetchInventoryItems();
+        if (moreSubTab === "approvals") fetchMaterialRequests();
+    }, [activeTab, moreSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
     // Upcoming AMC Visits
     const amcVisits = useMemo(
         () => buildUpcomingVisits(adminAppData.upcomingPreview),
@@ -1945,19 +1971,16 @@ function AdmindashboardShell({ user }) {
                                     {/* Inventory list */}
                                     <div className="space-y-3">
                                         {inventory
-                                            .filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()) || item.category.toLowerCase().includes(searchQuery.toLowerCase()))
+                                            .filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
                                             .map(item => (
                                                 <div key={item.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm flex items-center justify-between">
                                                     <div className="min-w-0">
                                                         <h3 className="text-xs font-extrabold text-slate-800 truncate">{item.name}</h3>
-                                                        <p className="text-[10px] text-slate-400 mt-0.5">Category: {item.category} • Code: {item.code}</p>
-                                                        <p className="text-[11px] font-black text-slate-800 mt-1">Quantity: <span className="text-[#0a649d]">{item.qty} {item.unit}</span></p>
+                                                        <p className="text-[11px] font-black text-slate-800 mt-1">Quantity: <span className="text-[#0a649d]">{item.stockQuantity} {item.unit}</span></p>
                                                     </div>
-                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${item.status === "In Stock" ? "bg-emerald-100 text-emerald-800" :
-                                                        item.status === "Low Stock" ? "bg-amber-100 text-amber-800" :
-                                                            "bg-red-100 text-red-800"
+                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${item.stockQuantity > 0 ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"
                                                         }`}>
-                                                        {item.status}
+                                                        {item.stockQuantity > 0 ? "In Stock" : "Out of Stock"}
                                                     </span>
                                                 </div>
                                             ))}
@@ -2412,68 +2435,56 @@ function AdmindashboardShell({ user }) {
                                             <p className="text-center text-xs text-slate-400 py-6">No material requests logged.</p>
                                         ) : (
                                             materialRequests
-                                                .filter(r => r.partName.toLowerCase().includes(searchQuery.toLowerCase()) || (r.technicianName || r.technician || "Technician").toLowerCase().includes(searchQuery.toLowerCase()))
+                                                .filter(r => r.itemName.toLowerCase().includes(searchQuery.toLowerCase()) || (r.requestedByName || "Technician").toLowerCase().includes(searchQuery.toLowerCase()))
                                                 .map(r => (
                                                     <div key={r.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between">
                                                         <div className="flex justify-between items-start">
                                                             <div className="min-w-0">
-                                                                <div className="flex items-center gap-1.5">
-                                                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">{r.id}</span>
-                                                                    <span className={`text-[8px] font-black uppercase px-1.5 py-0.2 rounded border ${
-                                                                        r.urgency === "High" || r.priority === "High" ? "bg-red-50 text-red-700 border-red-100" :
-                                                                        r.urgency === "Medium" || r.priority === "Medium" ? "bg-amber-50 text-amber-700 border-amber-100" :
-                                                                        "bg-slate-50 text-slate-700 border-slate-100"
-                                                                    }`}>
-                                                                        {r.urgency || r.priority || "Medium"}
-                                                                    </span>
-                                                                </div>
-                                                                <h3 className="text-sm font-extrabold text-slate-900 mt-1 truncate">{r.partName} x {r.quantity}</h3>
-                                                                <p className="text-[10px] text-slate-400 mt-0.5">Technician: <span className="font-semibold text-slate-600">{r.technicianName || r.technician || "Technician"}</span></p>
+                                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">REQ-{r.id}</span>
+                                                                <h3 className="text-sm font-extrabold text-slate-900 mt-1 truncate">{r.itemName} x {r.requestedQuantity} {r.itemUnit}</h3>
+                                                                <p className="text-[10px] text-slate-400 mt-0.5">Technician: <span className="font-semibold text-slate-600">{r.requestedByName || "Technician"}</span></p>
                                                             </div>
-                                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded ${
-                                                                r.status === "Approved" ? "bg-emerald-100 text-emerald-800" :
-                                                                r.status === "Rejected" ? "bg-red-100 text-red-800" :
-                                                                r.status === "Issued" ? "bg-slate-100 text-slate-650" :
+                                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase ${
+                                                                r.status === "approved" ? "bg-emerald-100 text-emerald-800" :
+                                                                r.status === "rejected" ? "bg-red-100 text-red-800" :
+                                                                r.status === "issued" || r.status === "partially_issued" ? "bg-slate-100 text-slate-650" :
                                                                 "bg-amber-100 text-amber-800"
                                                             }`}>
                                                                 {r.status}
                                                             </span>
                                                         </div>
 
-                                                        {r.reason && (
-                                                            <p className="text-[10px] text-slate-500 font-semibold bg-slate-50 p-2.5 rounded-lg border border-slate-100 mt-3">
-                                                                <span className="block text-[8px] font-extrabold text-slate-400 uppercase mb-0.5">Reason for Request</span>
-                                                                {r.reason}
-                                                            </p>
-                                                        )}
-
                                                         <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-bold">
-                                                            <span>Date: {r.requestDate || r.date || "Today"}</span>
-                                                            {r.status === "Pending" && (
+                                                            <span>Date: {new Date(r.createdAt).toLocaleDateString("en-IN")}</span>
+                                                            {r.status === "pending" && (
                                                                 <div className="flex gap-2">
                                                                     <button
-                                                                        onClick={() => {
-                                                                            const updated = materialRequests.map(item => {
-                                                                                if (item.id === r.id) {
-                                                                                    return { ...item, status: "Approved", qrCode: "INVENTORY_PASS_" + item.id };
-                                                                                }
-                                                                                return item;
+                                                                        onClick={async () => {
+                                                                            const res = await fetch("/api/admin/materials", {
+                                                                                method: "PATCH",
+                                                                                headers: { "Content-Type": "application/json" },
+                                                                                body: JSON.stringify({ id: r.id, status: "approved" }),
                                                                             });
-                                                                            updateMaterialRequestsState(updated);
+                                                                            const data = await res.json();
+                                                                            if (data.success) {
+                                                                                updateMaterialRequestsState(materialRequests.map(item => item.id === r.id ? data.request : item));
+                                                                            }
                                                                         }}
                                                                         className="px-3 py-1 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 active:scale-95 transition cursor-pointer"
                                                                     >
                                                                         Approve
                                                                     </button>
                                                                     <button
-                                                                        onClick={() => {
-                                                                            const updated = materialRequests.map(item => {
-                                                                                if (item.id === r.id) {
-                                                                                    return { ...item, status: "Rejected" };
-                                                                                }
-                                                                                return item;
+                                                                        onClick={async () => {
+                                                                            const res = await fetch("/api/admin/materials", {
+                                                                                method: "PATCH",
+                                                                                headers: { "Content-Type": "application/json" },
+                                                                                body: JSON.stringify({ id: r.id, status: "rejected" }),
                                                                             });
-                                                                            updateMaterialRequestsState(updated);
+                                                                            const data = await res.json();
+                                                                            if (data.success) {
+                                                                                updateMaterialRequestsState(materialRequests.map(item => item.id === r.id ? data.request : item));
+                                                                            }
                                                                         }}
                                                                         className="px-3 py-1 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 active:scale-95 transition cursor-pointer"
                                                                     >
@@ -2481,8 +2492,8 @@ function AdmindashboardShell({ user }) {
                                                                     </button>
                                                                 </div>
                                                             )}
-                                                            {r.status === "Approved" && r.qrCode && (
-                                                                <span className="text-[9px] text-[#0a649d] font-extrabold">PASS GENERATED</span>
+                                                            {r.status === "approved" && (
+                                                                <span className="text-[9px] text-[#0a649d] font-extrabold">AWAITING STORE PASS SCAN</span>
                                                             )}
                                                         </div>
                                                     </div>
