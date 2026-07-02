@@ -336,7 +336,45 @@ function AdmindashboardShell({ user }) {
     const [selectedSchedule, setSelectedSchedule] = useState(null);
     const [materialRequests, setMaterialRequests] = useState([]);
     const [modalTech, setModalTech] = useState("");
-    const [modalStatus, setModalStatus] = useState("");
+    const [spareQuery, setSpareQuery] = useState("");
+    const [spareSearchResults, setSpareSearchResults] = useState([]);
+    const [spareQuantity, setSpareQuantity] = useState(1);
+    const [allocatedItems, setAllocatedItems] = useState([]);
+
+    useEffect(() => {
+        const q = spareQuery.trim();
+        if (!q) {
+            setSpareSearchResults([]);
+            return;
+        }
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/inventory?search=${encodeURIComponent(q)}`);
+                const data = await res.json();
+                if (data.success) setSpareSearchResults(data.items);
+            } catch {
+                setSpareSearchResults([]);
+            }
+        }, 350);
+        return () => clearTimeout(timer);
+    }, [spareQuery]);
+
+    function addAllocatedItem(item) {
+        setAllocatedItems(prev => {
+            const exists = prev.find(p => p.itemId === item.id);
+            if (exists) {
+                return prev.map(p => p.itemId === item.id ? { ...p, quantity: p.quantity + spareQuantity } : p);
+            }
+            return [...prev, { itemId: item.id, name: item.name, unit: item.unit, quantity: spareQuantity }];
+        });
+        setSpareQuery("");
+        setSpareSearchResults([]);
+        setSpareQuantity(1);
+    }
+
+    function removeAllocatedItem(itemId) {
+        setAllocatedItems(prev => prev.filter(p => p.itemId !== itemId));
+    }
     const [assignmentNotes, setAssignmentNotes] = useState("");
     const [complaintsLoading, setComplaintsLoading] = useState(false);
     const [complaintError, setComplaintError] = useState("");
@@ -360,44 +398,15 @@ function AdmindashboardShell({ user }) {
         acknowledgeTicketNotification(complaint?.id);
         setSelectedComplaint(complaint);
         setModalTech(complaint?.assignedTechnicianUserId || "");
-        setModalStatus(complaint?.status || "UNASSIGNED");
+        setAllocatedItems([]);
+        setSpareQuery("");
+        setSpareSearchResults([]);
+        setSpareQuantity(1);
     };
 
     useEffect(() => {
         subscribeToPush().catch(() => {});
     }, []);
-
-    // Parts allocation states
-    const [allocatedParts, setAllocatedParts] = useState([]);
-    const [tempPartName, setTempPartName] = useState("Door Roller Assembly");
-    const [tempPartQty, setTempPartQty] = useState(1);
-
-    useEffect(() => {
-        const timer = setTimeout(() => {
-            if (selectedComplaint) {
-                setAllocatedParts(selectedComplaint.allocatedParts || []);
-            } else {
-                setAllocatedParts([]);
-            }
-        }, 0);
-        return () => clearTimeout(timer);
-    }, [selectedComplaint]);
-
-    const handleAddPart = () => {
-        if (tempPartQty <= 0) return;
-        setAllocatedParts(prev => {
-            const exists = prev.find(p => p.partName === tempPartName);
-            if (exists) {
-                return prev.map(p => p.partName === tempPartName ? { ...p, quantity: p.quantity + tempPartQty } : p);
-            }
-            return [...prev, { partName: tempPartName, quantity: tempPartQty }];
-        });
-        setTempPartQty(1);
-    };
-
-    const handleRemovePart = (partName) => {
-        setAllocatedParts(prev => prev.filter(p => p.partName !== partName));
-    };
 
     // Filter and search states
     const [searchQuery, setSearchQuery] = useState("");
@@ -673,6 +682,7 @@ function AdmindashboardShell({ user }) {
                 body: JSON.stringify({
                     assignedTechnicianUserId: Number(modalTech),
                     assignmentNotes,
+                    allocatedItems: allocatedItems.map(item => ({ itemId: item.itemId, quantity: item.quantity })),
                 }),
             });
             const data = await res.json();
@@ -680,31 +690,29 @@ function AdmindashboardShell({ user }) {
             setSelectedComplaint(null);
             setModalTech("");
             setAssignmentNotes("");
+            setAllocatedItems([]);
             await fetchComplaints();
         } catch (err) {
             setComplaintError(err.message || "Failed to assign complaint");
         }
     }
 
-    async function updateSelectedComplaintStatus(nextStatus) {
+    async function cancelSelectedComplaint() {
         if (!selectedComplaint) return;
-        if (["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint.status || "").toUpperCase())) {
-            setComplaintError("This ticket is already resolved/closed and cannot be changed.");
-            return;
-        }
-        setModalStatus(nextStatus);
+        if (!window.confirm("Cancel this ticket? This cannot be undone.")) return;
+        setComplaintError("");
         try {
             const res = await fetch(`/api/complaints/${selectedComplaint.id}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ status: nextStatus }),
+                body: JSON.stringify({ status: "CANCELLED" }),
             });
             const data = await res.json();
-            if (!res.ok || !data.success) throw new Error(data.message || "Failed to update complaint");
-            setSelectedComplaint(data.complaint);
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to cancel ticket");
+            setSelectedComplaint(null);
             await fetchComplaints();
         } catch (err) {
-            setComplaintError(err.message || "Failed to update complaint");
+            setComplaintError(err.message || "Failed to cancel ticket");
         }
     }
 
@@ -1016,109 +1024,6 @@ function AdmindashboardShell({ user }) {
                     return { ...t, status: nextStatus };
                 }
                 return t;
-            })
-        );
-    }
-
-    function toggleComplaintStatus(id) {
-        setComplaints(prev =>
-            prev.map(c => {
-                if (c.id === id) {
-                    let nextStatus = c.status === "Open" ? "In Progress" : c.status === "In Progress" ? "Resolved" : "Open";
-                    let color = nextStatus === "In Progress" ? "text-red-600 bg-red-50 border-red-100" :
-                        nextStatus === "Open" ? "text-amber-600 bg-amber-50 border-amber-100" :
-                            "text-emerald-600 bg-emerald-50 border-emerald-100";
-
-                    // Update complaints count
-                    if (nextStatus === "Resolved") {
-                        setKpiCounts(k => ({ ...k, openComplaints: Math.max(0, k.openComplaints - 1) }));
-                    } else if (c.status === "Resolved") {
-                        setKpiCounts(k => ({ ...k, openComplaints: k.openComplaints + 1 }));
-                    }
-
-                    return { ...c, status: nextStatus, color };
-                }
-                return c;
-            })
-        );
-    }
-
-    function handleAssignComplaint(complaintId, techName) {
-        setComplaints(prev =>
-            prev.map(c => {
-                if (c.id === complaintId) {
-                    let nextStatus = c.status;
-                    let color = c.color;
-                    if (techName && c.status === "Open") {
-                        nextStatus = "In Progress";
-                        color = "text-red-600 bg-red-50 border-red-100";
-                    }
-                    return { 
-                        ...c, 
-                        assignedTech: techName, 
-                        status: nextStatus, 
-                        color,
-                        allocatedParts: allocatedParts,
-                        allocatedPartsQr: allocatedParts.length > 0 ? `QR-${complaintId}-ALLOCATED` : null,
-                        allocatedPartsIssued: false
-                    };
-                }
-                return c;
-            })
-        );
-
-        if (techName) {
-            setTechnicians(prev =>
-                prev.map(t => {
-                    if (t.name === techName) {
-                        const hadTask = !!t.allocatedTask;
-                        let newWorkload = t.workload;
-                        if (!hadTask) {
-                            const parts = t.workload.split("/");
-                            const current = parseInt(parts[0]) + 1;
-                            newWorkload = `${current}/${parts[1]}`;
-                        }
-
-                        // Add notification log
-                        const newNotif = {
-                            id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
-                            category: "Task Allocated",
-                            message: `Assigned complaint "${complaintId}" to technician ${t.name}`,
-                            time: "Just now"
-                        };
-                        setNotifications(n => [newNotif, ...n]);
-
-                        return { ...t, allocatedTask: `Complaint: ${complaintId}`, workload: newWorkload };
-                    }
-                    return t;
-                })
-            );
-        }
-
-        setSelectedComplaint(null);
-        setAllocatedParts([]);
-    }
-
-    function handleUpdateComplaintStatus(complaintId, newStatus) {
-        setComplaints(prev =>
-            prev.map(c => {
-                if (c.id === complaintId) {
-                    if (c.status === newStatus) return c;
-
-                    let color = newStatus === "In Progress" ? "text-red-600 bg-red-50 border-red-100" :
-                        newStatus === "Open" ? "text-amber-600 bg-amber-50 border-amber-100" :
-                            "text-emerald-600 bg-emerald-50 border-emerald-100";
-
-                    // Update open complaints count KPI
-                    if (newStatus === "Resolved" && c.status !== "Resolved") {
-                        setKpiCounts(k => ({ ...k, openComplaints: Math.max(0, k.openComplaints - 1) }));
-                    } else if (c.status === "Resolved" && newStatus !== "Resolved") {
-                        setKpiCounts(k => ({ ...k, openComplaints: k.openComplaints + 1 }));
-                    }
-
-                    return { ...c, status: newStatus, color };
-                }
-                return c;
             })
         );
     }
@@ -3161,20 +3066,6 @@ function AdmindashboardShell({ user }) {
                             )}
 
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Ticket Status</label>
-                                <select
-                                    value={modalStatus}
-                                    onChange={(e) => updateSelectedComplaintStatus(e.target.value)}
-                                    disabled={selectedComplaintIsTerminal}
-                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                >
-                                    {COMPLAINT_STATUS_OPTIONS.map(status => (
-                                        <option key={status} value={status}>{status.replaceAll("_", " ")}</option>
-                                    ))}
-                                </select>
-                            </div>
-
-                            <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Worker</label>
                                 <select
                                     value={modalTech}
@@ -3187,6 +3078,56 @@ function AdmindashboardShell({ user }) {
                                         <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
                                     ))}
                                 </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Spares to Allocate (optional)</label>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={spareQuery}
+                                        onChange={(e) => setSpareQuery(e.target.value)}
+                                        disabled={selectedComplaintIsTerminal}
+                                        placeholder="Search inventory item..."
+                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition disabled:bg-slate-100 disabled:text-slate-400"
+                                    />
+                                    {spareSearchResults.length > 0 && (
+                                        <div className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            {spareSearchResults.map(item => (
+                                                <button
+                                                    type="button"
+                                                    key={item.id}
+                                                    onClick={() => addAllocatedItem(item)}
+                                                    className="block w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
+                                                >
+                                                    {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit} in stock)</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="mt-2 flex items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Qty</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        value={spareQuantity}
+                                        onChange={(e) => setSpareQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                        disabled={selectedComplaintIsTerminal}
+                                        className="h-9 w-20 px-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-[#0a649d] disabled:bg-slate-100"
+                                    />
+                                    <span className="text-[10px] text-slate-400">Search and tap an item above to add it at this quantity.</span>
+                                </div>
+                                {allocatedItems.length > 0 && (
+                                    <div className="mt-2.5 space-y-1.5">
+                                        {allocatedItems.map(item => (
+                                            <div key={item.itemId} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
+                                                <span className="text-xs font-semibold text-slate-700">{item.name} × {item.quantity} {item.unit}</span>
+                                                <button type="button" onClick={() => removeAllocatedItem(item.itemId)} className="text-red-500 text-xs font-bold">Remove</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
 
                             <div>
@@ -3209,6 +3150,15 @@ function AdmindashboardShell({ user }) {
                                 >
                                     Close
                                 </button>
+                                {!selectedComplaintIsTerminal && (
+                                    <button
+                                        type="button"
+                                        onClick={cancelSelectedComplaint}
+                                        className="h-10 px-4.5 border border-red-200 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-50 transition"
+                                    >
+                                        Cancel Ticket
+                                    </button>
+                                )}
                                 {!selectedComplaintIsTerminal && (
                                     <button
                                         type="button"
