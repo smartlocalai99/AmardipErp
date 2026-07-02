@@ -88,6 +88,22 @@ const initialCosts = {
   discountAmount: 0,
 };
 
+function extractCosts(q) {
+  return {
+    commonMaterial: q.commonMaterial ?? 0,
+    doorMaterial: q.doorMaterial ?? 0,
+    cabinMaterial: q.cabinMaterial ?? 0,
+    motorMaterial: q.motorMaterial ?? 0,
+    ropeCost: q.ropeCost ?? 0,
+    railCost: q.railCost ?? 0,
+    additionalLfCost: q.additionalLfCost ?? 0,
+    labourTransport: q.labourTransport ?? 75000,
+    taxPercent: q.taxPercent ?? 18,
+    marginPercent: q.marginPercent ?? 15,
+    discountAmount: q.discountAmount ?? 0,
+  };
+}
+
 export async function getServerSideProps({ req }) {
   const user = await getUserFromRequest(req);
   if (!user) return { redirect: { destination: "/Adminlogin", permanent: false } };
@@ -308,7 +324,8 @@ export default function QuotationsPage({ user }) {
                 quotation={q}
                 index={i}
                 canGenerate={canGenerate}
-                onGenerate={() => setSelected(q)}
+                onGenerate={() => { setSelected(q); setCosts(initialCosts); }}
+                onEditBoq={() => { setSelected(q); setCosts(extractCosts(q)); }}
                 onViewBoq={() => setBoqView(q)}
                 onShared={setNotice}
               />
@@ -372,7 +389,7 @@ export default function QuotationsPage({ user }) {
 
       {/* Generate BOQ (costs) modal for existing DRAFT */}
       {selected && (
-        <Modal title={`Generate BOQ – ${selected.quotationNo}`} onClose={() => !submitting && setSelected(null)}>
+        <Modal title={`${selected.status === "DRAFT" ? "Generate" : "Edit"} BOQ – ${selected.quotationNo}`} onClose={() => !submitting && setSelected(null)}>
           <div className="space-y-3 pb-3">
             {Object.keys(initialCosts).map((key) => (
               <label key={key} className="block">
@@ -600,7 +617,7 @@ function BoqFullCard({ quotation, onBack }) {
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, onGenerate, onViewBoq, onShared }) {
+function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, onViewBoq, onShared }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -649,6 +666,14 @@ function QuotationCard({ quotation, index, canGenerate, onGenerate, onViewBoq, o
               className="h-9 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition"
             >
               Generate BOQ
+            </button>
+          )}
+          {canGenerate && ["BOQ_GENERATED", "CALCULATED", "SENT"].includes(quotation.status) && (
+            <button
+              onClick={onEditBoq}
+              className="h-9 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition"
+            >
+              Edit BOQ
             </button>
           )}
         </div>
