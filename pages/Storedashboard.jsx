@@ -141,6 +141,8 @@ export default function Storedashboard({ user }) {
     const [returnJob, setReturnJob] = useState(null);
     const [returnQuantities, setReturnQuantities] = useState({});
     const [returnLookupLoading, setReturnLookupLoading] = useState(false);
+    const [returnJobs, setReturnJobs] = useState([]);
+    const [returnJobSearch, setReturnJobSearch] = useState("");
 
     // Form inputs for adding stock
     const [newStock, setNewStock] = useState({
@@ -182,10 +184,17 @@ export default function Storedashboard({ user }) {
         if (data.success) setTransactions(data.transactions);
     }
 
+    async function refreshReturnJobs() {
+        const res = await fetch("/api/store/job");
+        const data = await res.json();
+        if (data.success) setReturnJobs(data.jobs || []);
+    }
+
     useEffect(() => {
         refreshInventory();
         refreshRequests();
         refreshTransactions();
+        refreshReturnJobs();
     }, []);
 
     // Debounced real inventory search for adding an ad-hoc item during a scan
@@ -358,12 +367,7 @@ export default function Storedashboard({ user }) {
     }
 
     // Material return form submission
-    async function lookupReturnJob() {
-        const jobId = returnForm.jobId.trim();
-        if (!jobId) {
-            alert("Enter a job ID.");
-            return;
-        }
+    async function selectReturnJob(jobId) {
         setReturnLookupLoading(true);
         setReturnJob(null);
         setReturnQuantities({});
@@ -403,8 +407,10 @@ export default function Storedashboard({ user }) {
         setReturnForm({ jobId: "", reason: "" });
         setReturnJob(null);
         setReturnQuantities({});
+        setReturnJobSearch("");
         refreshInventory();
         refreshTransactions();
+        refreshReturnJobs();
         alert(`Returned items credited to inventory for ${data.job.complaintNo}.`);
     }
 
@@ -417,6 +423,12 @@ export default function Storedashboard({ user }) {
 
     // Filtered inventory listing
     const filteredInventory = inventory.filter(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
+    const filteredReturnJobs = returnJobs.filter((job) => {
+        const term = returnJobSearch.trim().toLowerCase();
+        if (!term) return true;
+        return [job.complaintNo, job.customerName, job.assignedTechnicianName]
+            .some((value) => String(value || "").toLowerCase().includes(term));
+    });
 
     return (
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
@@ -832,28 +844,36 @@ export default function Storedashboard({ user }) {
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-50 pb-2">Material Return Slip</h3>
                                 <div className="space-y-4 text-xs font-semibold">
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Job ID</label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                required
-                                                value={returnForm.jobId}
-                                                onChange={(e) => {
-                                                    setReturnForm(prev => ({ ...prev, jobId: e.target.value }));
-                                                    setReturnJob(null);
-                                                    setReturnQuantities({});
-                                                }}
-                                                placeholder="e.g. CMP-202607-0001"
-                                                className="h-11 min-w-0 flex-1 px-3.5 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={lookupReturnJob}
-                                                disabled={returnLookupLoading}
-                                                className="h-11 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:opacity-50"
-                                            >
-                                                {returnLookupLoading ? "Finding…" : "Find"}
-                                            </button>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Select Issued Job</label>
+                                        <input
+                                            type="search"
+                                            value={returnJobSearch}
+                                            onChange={(e) => setReturnJobSearch(e.target.value)}
+                                            placeholder="Search job, customer, or worker…"
+                                            className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
+                                        />
+                                        <div className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+                                            {filteredReturnJobs.length === 0 ? (
+                                                <p className="rounded-xl bg-slate-50 p-3 text-center text-[10px] font-bold text-slate-400">No jobs with outstanding issued items.</p>
+                                            ) : filteredReturnJobs.map((job) => (
+                                                <button
+                                                    key={job.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setReturnForm(prev => ({ ...prev, jobId: job.complaintNo }));
+                                                        selectReturnJob(job.complaintNo);
+                                                    }}
+                                                    disabled={returnLookupLoading}
+                                                    className={`w-full rounded-xl border p-3 text-left transition ${returnJob?.id === job.id ? "border-[#0a649d] bg-sky-50" : "border-slate-100 bg-slate-50 hover:border-sky-200"}`}
+                                                >
+                                                    <span className="flex items-center justify-between gap-2">
+                                                        <span className="font-black text-[#0a649d]">{job.complaintNo}</span>
+                                                        <span className="text-[9px] font-black text-amber-600">{job.outstandingItemCount} item{job.outstandingItemCount === 1 ? "" : "s"}</span>
+                                                    </span>
+                                                    <span className="mt-1 block truncate text-[11px] font-bold text-slate-700">{job.customerName || "Customer"}</span>
+                                                    <span className="mt-0.5 block truncate text-[9px] font-bold text-slate-400">Worker: {job.assignedTechnicianName || "Unassigned"}</span>
+                                                </button>
+                                            ))}
                                         </div>
                                     </div>
 

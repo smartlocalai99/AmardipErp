@@ -1,5 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { getStoreJobByReference } from "@/lib/inventory";
+import { getStoreJobByReference, listStoreJobsWithOutstandingItems } from "@/lib/inventory";
 
 const STORE_ROLES = new Set(["storekeeper", "admin", "superadmin", "manager"]);
 
@@ -12,6 +12,10 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (!req.query.jobId) {
+      const jobs = await listStoreJobsWithOutstandingItems({ search: req.query.search });
+      return res.status(200).json({ success: true, jobs });
+    }
     const job = await getStoreJobByReference(req.query.jobId);
     return res.status(200).json({ success: true, job });
   } catch (err) {
