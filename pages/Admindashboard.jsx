@@ -2499,7 +2499,7 @@ function AdmindashboardShell({ user }) {
             {/* MODAL: ONBOARD USER (SUPERADMIN ONLY) */}
             {showOnboardModal && user?.role === "superadmin" && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-                    <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                    <div className="w-full min-w-0 max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between shrink-0">
                             <h2 className="text-base font-bold">Onboard New Member</h2>
                             <button
@@ -2956,7 +2956,7 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     )}
                                 </div>
-                                <div className="mt-2 flex items-center gap-2">
+                                <div className="mt-2 grid grid-cols-[auto_5rem_1fr] items-center gap-2">
                                     <span className="text-[10px] font-bold text-slate-400 uppercase">Qty</span>
                                     <input
                                         type="number"
@@ -2966,14 +2966,14 @@ function AdmindashboardShell({ user }) {
                                         disabled={selectedComplaintIsTerminal}
                                         className="h-9 w-20 px-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-[#0a649d] disabled:bg-slate-100"
                                     />
-                                    <span className="text-[10px] text-slate-400">Search and tap an item above to add it at this quantity.</span>
+                                    <span className="min-w-0 text-[10px] leading-snug text-slate-400">Search and tap an item above to add it at this quantity.</span>
                                 </div>
                                 {allocatedItems.length > 0 && (
                                     <div className="mt-2.5 space-y-1.5">
                                         {allocatedItems.map(item => (
-                                            <div key={item.itemId} className="flex items-center justify-between rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
-                                                <span className="text-xs font-semibold text-slate-700">{item.name} × {item.quantity} {item.unit}</span>
-                                                <button type="button" onClick={() => removeAllocatedItem(item.itemId)} className="text-red-500 text-xs font-bold">Remove</button>
+                                            <div key={item.itemId} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
+                                                <span className="min-w-0 break-words text-xs font-semibold text-slate-700">{item.name} × {item.quantity} {item.unit}</span>
+                                                <button type="button" onClick={() => removeAllocatedItem(item.itemId)} className="shrink-0 text-red-500 text-xs font-bold">Remove</button>
                                             </div>
                                         ))}
                                     </div>
@@ -2992,30 +2992,30 @@ function AdmindashboardShell({ user }) {
                                 />
                             </div>
 
-                            <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
+                            <div className="grid grid-cols-2 gap-2.5 border-t border-slate-100 pt-4">
                                 <button
                                     type="button"
                                     onClick={() => setSelectedComplaint(null)}
-                                    className="h-10 px-4.5 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
+                                    className={`h-11 min-w-0 whitespace-nowrap rounded-xl border border-slate-200 px-3 text-xs font-semibold text-slate-600 transition hover:bg-slate-50 ${selectedComplaintIsTerminal ? "col-span-2" : ""}`}
                                 >
                                     Close
                                 </button>
                                 {!selectedComplaintIsTerminal && (
                                     <button
                                         type="button"
-                                        onClick={cancelSelectedComplaint}
-                                        className="h-10 px-4.5 border border-red-200 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-50 transition"
+                                        onClick={assignSelectedComplaint}
+                                        className="h-11 min-w-0 whitespace-nowrap rounded-xl bg-[#0a649d] px-3 text-xs font-semibold text-white transition hover:bg-[#085282]"
                                     >
-                                        Cancel Ticket
+                                        Save Assignment
                                     </button>
                                 )}
                                 {!selectedComplaintIsTerminal && (
                                     <button
                                         type="button"
-                                        onClick={assignSelectedComplaint}
-                                        className="h-10 px-4.5 bg-[#0a649d] text-white rounded-xl text-xs font-semibold hover:bg-[#085282] transition"
+                                        onClick={cancelSelectedComplaint}
+                                        className="col-span-2 h-11 min-w-0 whitespace-nowrap rounded-xl border border-red-200 px-3 text-xs font-semibold text-red-600 transition hover:bg-red-50"
                                     >
-                                        Save Assignment
+                                        Cancel Ticket
                                     </button>
                                 )}
                             </div>
