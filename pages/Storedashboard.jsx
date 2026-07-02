@@ -170,7 +170,7 @@ export default function Storedashboard({ user }) {
     }
 
     async function refreshRequests() {
-        const res = await fetch("/api/admin/materials");
+        const res = await fetch("/api/store/materials");
         const data = await res.json();
         if (data.success) setMaterialRequests(data.requests);
     }
@@ -745,7 +745,7 @@ export default function Storedashboard({ user }) {
                             </div>
 
                             <p className="text-[10px] text-slate-400 -mt-2 px-1">
-                                Approval happens in the admin app. Scan a technician&apos;s Store Pass QR to actually issue parts.
+                                Items admin allocated at assignment appear here for reference. Scan a technician&apos;s Store Pass QR to actually issue parts.
                             </p>
 
                             <div className="space-y-3.5">
