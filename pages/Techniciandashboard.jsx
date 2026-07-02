@@ -244,6 +244,18 @@ export default function Techniciandashboard({ user }) {
         subscribeToPush().catch(() => {});
     }, []);
 
+    useEffect(() => {
+        if (!router.isReady) return;
+        const tab = typeof router.query.tab === "string" ? router.query.tab : "";
+        if (!["dashboard", "jobs", "notifications", "profile"].includes(tab)) return;
+        const timer = setTimeout(() => {
+            setActiveTab(tab);
+            setActiveJob(null);
+            if (tab === "jobs") setJobsFilter("assigned");
+        }, 0);
+        return () => clearTimeout(timer);
+    }, [router.isReady, router.query.tab]);
+
     // Track active job timeline and checklists
     const updateJobStatus = (jobId, nextStatus) => {
         setJobs(prev => prev.map(job => {

@@ -51,8 +51,14 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     acknowledgeBadgeItem(event.notification.data || {}).then(() =>
       clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
-        const existing = wins.find((w) => w.url.includes(url));
-        if (existing) return existing.focus();
+        const target = new URL(url, self.location.origin);
+        const existing = wins.find((win) => {
+          const openUrl = new URL(win.url);
+          return openUrl.origin === target.origin && openUrl.pathname === target.pathname;
+        });
+        if (existing) {
+          return existing.navigate(target.href).then((win) => win?.focus());
+        }
         return clients.openWindow(url);
       })
     )
