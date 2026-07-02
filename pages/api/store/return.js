@@ -1,5 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { recordReturn } from "@/lib/inventory";
+import { recordJobReturns } from "@/lib/inventory";
 
 const STORE_ROLES = new Set(["storekeeper", "admin", "superadmin", "manager"]);
 
@@ -12,9 +12,9 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { itemId, quantity, notes } = req.body || {};
-    const item = await recordReturn({ itemId, quantity, notes }, actor);
-    return res.status(200).json({ success: true, item });
+    const { jobId, items, notes } = req.body || {};
+    const result = await recordJobReturns({ jobReference: jobId, items, notes }, actor);
+    return res.status(200).json({ success: true, ...result });
   } catch (err) {
     console.error("Record return error:", err);
     return res.status(400).json({ success: false, message: err.message || "Failed to record return." });

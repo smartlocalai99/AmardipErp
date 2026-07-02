@@ -135,11 +135,12 @@ export default function Storedashboard({ user }) {
 
     // Return Form state
     const [returnForm, setReturnForm] = useState({
-        techName: "",
-        partName: "",
-        quantity: 1,
+        jobId: "",
         reason: ""
     });
+    const [returnJob, setReturnJob] = useState(null);
+    const [returnQuantities, setReturnQuantities] = useState({});
+    const [returnLookupLoading, setReturnLookupLoading] = useState(false);
 
     // Form inputs for adding stock
     const [newStock, setNewStock] = useState({
@@ -242,7 +243,7 @@ export default function Storedashboard({ user }) {
             try {
                 await scanner.start(
                     { facingMode: "environment" },
-                    { fps: 10, qrbox: 240 },
+                    { fps: 10, qrbox: { width: 240, height: 240 } },
                     async (decodedText) => {
                         try { await scanner.stop(); } catch {}
                         scannerRef.current = null;
@@ -357,25 +358,54 @@ export default function Storedashboard({ user }) {
     }
 
     // Material return form submission
+    async function lookupReturnJob() {
+        const jobId = returnForm.jobId.trim();
+        if (!jobId) {
+            alert("Enter a job ID.");
+            return;
+        }
+        setReturnLookupLoading(true);
+        setReturnJob(null);
+        setReturnQuantities({});
+        try {
+            const res = await fetch(`/api/store/job?jobId=${encodeURIComponent(jobId)}`);
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Job not found.");
+            setReturnJob(data.job);
+        } catch (err) {
+            alert(err.message);
+        } finally {
+            setReturnLookupLoading(false);
+        }
+    }
+
     async function handleReturnSubmit(e) {
         e.preventDefault();
-        const targetItem = inventory.find(i => i.name.toLowerCase() === returnForm.partName.toLowerCase());
-        if (!targetItem) {
-            alert("Item not found in inventory — add it first via the Inventory tab.");
+        if (!returnJob) {
+            alert("Find the job before receiving returned items.");
+            return;
+        }
+        const items = returnJob.returnableItems
+            .map((item) => ({ itemId: item.itemId, quantity: Number(returnQuantities[item.itemId] || 0) }))
+            .filter((item) => item.quantity > 0);
+        if (!items.length) {
+            alert("Enter at least one return quantity.");
             return;
         }
         const res = await fetch("/api/store/return", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ itemId: targetItem.id, quantity: Number(returnForm.quantity), notes: returnForm.reason }),
+            body: JSON.stringify({ jobId: returnJob.complaintNo, items, notes: returnForm.reason }),
         });
         const data = await res.json();
         if (!data.success) { alert(data.message); return; }
 
-        setReturnForm({ techName: "", partName: "", quantity: 1, reason: "" });
+        setReturnForm({ jobId: "", reason: "" });
+        setReturnJob(null);
+        setReturnQuantities({});
         refreshInventory();
         refreshTransactions();
-        alert("Returned parts credited to store inventory!");
+        alert(`Returned items credited to inventory for ${data.job.complaintNo}.`);
     }
 
     // Dynamic metrics counts
@@ -448,7 +478,7 @@ export default function Storedashboard({ user }) {
                         </div>
 
                         <div className="my-auto flex flex-col items-center">
-                            <div id="qr-reader" className="h-64 w-64 rounded-2xl overflow-hidden border-2 border-dashed border-[#59e0ff]" />
+                            <div id="qr-reader" className="aspect-square w-64 overflow-hidden rounded-2xl border-2 border-dashed border-[#59e0ff] [&_video]:aspect-square [&_video]:h-full [&_video]:w-full [&_video]:object-cover" />
                             <p className="text-sm font-semibold mt-6 text-slate-300 text-center px-4">{scannerStatus}</p>
                         </div>
 
@@ -757,9 +787,10 @@ export default function Storedashboard({ user }) {
                                             {/* Top Line */}
                                             <div className="flex justify-between items-start border-b border-slate-50 pb-2">
                                                 <div>
-                                                    <span className="text-[10px] text-slate-400 font-extrabold uppercase block">REQ-{req.id} • {new Date(req.createdAt).toLocaleDateString("en-IN")}</span>
+                                                    <span className="text-[10px] text-[#0a649d] font-extrabold uppercase block">JOB {req.complaintNo || req.complaintId}</span>
+                                                    <span className="text-[9px] text-slate-400 font-bold uppercase block mt-0.5">REQ-{req.id} • {new Date(req.createdAt).toLocaleDateString("en-IN")}</span>
                                                     <h3 className="text-sm font-black text-slate-800 mt-1">{req.itemName}</h3>
-                                                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Requested by: {req.requestedByName || "Technician"}</p>
+                                                    <p className="text-xs font-semibold text-slate-500 mt-0.5">Worker: {req.assignedTechnicianName || req.requestedByName || "Technician"}</p>
                                                 </div>
                                                 <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase ${
                                                     req.status === "approved" ? "bg-sky-50 text-[#0a649d] border border-sky-100" :
@@ -801,49 +832,72 @@ export default function Storedashboard({ user }) {
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-50 pb-2">Material Return Slip</h3>
                                 <div className="space-y-4 text-xs font-semibold">
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Technician Name</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            value={returnForm.techName}
-                                            onChange={(e) => setReturnForm(prev => ({ ...prev, techName: e.target.value }))}
-                                            className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d]"
-                                        />
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Material Name</label>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Job ID</label>
+                                        <div className="flex gap-2">
                                             <input
                                                 type="text"
                                                 required
-                                                value={returnForm.partName}
-                                                onChange={(e) => setReturnForm(prev => ({ ...prev, partName: e.target.value }))}
-                                                className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d]"
+                                                value={returnForm.jobId}
+                                                onChange={(e) => {
+                                                    setReturnForm(prev => ({ ...prev, jobId: e.target.value }));
+                                                    setReturnJob(null);
+                                                    setReturnQuantities({});
+                                                }}
+                                                placeholder="e.g. CMP-202607-0001"
+                                                className="h-11 min-w-0 flex-1 px-3.5 rounded-xl border border-slate-200 outline-none text-sm bg-white focus:border-[#0a649d]"
                                             />
-                                        </div>
-                                        <div>
-                                            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Quantity Returned</label>
-                                            <input
-                                                type="number"
-                                                required
-                                                min="1"
-                                                value={returnForm.quantity}
-                                                onChange={(e) => setReturnForm(prev => ({ ...prev, quantity: e.target.value }))}
-                                                className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d]"
-                                            />
+                                            <button
+                                                type="button"
+                                                onClick={lookupReturnJob}
+                                                disabled={returnLookupLoading}
+                                                className="h-11 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:opacity-50"
+                                            >
+                                                {returnLookupLoading ? "Finding…" : "Find"}
+                                            </button>
                                         </div>
                                     </div>
+
+                                    {returnJob && (
+                                        <div className="space-y-3 rounded-2xl border border-sky-100 bg-sky-50/60 p-3">
+                                            <div>
+                                                <p className="font-black text-slate-800">{returnJob.complaintNo} · {returnJob.customerName}</p>
+                                                <p className="mt-0.5 text-[10px] font-bold text-slate-500">Worker: {returnJob.assignedTechnicianName || "Unassigned"}</p>
+                                            </div>
+                                            {returnJob.returnableItems.length === 0 ? (
+                                                <p className="rounded-xl bg-white p-3 text-[11px] font-bold text-amber-700">No issued items remain outstanding for this job.</p>
+                                            ) : returnJob.returnableItems.map((item) => (
+                                                <label key={item.itemId} className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-sm">
+                                                    <span className="min-w-0 flex-1">
+                                                        <span className="block truncate font-black text-slate-800">{item.name}</span>
+                                                        <span className="text-[9px] font-bold text-slate-400">Outstanding: {item.returnableQuantity} {item.unit}</span>
+                                                    </span>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        max={item.returnableQuantity}
+                                                        step="0.01"
+                                                        value={returnQuantities[item.itemId] || ""}
+                                                        onChange={(e) => setReturnQuantities(prev => ({ ...prev, [item.itemId]: e.target.value }))}
+                                                        placeholder="0"
+                                                        className="h-10 w-20 rounded-xl border border-slate-200 px-2 text-right text-sm font-black outline-none focus:border-[#0a649d]"
+                                                    />
+                                                </label>
+                                            ))}
+                                        </div>
+                                    )}
                                     <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Return Reason</label>
+                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Return Notes</label>
                                         <textarea
                                             required
                                             value={returnForm.reason}
                                             onChange={(e) => setReturnForm(prev => ({ ...prev, reason: e.target.value }))}
+                                            placeholder="Unused spare, replaced equipment, damaged item…"
                                             className="h-20 w-full p-3 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d]"
                                         />
                                     </div>
                                     <button
                                         type="submit"
+                                        disabled={!returnJob || returnJob.returnableItems.length === 0}
                                         className="h-11 w-full bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition active:scale-95 shadow-sm mt-1 cursor-pointer"
                                     >
                                         Save & Return to Inventory
