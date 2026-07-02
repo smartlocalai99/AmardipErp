@@ -334,7 +334,6 @@ function AdmindashboardShell({ user }) {
     const [selectedComplaint, setSelectedComplaint] = useState(null);
     const [showAddComplaintModal, setShowAddComplaintModal] = useState(false);
     const [selectedSchedule, setSelectedSchedule] = useState(null);
-    const [materialRequests, setMaterialRequests] = useState([]);
     const [modalTech, setModalTech] = useState("");
     const [spareQuery, setSpareQuery] = useState("");
     const [spareSearchResults, setSpareSearchResults] = useState([]);
@@ -716,10 +715,6 @@ function AdmindashboardShell({ user }) {
         }
     }
 
-    const updateMaterialRequestsState = (newRequests) => {
-        setMaterialRequests(newRequests);
-    };
-
     async function fetchInventoryItems() {
         try {
             const res = await fetch("/api/inventory");
@@ -730,20 +725,9 @@ function AdmindashboardShell({ user }) {
         }
     }
 
-    async function fetchMaterialRequests() {
-        try {
-            const res = await fetch("/api/admin/materials");
-            const data = await res.json();
-            if (data.success) setMaterialRequests(data.requests || []);
-        } catch (err) {
-            console.error("Failed to load material requests:", err);
-        }
-    }
-
     useEffect(() => {
         if (activeTab !== "more") return;
         if (moreSubTab === "inventory") fetchInventoryItems();
-        if (moreSubTab === "approvals") fetchMaterialRequests();
     }, [activeTab, moreSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Upcoming AMC Visits
@@ -2289,123 +2273,6 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     )}
                                 </div>
-                            ) : moreSubTab === "approvals" && !moduleIsLive("materialRequests") ? (
-                                <div className="space-y-6">
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            onClick={() => openTab("dashboard")}
-                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
-                                        >
-                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                                        </button>
-                                        <div>
-                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Spare Parts Approvals</h1>
-                                            <p className="text-[10px] text-slate-500 mt-0.5">Material requests from field service technicians.</p>
-                                        </div>
-                                    </div>
-                                    {waitingModule("Spare Parts Approvals", "materialRequests", "Waiting for inventory/staff data")}
-                                </div>
-                            ) : moreSubTab === "approvals" ? (
-                                <div className="space-y-6">
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            onClick={() => openTab("dashboard")}
-                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
-                                        >
-                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                                        </button>
-                                        <div>
-                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Spare Parts Approvals</h1>
-                                            <p className="text-[10px] text-slate-500 mt-0.5">Approve or reject material requests from field service technicians.</p>
-                                        </div>
-                                    </div>
-
-                                    {/* Search box or filters */}
-                                    <div className="relative">
-                                        <input
-                                            type="text"
-                                            placeholder="Search parts requested..."
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="amardip-search-field w-full"
-                                        />
-                                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                        </div>
-                                    </div>
-
-                                    {/* Requests Cards */}
-                                    <div className="space-y-4">
-                                        {materialRequests.length === 0 ? (
-                                            <p className="text-center text-xs text-slate-400 py-6">No material requests logged.</p>
-                                        ) : (
-                                            materialRequests
-                                                .filter(r => r.itemName.toLowerCase().includes(searchQuery.toLowerCase()) || (r.requestedByName || "Technician").toLowerCase().includes(searchQuery.toLowerCase()))
-                                                .map(r => (
-                                                    <div key={r.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between">
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="min-w-0">
-                                                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider">REQ-{r.id}</span>
-                                                                <h3 className="text-sm font-extrabold text-slate-900 mt-1 truncate">{r.itemName} x {r.requestedQuantity} {r.itemUnit}</h3>
-                                                                <p className="text-[10px] text-slate-400 mt-0.5">Technician: <span className="font-semibold text-slate-600">{r.requestedByName || "Technician"}</span></p>
-                                                            </div>
-                                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded uppercase ${
-                                                                r.status === "approved" ? "bg-emerald-100 text-emerald-800" :
-                                                                r.status === "rejected" ? "bg-red-100 text-red-800" :
-                                                                r.status === "issued" || r.status === "partially_issued" ? "bg-slate-100 text-slate-650" :
-                                                                "bg-amber-100 text-amber-800"
-                                                            }`}>
-                                                                {r.status}
-                                                            </span>
-                                                        </div>
-
-                                                        <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px] text-slate-400 font-bold">
-                                                            <span>Date: {new Date(r.createdAt).toLocaleDateString("en-IN")}</span>
-                                                            {r.status === "pending" && (
-                                                                <div className="flex gap-2">
-                                                                    <button
-                                                                        onClick={async () => {
-                                                                            const res = await fetch("/api/admin/materials", {
-                                                                                method: "PATCH",
-                                                                                headers: { "Content-Type": "application/json" },
-                                                                                body: JSON.stringify({ id: r.id, status: "approved" }),
-                                                                            });
-                                                                            const data = await res.json();
-                                                                            if (data.success) {
-                                                                                updateMaterialRequestsState(materialRequests.map(item => item.id === r.id ? data.request : item));
-                                                                            }
-                                                                        }}
-                                                                        className="px-3 py-1 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 active:scale-95 transition cursor-pointer"
-                                                                    >
-                                                                        Approve
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={async () => {
-                                                                            const res = await fetch("/api/admin/materials", {
-                                                                                method: "PATCH",
-                                                                                headers: { "Content-Type": "application/json" },
-                                                                                body: JSON.stringify({ id: r.id, status: "rejected" }),
-                                                                            });
-                                                                            const data = await res.json();
-                                                                            if (data.success) {
-                                                                                updateMaterialRequestsState(materialRequests.map(item => item.id === r.id ? data.request : item));
-                                                                            }
-                                                                        }}
-                                                                        className="px-3 py-1 bg-red-600 text-white font-bold rounded-lg hover:bg-red-700 active:scale-95 transition cursor-pointer"
-                                                                    >
-                                                                        Reject
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                            {r.status === "approved" && (
-                                                                <span className="text-[9px] text-[#0a649d] font-extrabold">AWAITING STORE PASS SCAN</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                ))
-                                        )}
-                                    </div>
-                                </div>
                             ) : (
                                 <>
                                     <div>
@@ -2511,23 +2378,6 @@ function AdmindashboardShell({ user }) {
                                                 <div>
                                                     <p className="text-xs font-bold text-slate-800">Alert Notifications</p>
                                                     <p className="text-[9px] text-slate-400 mt-0.5">Check recent system updates and notification logs</p>
-                                                </div>
-                                            </div>
-                                            <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
-                                        </button>
-
-                                        {/* Spare Parts Approvals Button */}
-                                        <button
-                                            onClick={() => openMoreSubTab("approvals")}
-                                            className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition cursor-pointer"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-9 w-9 rounded-xl bg-sky-50 text-[#0a649d] flex items-center justify-center">
-                                                    <svg className="h-5 w-5 text-[#0a649d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-bold text-slate-800">Spare Parts Approvals</p>
-                                                    <p className="text-[9px] text-slate-400 mt-0.5">Approve technician material requests for store pickups</p>
                                                 </div>
                                             </div>
                                             <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
