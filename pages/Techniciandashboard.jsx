@@ -163,18 +163,6 @@ export default function Techniciandashboard({ user }) {
     const [jobPassLoading, setJobPassLoading] = useState(false);
     const [jobPassImage, setJobPassImage] = useState(null);
 
-    // Form inputs for Material Request (real inventory item search)
-    const [requestForm, setRequestForm] = useState({
-        complaintId: "",
-        itemQuery: "",
-        itemId: null,
-        itemName: "",
-        quantity: 1,
-        reason: ""
-    });
-    const [itemSearchResults, setItemSearchResults] = useState([]);
-    const [submittingRequest, setSubmittingRequest] = useState(false);
-
     // Profile password states
     const [passwordVal, setPasswordVal] = useState("tech123");
     const [profileMsg, setProfileMsg] = useState("");
@@ -202,9 +190,6 @@ export default function Techniciandashboard({ user }) {
     const recognitionRef = useRef(null);
     const finalTranscriptRef = useRef("");
     const [submittingJob, setSubmittingJob] = useState(false);
-
-    // Material Request List — populated from real /api/worker/materials calls
-    const [materialRequests, setMaterialRequests] = useState([]);
 
     // Notification List
     const [notifications, setNotifications] = useState([
@@ -248,27 +233,9 @@ export default function Techniciandashboard({ user }) {
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to load assigned complaints");
             const mapped = (data.complaints || []).map(mapAssignedComplaintToJob);
             setJobs(mapped);
-            refreshMaterialRequests(mapped);
         } catch (err) {
             setJobsError(err.message || "Failed to load assigned complaints");
         }
-    }
-
-    // Material requests live in Postgres, scoped per job — fetch and merge
-    // across every active (non-completed) job for the "QR Inventory" feed.
-    async function refreshMaterialRequests(jobList) {
-        const activeJobs = (jobList || jobs).filter(j => j.status !== "Completed");
-        const results = await Promise.all(activeJobs.map(async (job) => {
-            try {
-                const res = await fetch(`/api/worker/materials?complaintId=${job.dbId}`);
-                const data = await res.json();
-                if (!data.success) return [];
-                return data.requests.map(r => ({ ...r, jobLabel: job.id }));
-            } catch {
-                return [];
-            }
-        }));
-        setMaterialRequests(results.flat());
     }
 
     useEffect(() => {
@@ -276,25 +243,6 @@ export default function Techniciandashboard({ user }) {
         // Subscribe to push notifications (non-blocking — worker can still decline)
         subscribeToPush().catch(() => {});
     }, []);
-
-    // Debounced real inventory item search for the material request form
-    useEffect(() => {
-        const query = requestForm.itemQuery.trim();
-        if (!query) {
-            setItemSearchResults([]);
-            return;
-        }
-        const timer = setTimeout(async () => {
-            try {
-                const res = await fetch(`/api/inventory?search=${encodeURIComponent(query)}`);
-                const data = await res.json();
-                if (data.success) setItemSearchResults(data.items);
-            } catch {
-                setItemSearchResults([]);
-            }
-        }, 350);
-        return () => clearTimeout(timer);
-    }, [requestForm.itemQuery]);
 
     // Track active job timeline and checklists
     const updateJobStatus = (jobId, nextStatus) => {
@@ -748,46 +696,6 @@ export default function Techniciandashboard({ user }) {
         }
     };
 
-    // Material Request submission — posts a real request against a real job + inventory item
-    const handleMaterialRequestSubmit = async (e) => {
-        e.preventDefault();
-        if (!requestForm.complaintId) {
-            alert("Please select which job this request is for.");
-            return;
-        }
-        if (!requestForm.itemId) {
-            alert("Please search for and select a real inventory item.");
-            return;
-        }
-        if (!requestForm.reason.trim()) {
-            alert("Please provide the reason for request.");
-            return;
-        }
-
-        setSubmittingRequest(true);
-        try {
-            const res = await fetch("/api/worker/materials", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    complaintId: requestForm.complaintId,
-                    items: [{ itemId: requestForm.itemId, quantity: parseInt(requestForm.quantity) || 1 }],
-                }),
-            });
-            const data = await res.json();
-            if (!data.success) {
-                alert(data.message || "Failed to submit request.");
-                return;
-            }
-            setRequestForm({ complaintId: "", itemQuery: "", itemId: null, itemName: "", quantity: 1, reason: "" });
-            setItemSearchResults([]);
-            await refreshMaterialRequests();
-            alert("Spare parts request logged successfully. Waiting for administrator approval.");
-        } finally {
-            setSubmittingRequest(false);
-        }
-    };
-
     // Generate a real, camera-scannable Store Material Pass QR for a job
     const openJobPass = async (job) => {
         if (!job?.dbId) return;
@@ -843,7 +751,6 @@ export default function Techniciandashboard({ user }) {
     const completedJobsCount = jobs.filter(j => j.status === "Completed").length;
     const emergencyJobsCount = jobs.filter(j => j.status !== "Completed" && j.priority === "Emergency").length;
     const activeAssignedJobs = jobs.filter(j => j.status !== "Completed");
-    const pendingMaterialsCount = materialRequests.filter(m => m.status === "Pending").length;
     const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
     return (
@@ -1017,19 +924,6 @@ export default function Techniciandashboard({ user }) {
                                         <div>
                                             <span className="text-[10.5px] font-black text-slate-800 leading-none block">Scan Lift QR</span>
                                             <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Instant Verify</span>
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => setActiveTab("inventory")}
-                                        className="h-14.5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center gap-3.5 px-4 active:scale-95 transition text-left cursor-pointer"
-                                    >
-                                        <div className="h-9.5 w-9.5 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center">
-                                            <InventoryIcon className="h-5 w-5" />
-                                        </div>
-                                        <div>
-                                            <span className="text-[10.5px] font-black text-slate-800 leading-none block">Request Spares</span>
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Inventory Portal</span>
                                         </div>
                                     </button>
 
@@ -1809,142 +1703,6 @@ export default function Techniciandashboard({ user }) {
                         </div>
                     )}
 
-                    {/* VIEW: INVENTORY TAB */}
-                    {activeTab === "inventory" && (
-                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            <div>
-                                <h1 className="text-2xl font-black tracking-tight text-slate-900">QR Inventory</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Request components and fetch pickup barcodes.</p>
-                            </div>
-
-                            {/* PART REQUEST FORM */}
-                            <form onSubmit={handleMaterialRequestSubmit} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-50 pb-2">Request Spare Parts</h3>
-
-                                <div className="space-y-4 text-xs">
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Job</label>
-                                        <select
-                                            required
-                                            value={requestForm.complaintId}
-                                            onChange={(e) => setRequestForm(prev => ({ ...prev, complaintId: e.target.value }))}
-                                            className="h-11 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
-                                        >
-                                            <option value="">Select a job...</option>
-                                            {jobs.filter(j => j.status !== "Completed").map(job => (
-                                                <option key={job.dbId} value={job.dbId}>{job.id} — {job.customerName}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-
-                                    <div className="relative">
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Part Name (search real inventory)</label>
-                                        <input
-                                            type="text"
-                                            required
-                                            value={requestForm.itemName || requestForm.itemQuery}
-                                            onChange={(e) => setRequestForm(prev => ({ ...prev, itemQuery: e.target.value, itemName: "", itemId: null }))}
-                                            placeholder="e.g. Door Roller, Relay, MCB..."
-                                            className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] font-semibold"
-                                        />
-                                        {itemSearchResults.length > 0 && !requestForm.itemId && (
-                                            <div className="absolute z-10 mt-1 w-full max-h-48 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                                                {itemSearchResults.map(item => (
-                                                    <button
-                                                        type="button"
-                                                        key={item.id}
-                                                        onClick={() => {
-                                                            setRequestForm(prev => ({ ...prev, itemId: item.id, itemName: item.name, itemQuery: "" }));
-                                                            setItemSearchResults([]);
-                                                        }}
-                                                        className="block w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
-                                                    >
-                                                        {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit} in stock)</span>
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Quantity Required</label>
-                                        <input
-                                            type="number"
-                                            required
-                                            min={1}
-                                            value={requestForm.quantity}
-                                            onChange={(e) => setRequestForm(prev => ({ ...prev, quantity: parseInt(e.target.value) || 1 }))}
-                                            className="h-11 w-full px-3.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] font-bold"
-                                        />
-                                    </div>
-
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Reason for Request</label>
-                                        <textarea
-                                            required
-                                            rows={2}
-                                            value={requestForm.reason}
-                                            onChange={(e) => setRequestForm(prev => ({ ...prev, reason: e.target.value }))}
-                                            placeholder="E.g. Contacts completely oxidized, roller rubber torn, etc."
-                                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] resize-none leading-relaxed font-semibold"
-                                        />
-                                    </div>
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    disabled={submittingRequest}
-                                    className="h-11 w-full bg-[#0a649d] text-white hover:bg-[#085282] rounded-full text-xs font-black uppercase tracking-wider transition active:scale-95 shadow-sm mt-2 cursor-pointer disabled:opacity-50"
-                                >
-                                    {submittingRequest ? "Logging..." : "Log Spare Request"}
-                                </button>
-                            </form>
-
-                            {/* MATERIAL REQUESTS FEED */}
-                            <div className="space-y-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] px-1">Spare Parts Status Logs</h3>
-
-                                <div className="space-y-3.5">
-                                    {materialRequests.length === 0 ? (
-                                        <p className="text-xs text-slate-400 text-center py-6 font-semibold">No spare parts requests logged yet.</p>
-                                    ) : (
-                                        materialRequests.map(req => (
-                                            <div key={req.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                                                <div className="flex justify-between items-start">
-                                                    <div>
-                                                        <span className="text-xs font-black text-slate-800">{req.itemName}</span>
-                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
-                                                            {req.jobLabel} • Qty: {req.requestedQuantity} {req.itemUnit}
-                                                        </p>
-                                                    </div>
-                                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border uppercase ${
-                                                        req.status === "approved" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                        req.status === "issued" || req.status === "partially_issued" ? "bg-blue-50 border-blue-100 text-blue-700" :
-                                                        req.status === "pending" ? "bg-amber-50 border-amber-100 text-amber-700" :
-                                                        "bg-red-50 border-red-100 text-red-700"
-                                                    }`}>
-                                                        {req.status}
-                                                    </span>
-                                                </div>
-
-                                                <div className="flex items-center justify-between border-t border-slate-50 pt-2.5 text-[10.5px]">
-                                                    <span className="text-slate-400 font-medium">{new Date(req.createdAt).toLocaleDateString("en-IN")}</span>
-                                                    {(req.status === "issued" || req.status === "partially_issued") && (
-                                                        <span className="text-slate-500 font-bold">Issued: {req.issuedQuantity} {req.itemUnit}</span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                                <p className="text-[10px] text-slate-400 text-center px-2">
-                                    Open a job and tap &quot;Generate Store Pass QR&quot; to have the storekeeper scan and issue these items.
-                                </p>
-                            </div>
-
-                        </div>
-                    )}
-
                     {/* VIEW: NOTIFICATIONS TAB */}
                     {activeTab === "notifications" && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
@@ -2001,9 +1759,6 @@ export default function Techniciandashboard({ user }) {
                                             key={n.id} 
                                             onClick={() => {
                                                 setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
-                                                if (n.type === "approval") {
-                                                    setActiveTab("inventory");
-                                                }
                                             }}
                                             className={`p-4 hover:bg-slate-50 transition cursor-pointer text-xs flex gap-3 ${!n.read ? "bg-blue-50/40" : ""}`}
                                         >
@@ -2164,14 +1919,6 @@ export default function Techniciandashboard({ user }) {
                     >
                         <JobsIcon className="h-5.5 w-5.5 mb-0.5" />
                         <span className="text-[9px] font-black tracking-tight leading-none">Jobs</span>
-                    </button>
-
-                    <button
-                        onClick={() => handleTabChange("inventory")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "inventory" ? "text-[#59e0ff]" : "text-slate-400"}`}
-                    >
-                        <InventoryIcon className="h-5.5 w-5.5 mb-0.5" />
-                        <span className="text-[9px] font-black tracking-tight leading-none">Inventory</span>
                     </button>
 
                     <button
