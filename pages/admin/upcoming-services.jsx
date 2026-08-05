@@ -50,10 +50,12 @@ function SummaryCard({ label, value, tone }) {
       ? "text-emerald-600"
       : tone === "amber"
         ? "text-amber-600"
-        : "text-[#0a649d]";
+        : tone === "red"
+          ? "text-red-600"
+          : "text-[#0a649d]";
 
   return (
-    <div className="rounded-2xl bg-white p-4 shadow-sm">
+    <div className="rounded-2xl bg-white p-4 shadow-sm active:scale-95 transition">
       <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">{label}</p>
       <p className={`mt-2 text-2xl font-black ${toneClass}`}>{value}</p>
     </div>
@@ -139,11 +141,18 @@ export async function getServerSideProps(context) {
   };
 }
 
+function todayIso() {
+  const now = new Date();
+  const offset = now.getTimezoneOffset();
+  const local = new Date(now.getTime() - offset * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
 export default function UpcomingServicesPage({ user }) {
   const router = useRouter();
   const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [rows, setRows] = useState([]);
-  const [summary, setSummary] = useState({ scheduled: 0, toBeScheduled: 0, total: 0 });
+  const [summary, setSummary] = useState({ scheduled: 0, toBeScheduled: 0, today: 0, total: 0 });
   const [pagination, setPagination] = useState(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
@@ -155,15 +164,38 @@ export default function UpcomingServicesPage({ user }) {
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [selectedRow, setSelectedRow] = useState(null);
+  const [technicians, setTechnicians] = useState([]);
   const [scheduleForm, setScheduleForm] = useState({
     scheduledDate: "",
     preferredTime: "",
-    assignedTechnicianName: "",
+    assignedTechnicianUserId: "",
     priority: "NORMAL",
     notes: "",
   });
   const [scheduleBusy, setScheduleBusy] = useState(false);
   const [scheduleError, setScheduleError] = useState("");
+  const [dispatchNotice, setDispatchNotice] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTechnicians() {
+      try {
+        const response = await fetch("/api/users");
+        const data = await response.json();
+        if (!cancelled && data.success) {
+          setTechnicians((data.users || []).filter((entry) => entry.role === "worker"));
+        }
+      } catch (err) {
+        console.error("Failed to load technicians:", err);
+      }
+    }
+
+    loadTechnicians();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const visibleFrom = useMemo(() => {
     if (!pagination || pagination.total === 0) return 0;
@@ -235,9 +267,9 @@ export default function UpcomingServicesPage({ user }) {
     setSelectedRow(row);
     setScheduleError("");
     setScheduleForm({
-      scheduledDate: "",
+      scheduledDate: todayIso(),
       preferredTime: "",
-      assignedTechnicianName: "",
+      assignedTechnicianUserId: "",
       priority: "NORMAL",
       notes: "",
     });
@@ -251,6 +283,10 @@ export default function UpcomingServicesPage({ user }) {
     setScheduleError("");
 
     try {
+      const selectedTechnician = technicians.find(
+        (tech) => String(tech.id) === String(scheduleForm.assignedTechnicianUserId)
+      );
+
       const response = await fetch("/api/service-schedules", {
         method: "POST",
         headers: {
@@ -260,7 +296,8 @@ export default function UpcomingServicesPage({ user }) {
           customerId: selectedRow.customerId,
           scheduledDate: scheduleForm.scheduledDate,
           preferredTime: scheduleForm.preferredTime,
-          assignedTechnicianName: scheduleForm.assignedTechnicianName,
+          assignedTechnicianUserId: scheduleForm.assignedTechnicianUserId || null,
+          assignedTechnicianName: selectedTechnician?.name || "",
           priority: scheduleForm.priority,
           notes: scheduleForm.notes,
         }),
@@ -277,6 +314,15 @@ export default function UpcomingServicesPage({ user }) {
       setStatus("ALL");
       setPage(1);
       setRefreshKey((current) => current + 1);
+
+      if (data.dispatchedJob) {
+        setDispatchNotice(
+          `${data.dispatchedJob.complaintNo} dispatched to ${data.dispatchedJob.assignedTechnicianName} - visible now in their Technician app.`
+        );
+      } else {
+        setDispatchNotice("Saved to the service plan. Pick a technician next time to dispatch a real job.");
+      }
+      setTimeout(() => setDispatchNotice(""), 6000);
     } catch (err) {
       setScheduleError(err.message || "Failed to schedule service");
     } finally {
@@ -315,13 +361,30 @@ export default function UpcomingServicesPage({ user }) {
 
       <main className="mx-auto max-w-7xl space-y-4 px-3 py-4 sm:px-5 sm:py-6">
         {loading && !pagination ? (
-          <MetricSkeletonGrid count={3} columns="grid-cols-3" />
+          <MetricSkeletonGrid count={4} />
         ) : (
-          <section className="grid grid-cols-3 gap-3">
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <button
+              type="button"
+              onClick={() => {
+                setPage(1);
+                setMode("today");
+                setStatus("ALL");
+              }}
+              className="text-left"
+            >
+              <SummaryCard label="Going Out Today" value={summary.today} tone="red" />
+            </button>
             <SummaryCard label="Scheduled" value={summary.scheduled} tone="green" />
             <SummaryCard label="To Schedule" value={summary.toBeScheduled} tone="amber" />
             <SummaryCard label="Total" value={summary.total} tone="blue" />
           </section>
+        )}
+
+        {dispatchNotice && (
+          <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
+            {dispatchNotice}
+          </div>
         )}
 
         <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -353,6 +416,7 @@ export default function UpcomingServicesPage({ user }) {
               className="amardip-field text-sm"
             >
               <option value="all">All</option>
+              <option value="today">Going Out Today</option>
               <option value="scheduled">Scheduled</option>
               <option value="to_be_scheduled">To Be Scheduled</option>
             </select>
@@ -562,13 +626,27 @@ export default function UpcomingServicesPage({ user }) {
                 placeholder="Preferred time"
                 className="amardip-field w-full"
               />
-              <input
-                type="text"
-                value={scheduleForm.assignedTechnicianName}
-                onChange={(event) => setScheduleForm((current) => ({ ...current, assignedTechnicianName: event.target.value }))}
-                placeholder="Technician name"
+              <select
+                value={scheduleForm.assignedTechnicianUserId}
+                onChange={(event) => setScheduleForm((current) => ({ ...current, assignedTechnicianUserId: event.target.value }))}
                 className="amardip-field w-full"
-              />
+              >
+                <option value="">No technician yet (planning only)</option>
+                {technicians.map((tech) => (
+                  <option key={tech.id} value={tech.id}>
+                    {tech.name || tech.username}{tech.designation ? ` - ${tech.designation}` : ""}
+                  </option>
+                ))}
+              </select>
+              {scheduleForm.assignedTechnicianUserId ? (
+                <p className="rounded-xl bg-sky-50 px-3 py-2 text-[11px] font-bold text-sky-700">
+                  Saving this will dispatch a real job to that technician&apos;s app immediately.
+                </p>
+              ) : (
+                <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-500">
+                  Pick a technician to send the job now, or leave blank to just plan the visit.
+                </p>
+              )}
               <select
                 value={scheduleForm.priority}
                 onChange={(event) => setScheduleForm((current) => ({ ...current, priority: event.target.value }))}

@@ -9,6 +9,98 @@ function displayValue(value) {
   return value === null || value === undefined || value === "" ? "-" : value;
 }
 
+function csvEscape(value) {
+  const str = value === null || value === undefined ? "" : String(value);
+  if (/[",\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function rowToCsvLine(section, row) {
+  const fields = [
+    section,
+    row.customer_code || "",
+    row.customer_name || row.customer_name_snapshot || "",
+    row.mobile_no || row.mobile_no_snapshot || "",
+    row.city || row.city_snapshot || "",
+    row.customer_status || row.service_type || row.schedule_status || "",
+    row.due_date || row.service_date || row.scheduled_date || row.amc_warranty_due || "",
+    row.technician_1 || row.assigned_technician_name || "",
+  ];
+  return fields.map(csvEscape).join(",");
+}
+
+function downloadTextFile(filename, content, mimeType = "text/csv;charset=utf-8;") {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function buildReportCsv(reports) {
+  const lines = [];
+  const stamp = new Date().toISOString().slice(0, 19).replace("T", " ");
+
+  lines.push(csvEscape(`Amardip Lifts ERP - Admin Report - generated ${stamp}`));
+  lines.push("");
+
+  lines.push("SUMMARY METRIC,VALUE");
+  const summaryPairs = [
+    ["AMC/Warranty due this month", reports.amcWarrantyExpiry.counts.due_this_month],
+    ["AMC/Warranty due next 30 days", reports.amcWarrantyExpiry.counts.due_next_30_days],
+    ["AMC/Warranty expired", reports.amcWarrantyExpiry.counts.expired],
+    ["Monthly service - to be scheduled", reports.monthlyServiceDue.counts.to_be_scheduled],
+    ["Monthly service - scheduled", reports.monthlyServiceDue.counts.scheduled],
+    ["Monthly service - missed", reports.monthlyServiceDue.counts.missed],
+    ["Monthly service - completed this month", reports.monthlyServiceDue.counts.completed_current_month],
+    ["Customers missing mobile number", reports.customerDataQuality.counts.missing_mobile],
+    ["Customers missing city", reports.customerDataQuality.counts.missing_city],
+    ["Customers missing AMC/Warranty due date", reports.customerDataQuality.counts.missing_amc_warranty_due],
+    ["Customers with no linked service history", reports.customerDataQuality.counts.no_linked_service_history],
+    ["Duplicate customer code groups", reports.customerDataQuality.counts.duplicate_customer_code_groups],
+    ["Total service visits", reports.serviceDataQuality.counts.total_service_visits],
+    ["Linked service visits", reports.serviceDataQuality.counts.linked_visits],
+    ["Unlinked service visits", reports.serviceDataQuality.counts.unlinked_visits],
+    ["Open tickets", reports.complaints?.counts?.open_complaints],
+    ["Assigned tickets", reports.complaints?.counts?.assigned_complaints],
+    ["Resolved tickets", reports.complaints?.counts?.resolved_complaints],
+    ["Signed-off completed jobs", reports.workerCompletions?.counts?.signed_jobs],
+  ];
+  summaryPairs.forEach(([label, value]) => {
+    lines.push(`${csvEscape(label)},${csvEscape(value ?? 0)}`);
+  });
+
+  lines.push("");
+  lines.push("SECTION,CUSTOMER CODE,NAME,MOBILE,CITY,STATUS/TYPE,DATE,TECHNICIAN");
+
+  const detailSections = [
+    ["AMC Due This Month", reports.amcWarrantyExpiry.dueThisMonth],
+    ["AMC Expired", reports.amcWarrantyExpiry.expired],
+    ["To Be Scheduled", reports.monthlyServiceDue.toBeScheduled],
+    ["Scheduled Services", reports.monthlyServiceDue.scheduled],
+    ["Missing Mobile Number", reports.customerDataQuality.missingMobile],
+    ["No Linked Service History", reports.customerDataQuality.noLinkedServiceHistory],
+    ["Unlinked Service Visits", reports.serviceDataQuality.unlinkedVisits],
+    ["Missing Technician Name", reports.serviceDataQuality.missingTechnicianName],
+    ["Recent Tickets", reports.complaints?.recent],
+    ["Worker Completions", reports.workerCompletions?.recent],
+  ];
+
+  detailSections.forEach(([label, rows]) => {
+    (rows || []).forEach((row) => {
+      lines.push(rowToCsvLine(label, row));
+    });
+  });
+
+  return lines.join("\n");
+}
+
 function formatCount(value) {
   return Number(value || 0).toLocaleString("en-IN");
 }
@@ -253,6 +345,12 @@ export default function AdminReportsPage({ user }) {
     return () => controller.abort();
   }, [userCacheKey]);
 
+  function handleExportCsv() {
+    if (!reports) return;
+    const stamp = new Date().toISOString().slice(0, 10);
+    downloadTextFile(`amardip-report-${stamp}.csv`, buildReportCsv(reports));
+  }
+
   const queryText = searchInput.trim().toLowerCase();
 
   function filterRows(rows = []) {
@@ -317,6 +415,18 @@ export default function AdminReportsPage({ user }) {
             </button>
           ))}
         </section>
+
+        <button
+          type="button"
+          onClick={handleExportCsv}
+          disabled={!reports}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[#0a649d]/20 bg-white px-3 text-xs font-black text-[#0a649d] shadow-sm active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+          </svg>
+          Export Full Report (CSV)
+        </button>
 
         <input
           type="text"

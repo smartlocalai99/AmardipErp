@@ -4,7 +4,7 @@ import { cleanNumber, ensureServiceSchedulesTable } from "@/lib/serviceSchedules
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const SCHEDULED_STATUSES = new Set(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "MISSED"]);
-const VALID_MODES = new Set(["all", "scheduled", "to_be_scheduled"]);
+const VALID_MODES = new Set(["all", "scheduled", "to_be_scheduled", "today"]);
 
 function addSearchFilter(whereParts, params, search) {
   const cleanSearch = String(search || "").trim();
@@ -67,6 +67,8 @@ export default async function handler(req, res) {
       whereParts.push("row_type = 'SCHEDULED'");
     } else if (mode === "to_be_scheduled") {
       whereParts.push("row_type = 'TO_BE_SCHEDULED'");
+    } else if (mode === "today") {
+      whereParts.push("row_type = 'SCHEDULED' AND scheduled_date = CURRENT_DATE");
     }
 
     if (status && status !== "ALL") {
@@ -175,6 +177,7 @@ export default async function handler(req, res) {
       SELECT
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED')::int AS scheduled,
         COUNT(*) FILTER (WHERE row_type = 'TO_BE_SCHEDULED')::int AS to_be_scheduled,
+        COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND scheduled_date = CURRENT_DATE)::int AS today,
         COUNT(*)::int AS total
       FROM filtered_rows
       `,
@@ -229,6 +232,7 @@ export default async function handler(req, res) {
       summary: {
         scheduled: summaryResult.rows[0]?.scheduled || 0,
         toBeScheduled: summaryResult.rows[0]?.to_be_scheduled || 0,
+        today: summaryResult.rows[0]?.today || 0,
         total,
       },
       pagination: {

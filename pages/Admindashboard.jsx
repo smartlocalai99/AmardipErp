@@ -134,6 +134,18 @@ function BellIcon({ className = "h-6 w-6" }) {
     );
 }
 
+function ReportsRedirect({ router }) {
+    useEffect(() => {
+        router.replace("/admin/reports");
+    }, [router]);
+
+    return (
+        <div className="flex items-center justify-center py-16">
+            <p className="text-xs font-bold text-slate-400">Opening real-time reports...</p>
+        </div>
+    );
+}
+
 function ChevronRightIcon({ className = "h-4 w-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
@@ -1945,101 +1957,7 @@ function AdmindashboardShell({ user }) {
                                     </div>
                                 </div>
                             ) : moreSubTab === "reports" ? (
-                                <div className="space-y-6">
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            onClick={() => openTab("dashboard")}
-                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
-                                        >
-                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                                        </button>
-                                        <div>
-                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Reports & Analytics</h1>
-                                            <p className="text-[10px] text-slate-500 mt-0.5">Elevator performance and operational statistics.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-4">
-                                        {/* Complaints Analytics */}
-                                        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Service Complaints Report</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-0.5">Resolution rates and ticket load</p>
-                                                </div>
-                                                <span className="text-xs font-black text-[#0a649d]">88% Resolved</span>
-                                            </div>
-                                            <div className="h-2 w-full bg-slate-100 rounded-full overflow-hidden">
-                                                <div className="h-full bg-[#0a649d] rounded-full" style={{ width: '88%' }}></div>
-                                            </div>
-                                            <div className="flex justify-between text-[10px] text-slate-500 font-semibold pt-1">
-                                                <span>Total: {complaints.length} Tickets</span>
-                                                <span>Resolved: {complaints.filter(c => c.status === "Resolved").length}</span>
-                                                <span>Open: {complaints.filter(c => c.status === "Open").length}</span>
-                                            </div>
-                                            <button
-                                                onClick={() => alert("Report downloaded successfully!")}
-                                                className="w-full h-9 rounded-xl bg-[#0a649d] hover:bg-[#085282] text-white text-xs font-bold flex items-center justify-center gap-2 mt-2 active:scale-98 transition"
-                                            >
-                                                Download PDF Report
-                                            </button>
-                                        </div>
-
-                                        {/* AMC & Service Analytics */}
-                                        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">AMC Maintenance Report</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-0.5">Recurring contract visits</p>
-                                                </div>
-                                                <span className="text-xs font-black text-amber-600">3 Upcoming Checks</span>
-                                            </div>
-                                            <div className="text-[10px] text-slate-500 font-semibold space-y-1.5 pt-1">
-                                                <div className="flex justify-between">
-                                                    <span>Active Contracts:</span>
-                                                    <span className="font-extrabold text-slate-800">{liveKpiCounts.activeAMC}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span>Completed This Month:</span>
-                                                    <span className="font-extrabold text-emerald-600">14 visits</span>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => alert("Excel sheet exported successfully!")}
-                                                className="w-full h-9 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center gap-2 mt-2 active:scale-98 transition"
-                                            >
-                                                Export Excel (.xlsx)
-                                            </button>
-                                        </div>
-
-                                        {/* Technician Activity Summary */}
-                                        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3">
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">Technician Workload Analysis</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-0.5">Duty status and task allocation</p>
-                                                </div>
-                                                <span className="text-xs font-black text-emerald-600">{technicians.filter(t => t.status === "Available").length} Available</span>
-                                            </div>
-                                            <div className="grid grid-cols-2 gap-2 pt-1 text-[10px] text-slate-500 font-semibold">
-                                                <div className="p-2 bg-slate-50 rounded-xl">
-                                                    <p className="text-slate-400">Total Crew</p>
-                                                    <p className="text-sm font-black text-slate-800 mt-0.5">{technicians.length}</p>
-                                                </div>
-                                                <div className="p-2 bg-slate-50 rounded-xl">
-                                                    <p className="text-slate-400">Avg Job Load</p>
-                                                    <p className="text-sm font-black text-slate-800 mt-0.5">1.8 / tech</p>
-                                                </div>
-                                            </div>
-                                            <button
-                                                onClick={() => alert("Technician report generated!")}
-                                                className="w-full h-9 rounded-xl bg-[#0a649d] hover:bg-[#085282] text-white text-xs font-bold flex items-center justify-center gap-2 mt-1 active:scale-98 transition"
-                                            >
-                                                Generate Custom Summary
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
+                                <ReportsRedirect router={router} />
                             ) : moreSubTab === "profile" ? (
                                 <div className="space-y-6">
                                     <div className="flex items-center gap-3">

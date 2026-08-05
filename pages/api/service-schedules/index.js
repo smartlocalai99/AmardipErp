@@ -5,8 +5,19 @@ import {
   cleanNumber,
   ensureServiceSchedulesTable,
 } from "@/lib/serviceSchedules";
+import { createComplaint, assignComplaintToWorker } from "@/lib/complaints";
+import { createAuditLog } from "@/lib/auditLog";
+import { safeSendPush } from "@/lib/pushNotifications";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
+
+async function safeAudit(args) {
+  try {
+    await createAuditLog(args);
+  } catch (err) {
+    console.error("Service schedule audit log failed:", err);
+  }
+}
 
 async function requireAdmin(req, res) {
   const user = await getUserFromRequest(req);
@@ -137,11 +148,17 @@ export default async function handler(req, res) {
     }
 
     const technicianName = String(assignedTechnicianName || "").trim();
-    const technicianUserId = assignedTechnicianUserId
+    const parsedTechnicianUserId = assignedTechnicianUserId
       ? Number.parseInt(assignedTechnicianUserId, 10)
       : null;
+    const technicianUserId = Number.isNaN(parsedTechnicianUserId) ? null : parsedTechnicianUserId;
     const status = technicianName || technicianUserId ? "ASSIGNED" : "SCHEDULED";
+    const cleanNotes = String(notes || "").trim();
 
+    let schedule;
+    let dispatchedJob = null;
+
+    await query("BEGIN");
     try {
       const insertResult = await query(
         `
@@ -179,18 +196,53 @@ export default async function handler(req, res) {
           String(preferredTime || "").trim(),
           status,
           cleanPriority,
-          Number.isNaN(technicianUserId) ? null : technicianUserId,
+          technicianUserId,
           technicianName,
-          String(notes || "").trim(),
+          cleanNotes,
           user.id,
         ]
       );
 
-      return res.status(201).json({
-        success: true,
-        schedule: insertResult.rows[0],
-      });
+      schedule = insertResult.rows[0];
+
+      // Picking a real technician doesn't just note it on the plan — it
+      // dispatches an actual job to that technician's app, the same way
+      // any other ticket does, so "schedule someone for today" actually
+      // reaches the field.
+      if (technicianUserId) {
+        const visitLabel = scheduledDate
+          ? `Scheduled monthly service visit on ${scheduledDate}${preferredTime ? ` (${preferredTime})` : ""}.`
+          : "Scheduled monthly service visit.";
+
+        const complaint = await createComplaint({
+          actor: user,
+          input: {
+            customerId,
+            complaintType: "SERVICE_REQUEST",
+            priority: cleanPriority,
+            description: visitLabel,
+            officeNotes: cleanNotes || null,
+          },
+        });
+
+        dispatchedJob = await assignComplaintToWorker({
+          complaintId: complaint.id,
+          workerUserId: technicianUserId,
+          actor: user,
+          assignmentNotes: cleanNotes || null,
+        });
+
+        await query(
+          `UPDATE service_schedules SET linked_complaint_id = $1 WHERE id = $2`,
+          [dispatchedJob.id, schedule.id]
+        );
+        schedule.linked_complaint_id = dispatchedJob.id;
+      }
+
+      await query("COMMIT");
     } catch (error) {
+      await query("ROLLBACK");
+
       if (error.code === "23505") {
         return res.status(409).json({
           success: false,
@@ -200,6 +252,32 @@ export default async function handler(req, res) {
 
       throw error;
     }
+
+    if (dispatchedJob) {
+      await safeAudit({
+        req,
+        actor: user,
+        entityType: "SERVICE_SCHEDULE",
+        entityId: schedule.id,
+        action: "SERVICE_SCHEDULE_DISPATCHED",
+        newValues: { schedule, dispatchedJob },
+        changedFields: ["linked_complaint_id", "assigned_technician_user_id"],
+      });
+      await safeSendPush(
+        { userIds: [dispatchedJob.assignedTechnicianUserId] },
+        {
+          title: "New job assigned",
+          body: `${dispatchedJob.complaintNo} - ${dispatchedJob.customerName || "Customer"} service visit is assigned to you.`,
+          data: { url: "/Techniciandashboard?tab=jobs", complaintId: dispatchedJob.id },
+        }
+      );
+    }
+
+    return res.status(201).json({
+      success: true,
+      schedule,
+      dispatchedJob,
+    });
   } catch (error) {
     console.error("Service schedule API error:", error);
 

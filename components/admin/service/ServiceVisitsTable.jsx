@@ -1,6 +1,32 @@
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/router";
 import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import { cachedGetJson } from "@/lib/cachedFetch";
+
+const CONDITION_FIELDS = [
+  { key: "ard_condition", label: "ARD" },
+  { key: "motor_condition", label: "Motor" },
+  { key: "gear_oil_condition", label: "Gear Oil" },
+  { key: "brake_condition", label: "Brake" },
+  { key: "rope_condition", label: "Rope" },
+  { key: "rail_clips_condition", label: "Rail Clips" },
+  { key: "limit_switch_condition", label: "Limit Switch" },
+  { key: "gate_locks_condition", label: "Gate Locks" },
+  { key: "rcr_condition", label: "RCR" },
+  { key: "sensors_condition", label: "Sensors" },
+  { key: "osg_condition", label: "OSG" },
+];
+
+const GOOD_WORDS = ["ok", "good", "working", "normal", "fine", "yes"];
+const BAD_WORDS = ["bad", "fault", "not working", "damage", "worn", "leak", "no", "repair", "replace"];
+
+function conditionTone(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text || text === "-") return "border-slate-200 bg-slate-50 text-slate-500";
+  if (BAD_WORDS.some((word) => text.includes(word))) return "border-red-100 bg-red-50 text-red-700";
+  if (GOOD_WORDS.some((word) => text.includes(word))) return "border-emerald-100 bg-emerald-50 text-emerald-700";
+  return "border-slate-200 bg-slate-100 text-slate-700";
+}
 
 const VISIT_COLUMNS = [
   { key: "service_date", label: "Service Date" },
@@ -40,6 +66,14 @@ function CountSkeleton() {
 function formatMoney(value) {
   if (value === null || value === undefined || value === "") return "-";
   return `Rs. ${Number(value).toLocaleString("en-IN")}`;
+}
+
+function Badge({ children, className }) {
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${className}`}>
+      {children}
+    </span>
+  );
 }
 
 function LinkBadge({ status }) {
@@ -89,8 +123,105 @@ function Pager({ pagination, page, setPage }) {
   );
 }
 
+function VisitDetailModal({ visit, onClose, onViewCustomer }) {
+  if (!visit) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 backdrop-blur-[2px] sm:items-center sm:p-6">
+      <button
+        type="button"
+        aria-label="Close visit details"
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+      />
+      <div className="relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-t-[28px] bg-white p-5 shadow-2xl sm:rounded-[28px]">
+        <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-slate-200 sm:hidden" />
+
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black uppercase tracking-wider text-[#0a649d]">
+              {displayValue(visit.customer_code)} - {displayValue(visit.service_date)}
+            </p>
+            <h2 className="mt-1 text-lg font-black leading-tight text-slate-900">
+              {displayValue(visit.customer_name || visit.customer_name_snapshot)}
+            </h2>
+            <p className="mt-1 text-xs font-semibold text-slate-500">
+              {displayValue(visit.city_snapshot)} - {displayValue(visit.mobile_no_snapshot)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xl font-black text-slate-500"
+          >
+            x
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Badge className={visit.link_status === "Linked" ? "border-emerald-100 bg-emerald-50 text-emerald-700" : "border-amber-100 bg-amber-50 text-amber-700"}>
+            {displayValue(visit.link_status)}
+          </Badge>
+          <Badge className="border-sky-100 bg-sky-50 text-sky-700">{displayValue(visit.service_type)}</Badge>
+          {visit.payment_amount ? (
+            <Badge className="border-emerald-100 bg-emerald-50 text-emerald-700">{formatMoney(visit.payment_amount)}</Badge>
+          ) : null}
+        </div>
+
+        <section className="mt-4 grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Technician 1</span>
+            {displayValue(visit.technician_1)}
+          </div>
+          <div className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] font-bold text-slate-600">
+            <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400">Technician 2</span>
+            {displayValue(visit.technician_2)}
+          </div>
+        </section>
+
+        <section className="mt-4">
+          <h3 className="px-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Condition Checklist</h3>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+            {CONDITION_FIELDS.map((field) => (
+              <div key={field.key} className={`rounded-xl border px-3 py-2 text-[11px] font-bold ${conditionTone(visit[field.key])}`}>
+                <span className="block text-[9px] font-black uppercase tracking-wider opacity-70">{field.label}</span>
+                {displayValue(visit[field.key])}
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {visit.remarks && (
+          <section className="mt-4">
+            <h3 className="px-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Remarks</h3>
+            <p className="mt-2 rounded-xl bg-slate-50 p-3 text-xs font-semibold leading-relaxed text-slate-600">
+              {visit.remarks}
+            </p>
+          </section>
+        )}
+
+        {visit.customer_id ? (
+          <button
+            type="button"
+            onClick={() => onViewCustomer(visit.customer_id)}
+            className="mt-5 h-11 w-full rounded-2xl bg-[#0a649d] text-sm font-black text-white active:scale-95"
+          >
+            View Full Customer Profile
+          </button>
+        ) : (
+          <p className="mt-5 rounded-2xl border border-amber-100 bg-amber-50 p-3 text-center text-xs font-bold text-amber-700">
+            This visit is not linked to a customer record yet.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function ServiceVisitsTable({ user, embedded = false }) {
+  const router = useRouter();
   const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
+  const [selectedVisit, setSelectedVisit] = useState(null);
   const [visits, setVisits] = useState([]);
   const [stats, setStats] = useState(null);
   const [pagination, setPagination] = useState(null);
@@ -332,6 +463,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
                 <button
                   type="button"
                   key={visit.id}
+                  onClick={() => setSelectedVisit(visit)}
                   className="w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition active:scale-[0.99]"
                 >
                   <div className="flex items-start justify-between gap-3">
@@ -378,7 +510,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
 
                   <tbody className="divide-y divide-slate-100">
                     {visits.map((visit) => (
-                      <tr key={visit.id} className="cursor-pointer hover:bg-slate-50">
+                      <tr key={visit.id} onClick={() => setSelectedVisit(visit)} className="cursor-pointer hover:bg-slate-50">
                         {VISIT_COLUMNS.map((column) => (
                           <td key={column.key} className="max-w-[260px] whitespace-nowrap px-3 py-3 font-semibold text-slate-700">
                             {column.key === "link_status" ? (
@@ -406,13 +538,24 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     </>
   );
 
+  function viewCustomer(customerId) {
+    setSelectedVisit(null);
+    router.push(`/admin/customers/${customerId}`);
+  }
+
   if (embedded) {
-    return <div className="text-[#0f172a]">{content}</div>;
+    return (
+      <div className="text-[#0f172a]">
+        {content}
+        <VisitDetailModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onViewCustomer={viewCustomer} />
+      </div>
+    );
   }
 
   return (
     <div className="min-h-screen bg-[#f1f5f9] text-[#0f172a]">
       {content}
+      <VisitDetailModal visit={selectedVisit} onClose={() => setSelectedVisit(null)} onViewCustomer={viewCustomer} />
     </div>
   );
 }
