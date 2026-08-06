@@ -2,6 +2,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 
 const typeOptions = {
   noOfFloors: ["G+1", "G+2", "G+3", "G+4", "G+5"],
@@ -123,8 +124,8 @@ export default function QuotationsPage({ user }) {
   const [form, setForm] = useState(initialForm);
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState("");
-  // boqView holds the full quotation object to show in the BOQ full-screen card
-  const [boqView, setBoqView] = useState(null);
+  // quotationView holds the full quotation object to show in the View Quotation full-screen card
+  const [quotationView, setQuotationView] = useState(null);
   const [selected, setSelected] = useState(null);
   const [costs, setCosts] = useState(initialCosts);
   const fieldRefs = useRef({});
@@ -186,7 +187,7 @@ export default function QuotationsPage({ user }) {
     return true;
   }
 
-  async function createAndGenerateBoq() {
+  async function createQuotation() {
     setError("");
     setNotice("");
     if (!validateForm()) return;
@@ -200,18 +201,21 @@ export default function QuotationsPage({ user }) {
       const createData = await createRes.json();
       if (!createRes.ok || !createData.success) throw new Error(createData.message || "Failed to create quotation");
 
-      const boqRes = await fetch(`/api/quotations/${createData.quotation.id}/generate-boq`, {
+      // Price is calculated automatically so the quotation is ready to view
+      // and share right away — this is the customer-facing price quotation,
+      // not the (separate, not-yet-built) detailed Bill of Quantities.
+      const priceRes = await fetch(`/api/quotations/${createData.quotation.id}/generate-boq`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(initialCosts),
       });
-      const boqData = await boqRes.json();
-      if (!boqRes.ok || !boqData.success) throw new Error(boqData.message || "Failed to generate BOQ");
+      const priceData = await priceRes.json();
+      if (!priceRes.ok || !priceData.success) throw new Error(priceData.message || "Failed to create quotation");
 
       setForm(initialForm);
       setFormErrors({});
       setShowCreate(false);
-      setBoqView(boqData.quotation);
+      setQuotationView(priceData.quotation);
       await load();
     } catch (err) {
       setError(err.message);
@@ -220,7 +224,7 @@ export default function QuotationsPage({ user }) {
     }
   }
 
-  async function generateBoq(id) {
+  async function saveQuotationPrice(id) {
     setError("");
     setSubmitting("cost");
     try {
@@ -230,9 +234,9 @@ export default function QuotationsPage({ user }) {
         body: JSON.stringify(costs),
       });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Failed to generate BOQ");
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to save quotation price");
       setSelected(null);
-      setBoqView(data.quotation);
+      setQuotationView(data.quotation);
       await load();
     } catch (err) {
       setError(err.message);
@@ -243,9 +247,11 @@ export default function QuotationsPage({ user }) {
 
   const frontOffice = user.role === "front_office";
 
-  // Full-screen BOQ view
-  if (boqView) {
-    return <BoqFullCard quotation={boqView} onBack={() => setBoqView(null)} />;
+  // Full-screen View Quotation — the price quotation shared with the customer.
+  // This is not the Bill of Quantities (see the separate "Generate BOQ" action
+  // on this screen, which is a not-yet-built future feature).
+  if (quotationView) {
+    return <QuotationViewCard quotation={quotationView} canGenerate={canGenerate} onBack={() => setQuotationView(null)} />;
   }
 
   return (
@@ -309,7 +315,7 @@ export default function QuotationsPage({ user }) {
         ) : quotations.length === 0 ? (
           <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
             <p className="text-base font-black text-slate-900">No quotations yet</p>
-            <p className="mt-1 text-xs font-bold text-slate-400">Create your first lift quotation and generate BOQ pricing.</p>
+            <p className="mt-1 text-xs font-bold text-slate-400">Create your first lift quotation and share the price with your customer.</p>
             {canGenerate && (
               <button onClick={() => setShowCreate(true)} className="mt-4 h-10 rounded-2xl bg-[#0a649d] px-5 text-xs font-black text-white">
                 Create Quotation
@@ -326,7 +332,7 @@ export default function QuotationsPage({ user }) {
                 canGenerate={canGenerate}
                 onGenerate={() => { setSelected(q); setCosts(initialCosts); }}
                 onEditBoq={() => { setSelected(q); setCosts(extractCosts(q)); }}
-                onViewBoq={() => setBoqView(q)}
+                onViewQuotation={() => setQuotationView(q)}
                 onShared={setNotice}
               />
             ))}
@@ -376,20 +382,20 @@ export default function QuotationsPage({ user }) {
               <button
                 type="button"
                 disabled={Boolean(submitting)}
-                onClick={createAndGenerateBoq}
+                onClick={createQuotation}
                 className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition shadow-md"
                 style={{ background: submitting ? "#6b7280" : "linear-gradient(135deg, #073354, #0a649d)" }}
               >
-                {submitting === "generate" ? "Generating…" : "Generate BOQ"}
+                {submitting === "generate" ? "Creating…" : "Create Quotation"}
               </button>
             </div>
           </div>
         </Modal>
       )}
 
-      {/* Generate BOQ (costs) modal for existing DRAFT */}
+      {/* Quotation price modal for existing DRAFT / re-editing price */}
       {selected && (
-        <Modal title={`${selected.status === "DRAFT" ? "Generate" : "Edit"} BOQ – ${selected.quotationNo}`} onClose={() => !submitting && setSelected(null)}>
+        <Modal title={`${selected.status === "DRAFT" ? "Calculate" : "Edit"} Quotation Price – ${selected.quotationNo}`} onClose={() => !submitting && setSelected(null)}>
           <div className="space-y-3 pb-3">
             {Object.keys(initialCosts).map((key) => (
               <label key={key} className="block">
@@ -405,10 +411,10 @@ export default function QuotationsPage({ user }) {
             ))}
             <button
               disabled={Boolean(submitting)}
-              onClick={() => generateBoq(selected.id)}
+              onClick={() => saveQuotationPrice(selected.id)}
               className="h-12 w-full rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition"
             >
-              {submitting === "cost" ? "Generating BOQ…" : "Generate BOQ"}
+              {submitting === "cost" ? "Saving…" : selected.status === "DRAFT" ? "Calculate Price" : "Update Price"}
             </button>
           </div>
         </Modal>
@@ -417,9 +423,14 @@ export default function QuotationsPage({ user }) {
   );
 }
 
-// ─── Full-screen BOQ Card ──────────────────────────────────────────────────────
-function BoqFullCard({ quotation, onBack }) {
+// ─── Full-screen View Quotation Card ────────────────────────────────────────
+// This is the customer-facing price quotation — not the Bill of Quantities.
+// The BOQ itself is a separate, more detailed document generated later (once
+// the customer accepts on a call); see the "Generate BOQ" action below, which
+// is a placeholder until that feature is built.
+function QuotationViewCard({ quotation, canGenerate, onBack }) {
   const [shareStatus, setShareStatus] = useState("");
+  const [showBoqComingSoon, setShowBoqComingSoon] = useState(false);
 
   function handlePrint() {
     window.print();
@@ -489,7 +500,7 @@ function BoqFullCard({ quotation, onBack }) {
               <div className="flex-1 min-w-0">
                 <h1 className="text-base font-black text-white leading-tight">Amardip Lifts</h1>
                 <p className="text-[10px] text-white/60 font-bold mt-0.5">Amardip Elevators</p>
-                <p className="text-[9px] text-white/40 mt-1 font-semibold tracking-wide">BILL OF QUANTITIES</p>
+                <p className="text-[9px] text-white/40 mt-1 font-semibold tracking-wide">PRICE QUOTATION</p>
               </div>
               <div className="text-right shrink-0">
                 <p className="text-[9px] font-bold text-white/50 uppercase">Date</p>
@@ -603,6 +614,33 @@ function BoqFullCard({ quotation, onBack }) {
           >
             All Quotations
           </Link>
+
+          {canGenerate && (
+            <div className="pt-2">
+              <div className="mb-2 border-t border-slate-200 pt-4">
+                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Customer accepted on a call?</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBoqComingSoon((current) => !current)}
+                className="w-full h-12 rounded-2xl border-2 border-dashed border-[#0a649d]/30 bg-[#0a649d]/5 text-sm font-black text-[#0a649d] flex items-center justify-center gap-2.5 active:scale-98 transition"
+              >
+                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                </svg>
+                Generate BOQ
+              </button>
+              {showBoqComingSoon && (
+                <div className="mt-3">
+                  <ModuleComingSoon
+                    title="BOQ Generator"
+                    primaryText="Coming soon"
+                    reason="A detailed, item-by-item Bill of Quantities for confirmed orders is on its way. For now, this quotation's price above is what you share with the customer."
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </main>
 
@@ -617,7 +655,7 @@ function BoqFullCard({ quotation, onBack }) {
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, onViewBoq, onShared }) {
+function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, onViewQuotation, onShared }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -645,10 +683,10 @@ function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, o
         <div className="flex flex-wrap gap-2">
           {shareEnabled && (
             <button
-              onClick={onViewBoq}
+              onClick={onViewQuotation}
               className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700 active:scale-95 transition"
             >
-              View BOQ
+              View Quotation
             </button>
           )}
           {shareEnabled && (
@@ -665,7 +703,7 @@ function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, o
               onClick={onGenerate}
               className="h-9 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition"
             >
-              Generate BOQ
+              Calculate Price
             </button>
           )}
           {canGenerate && ["BOQ_GENERATED", "CALCULATED", "SENT"].includes(quotation.status) && (
@@ -673,7 +711,7 @@ function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, o
               onClick={onEditBoq}
               className="h-9 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition"
             >
-              Edit BOQ
+              Edit Price
             </button>
           )}
         </div>

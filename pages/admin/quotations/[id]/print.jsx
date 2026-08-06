@@ -73,7 +73,7 @@ export default function PrintQuotation({ quotation }) {
               <div className="flex-1 min-w-0">
                 <h1 className="text-base font-black text-white leading-tight">Amardip Lifts</h1>
                 <p className="text-[10px] text-white/60 font-bold mt-0.5">Amardip Elevators</p>
-                <p className="text-[9px] text-white/40 mt-1 font-semibold tracking-wide">BILL OF QUANTITIES</p>
+                <p className="text-[9px] text-white/40 mt-1 font-semibold tracking-wide">PRICE QUOTATION</p>
               </div>
               <div className="text-right shrink-0">
                 <p className="text-[9px] font-bold text-white/50 uppercase">Date</p>
