@@ -251,7 +251,17 @@ export default function QuotationsPage({ user }) {
   // This is not the Bill of Quantities (see the separate "Generate BOQ" action
   // on this screen, which is a not-yet-built future feature).
   if (quotationView) {
-    return <QuotationViewCard quotation={quotationView} canGenerate={canGenerate} onBack={() => setQuotationView(null)} />;
+    return (
+      <QuotationViewCard
+        quotation={quotationView}
+        canGenerate={canGenerate}
+        onBack={() => setQuotationView(null)}
+        onOnboarded={(updatedQuotation) => {
+          setQuotationView(updatedQuotation);
+          load();
+        }}
+      />
+    );
   }
 
   return (
@@ -428,9 +438,37 @@ export default function QuotationsPage({ user }) {
 // The BOQ itself is a separate, more detailed document generated later (once
 // the customer accepts on a call); see the "Generate BOQ" action below, which
 // is a placeholder until that feature is built.
-function QuotationViewCard({ quotation, canGenerate, onBack }) {
+const SAMPLE_BOQ_ITEMS = [
+  { item: "SS Cabin Sheet (304 Grade)", unit: "Sq.Ft", qty: 120, rate: 450 },
+  { item: "Motor Assembly", unit: "Nos", qty: 1, rate: 85000 },
+  { item: "Guide Rail T-75", unit: "Meter", qty: 24, rate: 1200 },
+  { item: "Door Operator Assembly", unit: "Set", qty: 1, rate: 32000 },
+  { item: "Control Panel & Wiring", unit: "Lot", qty: 1, rate: 18000 },
+];
+
+function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
   const [shareStatus, setShareStatus] = useState("");
   const [showBoqComingSoon, setShowBoqComingSoon] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
+  const [onboardError, setOnboardError] = useState("");
+  const [onboardedCustomer, setOnboardedCustomer] = useState(null);
+  const alreadyOnboarded = quotation.status === "CONVERTED_TO_CUSTOMER";
+
+  async function handleOnboardCustomer() {
+    setOnboarding(true);
+    setOnboardError("");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/onboard-customer`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to onboard customer");
+      setOnboardedCustomer(data.customer);
+      onOnboarded?.(data.quotation);
+    } catch (err) {
+      setOnboardError(err.message || "Failed to onboard customer");
+    } finally {
+      setOnboarding(false);
+    }
+  }
 
   function handlePrint() {
     window.print();
@@ -620,24 +658,74 @@ function QuotationViewCard({ quotation, canGenerate, onBack }) {
               <div className="mb-2 border-t border-slate-200 pt-4">
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Customer accepted on a call?</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setShowBoqComingSoon((current) => !current)}
-                className="w-full h-12 rounded-2xl border-2 border-dashed border-[#0a649d]/30 bg-[#0a649d]/5 text-sm font-black text-[#0a649d] flex items-center justify-center gap-2.5 active:scale-98 transition"
-              >
-                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                </svg>
-                Generate BOQ
-              </button>
-              {showBoqComingSoon && (
-                <div className="mt-3">
-                  <ModuleComingSoon
-                    title="BOQ Generator"
-                    primaryText="Coming soon"
-                    reason="A detailed, item-by-item Bill of Quantities for confirmed orders is on its way. For now, this quotation's price above is what you share with the customer."
-                  />
+
+              {alreadyOnboarded || onboardedCustomer ? (
+                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
+                  <p className="text-sm font-black text-emerald-800">Customer onboarded</p>
+                  <p className="mt-1 text-xs font-semibold text-emerald-700">
+                    Added to the customer master with a 1-year AMC starting today.
+                  </p>
+                  <Link
+                    href={`/admin/customers/${onboardedCustomer?.id || quotation.convertedCustomerId}`}
+                    className="mt-3 flex h-10 items-center justify-center rounded-xl bg-emerald-600 text-xs font-black text-white active:scale-95 transition"
+                  >
+                    View Customer Profile
+                  </Link>
                 </div>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setShowBoqComingSoon((current) => !current)}
+                    className="w-full h-12 rounded-2xl border-2 border-dashed border-[#0a649d]/30 bg-[#0a649d]/5 text-sm font-black text-[#0a649d] flex items-center justify-center gap-2.5 active:scale-98 transition"
+                  >
+                    <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                    </svg>
+                    Generate BOQ
+                  </button>
+
+                  {showBoqComingSoon && (
+                    <div className="mt-3 space-y-3">
+                      <ModuleComingSoon
+                        title="BOQ Generator"
+                        primaryText="Coming soon"
+                        reason="A detailed, item-by-item Bill of Quantities for confirmed orders is on its way. For now, this quotation's price above is what you share with the customer."
+                      />
+
+                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sample preview - not real pricing</p>
+                        <div className="mt-2 divide-y divide-slate-50">
+                          {SAMPLE_BOQ_ITEMS.map((row) => (
+                            <div key={row.item} className="flex items-center justify-between gap-2 py-2 text-[11px]">
+                              <span className="font-bold text-slate-700">{row.item}</span>
+                              <span className="text-slate-400">{row.qty} {row.unit}</span>
+                              <span className="font-black text-slate-900">₹{(row.qty * row.rate).toLocaleString("en-IN")}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs font-black text-slate-800">Ready to onboard this customer?</p>
+                        <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                          Adds them to the customer master and starts a 1-year AMC today.
+                        </p>
+                        {onboardError && (
+                          <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{onboardError}</p>
+                        )}
+                        <button
+                          type="button"
+                          disabled={onboarding}
+                          onClick={handleOnboardCustomer}
+                          className="mt-3 h-11 w-full rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition"
+                        >
+                          {onboarding ? "Adding Customer…" : "Add Customer"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}

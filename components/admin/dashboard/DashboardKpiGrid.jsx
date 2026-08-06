@@ -138,6 +138,47 @@ function QuotationBanner({ card, quotationStats, onClick, enabled = true }) {
   );
 }
 
+function ComplaintsBanner({ newCount, onClick, enabled = true }) {
+  return (
+    <button
+      type="button"
+      onClick={enabled ? onClick : undefined}
+      className={`mb-3 w-full overflow-hidden rounded-[26px] bg-gradient-to-br from-orange-500 via-orange-600 to-amber-700 p-4 text-left text-white shadow-[0_14px_30px_rgba(217,119,6,0.28)] ${
+        enabled ? "active:scale-[0.98] transition-transform duration-100" : "opacity-60"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+          <AlertIcon className="h-6 w-6" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-black leading-tight">Service Tickets</p>
+              <p className="mt-1 text-xs font-semibold leading-relaxed text-white/80">
+                Review new complaints and assign a technician
+              </p>
+            </div>
+            <ChevronRightIcon className="mt-1 h-5 w-5 shrink-0 text-white/75" />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <span className="rounded-full bg-white/14 px-2.5 py-1 text-[10px] font-black text-white ring-1 ring-white/20">
+              {newCount} New
+            </span>
+          </div>
+
+          <div className="mt-4">
+            <span className="flex h-10 w-full items-center justify-center rounded-2xl bg-white px-4 text-xs font-black text-orange-600 shadow-sm">
+              View Complaints
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 export default function DashboardKpiGrid({
   kpiCounts,
   customerStats,
@@ -149,6 +190,7 @@ export default function DashboardKpiGrid({
   user,
   quotationStats,
   hasBoqPermission = false,
+  complaintStats,
 }) {
   const router = useRouter();
   const totalCustomers = customerStats?.totalCustomers ?? kpiCounts?.totalCustomers ?? 0;
@@ -179,6 +221,12 @@ export default function DashboardKpiGrid({
         quotationStats={quotationStats}
         onClick={openQuotations}
         enabled={isLive("quotations")}
+      />
+
+      <ComplaintsBanner
+        newCount={complaintStats?.unassignedComplaints ?? 0}
+        onClick={() => setActiveTab?.("complaints")}
+        enabled={isLive("complaints")}
       />
 
       {statsLoading ? (
@@ -242,19 +290,6 @@ export default function DashboardKpiGrid({
             accent="bg-red-50 text-red-500"
             onClick={() => setActiveTab("complaints")}
             enabled={isLive("complaints")}
-          />
-
-          <KpiCard
-            title={"Pending\nInstalls"}
-            value={kpiCounts?.pendingInstallations ?? 0}
-            icon={
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2m14 0V9a2 2 0 0 0-2-2M5 11V9a2 2 0 0 1 2-2m0 0V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v2M7 7h10" />
-              </svg>
-            }
-            accent="bg-[#eaf4fb] text-[#0a649d]"
-            onClick={() => setMoreSubTab?.("inventory")}
-            enabled={isLive("inventory")}
           />
 
           <KpiCard
