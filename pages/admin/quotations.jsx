@@ -1,4 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
+import { listQuotations } from "@/lib/quotations";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -86,22 +87,34 @@ function formatRupees(value) {
   return Math.round(Number(value) || 0).toLocaleString("en-IN");
 }
 
+const DEFAULT_PAGE_SIZE = 10;
+
 export async function getServerSideProps({ req }) {
   const user = await getUserFromRequest(req);
   if (!user) return { redirect: { destination: "/Adminlogin", permanent: false } };
   if (["customer", "worker", "storekeeper"].includes(user.role)) return { notFound: true };
-  return { props: { user } };
+  // Fetch the first page here so the list and the "+ Create" button (gated on
+  // canGenerate) render correctly on the very first paint — no client-side
+  // fetch-then-flip flash on every page load.
+  let initialData = { quotations: [], total: 0, canGenerate: false };
+  try {
+    const result = await listQuotations({ actor: user, page: 1, pageSize: DEFAULT_PAGE_SIZE });
+    initialData = { quotations: result.rows, total: result.total, canGenerate: result.canGenerate };
+  } catch {
+    // Fall back to an empty list; the client effect will retry on mount.
+  }
+  return { props: { user, initialData } };
 }
 
-export default function QuotationsPage({ user }) {
-  const [quotations, setQuotations] = useState([]);
+export default function QuotationsPage({ user, initialData }) {
+  const [quotations, setQuotations] = useState(initialData.quotations);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+  const [total, setTotal] = useState(initialData.total);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [canGenerate, setCanGenerate] = useState(false);
+  const [canGenerate, setCanGenerate] = useState(initialData.canGenerate);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [dimensionUnits, setDimensionUnits] = useState(initialDimensionUnits);
@@ -117,8 +130,14 @@ export default function QuotationsPage({ user }) {
   // slow to block a fast double-tap on mobile. A ref flips synchronously.
   const createInFlightRef = useRef(false);
   const priceRefreshInFlightRef = useRef(new Set());
+  // Fast typing/paging can fire several requests at once; a slower older one
+  // can resolve after a newer one and overwrite the list with stale data.
+  // This counter makes only the most recently *sent* request allowed to win.
+  const requestIdRef = useRef(0);
+  const isFirstRunRef = useRef(true);
 
   async function load() {
+    const requestId = ++requestIdRef.current;
     setLoading(true);
     setError("");
     try {
@@ -126,18 +145,25 @@ export default function QuotationsPage({ user }) {
       if (search) params.set("search", search);
       const res = await fetch(`/api/quotations?${params.toString()}`);
       const data = await res.json();
+      if (requestId !== requestIdRef.current) return; // a newer request already landed
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to load quotations");
       setQuotations(data.quotations || []);
       setTotal(data.total || 0);
       setCanGenerate(Boolean(data.canGenerate));
     } catch (err) {
-      setError(err.message);
+      if (requestId === requestIdRef.current) setError(err.message);
     } finally {
-      setLoading(false);
+      if (requestId === requestIdRef.current) setLoading(false);
     }
   }
 
   useEffect(() => {
+    // The server already fetched page 1 with no search filter — skip the
+    // redundant duplicate request on first mount.
+    if (isFirstRunRef.current) {
+      isFirstRunRef.current = false;
+      return;
+    }
     const timer = setTimeout(load, 250);
     return () => clearTimeout(timer);
   }, [search, page, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
