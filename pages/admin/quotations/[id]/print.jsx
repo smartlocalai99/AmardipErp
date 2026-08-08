@@ -125,7 +125,7 @@ export default function PrintQuotation({ quotation }) {
           <div className="mx-6 mb-5 rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #04182b, #073354)" }}>
             <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-1">Total Quoted Price</p>
             <p className="text-3xl font-black text-white">
-              ₹{Number(quotation.finalPrice ?? quotation.customerPrice ?? 0).toLocaleString("en-IN")}
+              ₹{Math.round(Number(quotation.finalPrice ?? quotation.customerPrice ?? 0)).toLocaleString("en-IN")}
             </p>
             <p className="text-[9px] font-bold text-white/40 mt-1">Inclusive of taxes and installation</p>
           </div>
@@ -212,7 +212,7 @@ Motor Type: ${quotation.motorType}
 Head Room: ${quotation.headRoom}
 Door Opening: ${quotation.doorOpening}
 
-TOTAL QUOTED PRICE: ₹${Number(quotation.finalPrice ?? 0).toLocaleString("en-IN")}
+TOTAL QUOTED PRICE: ₹${Math.round(Number(quotation.finalPrice ?? 0)).toLocaleString("en-IN")}
 
 Thank you for choosing Amardip Lifts.`;
 }

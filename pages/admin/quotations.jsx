@@ -2,7 +2,6 @@ import { getUserFromRequest } from "@/lib/auth";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import { WhatsAppIcon } from "@/components/ui/WhatsAppButton";
 
 const typeOptions = {
@@ -35,8 +34,8 @@ const placeholders = {
   name: "Enter customer name",
   address: "Enter full address",
   mobileNo: "10-digit mobile number",
-  wellWidth: "e.g. 5 ft or 1500 mm",
-  wellDepth: "e.g. 5 ft or 1500 mm",
+  wellWidth: "e.g. 1500",
+  wellDepth: "e.g. 1500",
   noOfFloors: "Select no. of floors",
   noOfPassenger: "Select passenger capacity",
   doorType: "Select door type",
@@ -76,8 +75,15 @@ const initialForm = {
   doorOpening: "",
 };
 
+const INCH_TO_MM = 25.4;
+const initialDimensionUnits = { wellWidth: "mm", wellDepth: "mm" };
+
 function Spinner({ className = "h-4 w-4 border-2" }) {
   return <span className={`inline-block shrink-0 rounded-full border-white/40 border-t-white animate-spin ${className}`} />;
+}
+
+function formatRupees(value) {
+  return Math.round(Number(value) || 0).toLocaleString("en-IN");
 }
 
 export async function getServerSideProps({ req }) {
@@ -91,29 +97,38 @@ export default function QuotationsPage({ user }) {
   const [quotations, setQuotations] = useState([]);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [canGenerate, setCanGenerate] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(initialForm);
+  const [dimensionUnits, setDimensionUnits] = useState(initialDimensionUnits);
   const [formErrors, setFormErrors] = useState({});
   const [submitting, setSubmitting] = useState("");
   // quotationView holds the full quotation object to show in the View Quotation full-screen card
   const [quotationView, setQuotationView] = useState(null);
   const fieldRefs = useRef({});
+  // Guards against double-tap double-submits: React state updates (and the
+  // `disabled` attribute they drive) land on the next render, which is too
+  // slow to block a fast double-tap on mobile. A ref flips synchronously.
+  const createInFlightRef = useRef(false);
+  const priceRefreshInFlightRef = useRef(new Set());
 
   async function load() {
     setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ page: "1", pageSize: "50" });
+      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (search) params.set("search", search);
       if (status) params.set("status", status);
       const res = await fetch(`/api/quotations?${params.toString()}`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to load quotations");
       setQuotations(data.quotations || []);
+      setTotal(data.total || 0);
       setCanGenerate(Boolean(data.canGenerate));
     } catch (err) {
       setError(err.message);
@@ -125,12 +140,13 @@ export default function QuotationsPage({ user }) {
   useEffect(() => {
     const timer = setTimeout(load, 250);
     return () => clearTimeout(timer);
-  }, [search, status]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, status, page, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-set serial number when creating form opens
+  // Auto-set serial number when creating form opens — uses the real total
+  // count, not the current page's length, since the list is now paginated.
   useEffect(() => {
     if (showCreate) {
-      setForm((prev) => ({ ...prev, serialNo: String(quotations.length + 1) }));
+      setForm((prev) => ({ ...prev, serialNo: String(total + 1) }));
     }
   }, [showCreate]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -161,15 +177,21 @@ export default function QuotationsPage({ user }) {
   }
 
   async function createQuotation() {
+    if (createInFlightRef.current) return; // blocks a fast mobile double-tap
     setError("");
-    setNotice("");
     if (!validateForm()) return;
+    createInFlightRef.current = true;
     setSubmitting("generate");
     try {
+      const payload = {
+        ...form,
+        wellWidth: dimensionUnits.wellWidth === "inches" ? Number(form.wellWidth) * INCH_TO_MM : form.wellWidth,
+        wellDepth: dimensionUnits.wellDepth === "inches" ? Number(form.wellDepth) * INCH_TO_MM : form.wellDepth,
+      };
       const createRes = await fetch("/api/quotations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
       const createData = await createRes.json();
       if (!createRes.ok || !createData.success) throw new Error(createData.message || "Failed to create quotation");
@@ -187,6 +209,7 @@ export default function QuotationsPage({ user }) {
 
       setForm(initialForm);
       setFormErrors({});
+      setDimensionUnits(initialDimensionUnits);
       setShowCreate(false);
       setQuotationView(priceData.quotation);
       await load();
@@ -194,12 +217,14 @@ export default function QuotationsPage({ user }) {
       setError(err.message);
     } finally {
       setSubmitting("");
+      createInFlightRef.current = false;
     }
   }
 
   async function refreshPriceFromSheet(id) {
+    if (priceRefreshInFlightRef.current.has(id)) return; // blocks a fast mobile double-tap
+    priceRefreshInFlightRef.current.add(id);
     setError("");
-    setNotice("");
     setSubmitting(`price-${id}`);
     try {
       const res = await fetch(`/api/quotations/${id}/generate-boq`, { method: "POST" });
@@ -211,6 +236,7 @@ export default function QuotationsPage({ user }) {
       setError(err.message);
     } finally {
       setSubmitting("");
+      priceRefreshInFlightRef.current.delete(id);
     }
   }
 
@@ -265,19 +291,29 @@ export default function QuotationsPage({ user }) {
         <div className="grid gap-2 sm:grid-cols-2">
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => { setPage(1); setSearch(e.target.value); }}
             placeholder="Search by name, mobile, quotation no…"
             className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
           />
           <select
             value={status}
-            onChange={(e) => setStatus(e.target.value)}
+            onChange={(e) => { setPage(1); setStatus(e.target.value); }}
             className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
           >
             <option value="">All statuses</option>
             {["DRAFT", "BOQ_GENERATED", "CALCULATED", "SENT", "ACCEPTED", "REJECTED", "CONVERTED_TO_CUSTOMER"].map((item) => (
               <option key={item}>{item}</option>
             ))}
+          </select>
+          <select
+            value={pageSize}
+            onChange={(e) => { setPage(1); setPageSize(Number(e.target.value)); }}
+            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
+          >
+            <option value={10}>10 / page</option>
+            <option value={25}>25 / page</option>
+            <option value={50}>50 / page</option>
+            <option value={100}>100 / page</option>
           </select>
         </div>
         {user.role === "superadmin" && (
@@ -286,7 +322,6 @@ export default function QuotationsPage({ user }) {
           </Link>
         )}
 
-        {notice && <p className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{notice}</p>}
         {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
 
         {loading ? (
@@ -312,9 +347,36 @@ export default function QuotationsPage({ user }) {
                 busy={submitting === `price-${q.id}`}
                 onRefreshPrice={() => refreshPriceFromSheet(q.id)}
                 onViewQuotation={() => setQuotationView(q)}
-                onShared={setNotice}
               />
             ))}
+          </div>
+        )}
+
+        {!loading && total > 0 && (
+          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs font-bold text-slate-500">
+              Page <span className="text-slate-900">{page}</span> of{" "}
+              <span className="text-slate-900">{Math.max(1, Math.ceil(total / pageSize))}</span> -{" "}
+              <span className="text-slate-900">{total}</span> quotations
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:flex">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={page >= Math.ceil(total / pageSize)}
+                onClick={() => setPage((current) => current + 1)}
+                className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next
+              </button>
+            </div>
           </div>
         )}
       </main>
@@ -334,8 +396,24 @@ export default function QuotationsPage({ user }) {
               <TextField fieldKey="mobileNo" required form={form} errors={formErrors} registerField={registerField} onChange={updateForm} inputMode="tel" />
             </QuotationSection>
             <QuotationSection title="Wall Details">
-              <TextField fieldKey="wellWidth" required form={form} errors={formErrors} registerField={registerField} onChange={updateForm} />
-              <TextField fieldKey="wellDepth" required form={form} errors={formErrors} registerField={registerField} onChange={updateForm} />
+              <DimensionField
+                fieldKey="wellWidth"
+                form={form}
+                errors={formErrors}
+                registerField={registerField}
+                onChange={updateForm}
+                unit={dimensionUnits.wellWidth}
+                onUnitChange={(unit) => setDimensionUnits((current) => ({ ...current, wellWidth: unit }))}
+              />
+              <DimensionField
+                fieldKey="wellDepth"
+                form={form}
+                errors={formErrors}
+                registerField={registerField}
+                onChange={updateForm}
+                unit={dimensionUnits.wellDepth}
+                onUnitChange={(unit) => setDimensionUnits((current) => ({ ...current, wellDepth: unit }))}
+              />
               <SelectField fieldKey="noOfFloors" required form={form} errors={formErrors} registerField={registerField} onChange={updateForm} options={typeOptions.noOfFloors} />
               <SelectField fieldKey="noOfPassenger" required form={form} errors={formErrors} registerField={registerField} onChange={updateForm} options={typeOptions.noOfPassenger} />
             </QuotationSection>
@@ -384,25 +462,38 @@ export default function QuotationsPage({ user }) {
 }
 
 // ─── Full-screen View Quotation Card ────────────────────────────────────────
-// This is the customer-facing price quotation — not the Bill of Quantities.
-// The BOQ itself is a separate, more detailed document generated later (once
-// the customer accepts on a call); see the "Generate BOQ" action below, which
-// is a placeholder until that feature is built.
-const SAMPLE_BOQ_ITEMS = [
-  { item: "SS Cabin Sheet (304 Grade)", unit: "Sq.Ft", qty: 120, rate: 450 },
-  { item: "Motor Assembly", unit: "Nos", qty: 1, rate: 85000 },
-  { item: "Guide Rail T-75", unit: "Meter", qty: 24, rate: 1200 },
-  { item: "Door Operator Assembly", unit: "Set", qty: 1, rate: 32000 },
-  { item: "Control Panel & Wiring", unit: "Lot", qty: 1, rate: 18000 },
-];
-
+// This is the customer-facing price quotation. "Open BOQ" below shows the
+// full underlying sheet row (every calculated cost column), and "Add
+// Customer" onboards the quotation into the real customer master once the
+// customer has accepted on a call.
 function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
   const [shareStatus, setShareStatus] = useState("");
-  const [showBoqComingSoon, setShowBoqComingSoon] = useState(false);
+  const [showBoq, setShowBoq] = useState(false);
+  const [boqRows, setBoqRows] = useState(null);
+  const [boqLoading, setBoqLoading] = useState(false);
+  const [boqError, setBoqError] = useState("");
   const [onboarding, setOnboarding] = useState(false);
   const [onboardError, setOnboardError] = useState("");
   const [onboardedCustomer, setOnboardedCustomer] = useState(null);
   const alreadyOnboarded = quotation.status === "CONVERTED_TO_CUSTOMER";
+  const onboardInFlightRef = useRef(false);
+
+  async function handleOpenBoq() {
+    setShowBoq(true);
+    if (boqRows) return; // already fetched
+    setBoqLoading(true);
+    setBoqError("");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/boq-row`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to open BOQ");
+      setBoqRows(data.rows);
+    } catch (err) {
+      setBoqError(err.message || "Failed to open BOQ");
+    } finally {
+      setBoqLoading(false);
+    }
+  }
 
   const docRef = useRef(null);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -416,7 +507,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
     setGeneratingPdf(true);
     try {
       const [{ default: html2canvas }, { default: JsPDF }] = await Promise.all([
-        import("html2canvas"),
+        import("html2canvas-pro"), // html2canvas can't parse Tailwind v4's oklch()/lab() colors; this fork can
         import("jspdf"),
       ]);
 
@@ -444,7 +535,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
 
   async function handleShareFilePdf() {
     if (!pdfFile) return;
-    const shareText = `Lift quotation ${quotation.quotationNo} for ${quotation.customerName} - Final Price ₹${Number(quotation.finalPrice ?? 0).toLocaleString("en-IN")}`;
+    const shareText = `Lift quotation ${quotation.quotationNo} for ${quotation.customerName} - Final Price ₹${formatRupees(quotation.finalPrice)}`;
 
     if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
       try {
@@ -473,6 +564,8 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
   }
 
   async function handleOnboardCustomer() {
+    if (onboardInFlightRef.current) return; // blocks a fast mobile double-tap
+    onboardInFlightRef.current = true;
     setOnboarding(true);
     setOnboardError("");
     try {
@@ -485,6 +578,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
       setOnboardError(err.message || "Failed to onboard customer");
     } finally {
       setOnboarding(false);
+      onboardInFlightRef.current = false;
     }
   }
 
@@ -589,7 +683,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
           <div className="mx-6 mb-5 rounded-2xl p-5" style={{ background: "linear-gradient(135deg, #04182b, #073354)" }}>
             <p className="text-[10px] font-black uppercase tracking-widest text-white/50 mb-1">Total Quoted Price</p>
             <p className="text-3xl font-black text-white">
-              ₹{Number(quotation.finalPrice ?? quotation.customerPrice ?? 0).toLocaleString("en-IN")}
+              ₹{formatRupees(quotation.finalPrice ?? quotation.customerPrice)}
             </p>
             <p className="text-[9px] font-bold text-white/40 mt-1">Inclusive of taxes and installation</p>
           </div>
@@ -646,8 +740,45 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
           </Link>
 
           {canGenerate && (
-            <div className="pt-2">
-              <div className="mb-2 border-t border-slate-200 pt-4">
+            <div className="pt-2 space-y-3">
+              <button
+                type="button"
+                onClick={handleOpenBoq}
+                disabled={boqLoading}
+                className="w-full h-12 rounded-2xl border-2 border-[#0a649d]/30 bg-[#0a649d]/5 text-sm font-black text-[#0a649d] flex items-center justify-center gap-2.5 active:scale-98 transition disabled:opacity-70"
+              >
+                {boqLoading ? (
+                  <Spinner className="h-4 w-4 border-[#0a649d]/30 border-t-[#0a649d]" />
+                ) : (
+                  <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                  </svg>
+                )}
+                {boqLoading ? "Opening BOQ…" : showBoq ? "Hide BOQ" : "Open BOQ"}
+              </button>
+
+              {showBoq && (
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
+                    Full BOQ {quotation.sheetRow ? `- Sheet Row ${quotation.sheetRow}` : ""}
+                  </p>
+                  {boqError && (
+                    <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{boqError}</p>
+                  )}
+                  {boqRows && (
+                    <div className="mt-2 divide-y divide-slate-50">
+                      {boqRows.map(({ heading, value }) => (
+                        <div key={heading} className="flex items-center justify-between gap-3 py-2 text-[11px]">
+                          <span className="font-bold text-slate-500">{heading}</span>
+                          <span className="max-w-[55%] text-right font-black text-slate-900">{value || "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="border-t border-slate-200 pt-4">
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Customer accepted on a call?</p>
               </div>
 
@@ -665,60 +796,24 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
                   </Link>
                 </div>
               ) : (
-                <>
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs font-black text-slate-800">Ready to onboard this customer?</p>
+                  <p className="mt-1 text-[11px] font-semibold text-slate-500">
+                    Adds them to the customer master and starts a 1-year AMC today.
+                  </p>
+                  {onboardError && (
+                    <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{onboardError}</p>
+                  )}
                   <button
                     type="button"
-                    onClick={() => setShowBoqComingSoon((current) => !current)}
-                    className="w-full h-12 rounded-2xl border-2 border-dashed border-[#0a649d]/30 bg-[#0a649d]/5 text-sm font-black text-[#0a649d] flex items-center justify-center gap-2.5 active:scale-98 transition"
+                    disabled={onboarding}
+                    onClick={handleOnboardCustomer}
+                    className="mt-3 h-11 w-full flex items-center justify-center gap-2 rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-70 active:scale-98 transition"
                   >
-                    <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                    </svg>
-                    Generate BOQ
+                    {onboarding && <Spinner />}
+                    {onboarding ? "Adding Customer…" : "Add Customer"}
                   </button>
-
-                  {showBoqComingSoon && (
-                    <div className="mt-3 space-y-3">
-                      <ModuleComingSoon
-                        title="BOQ Generator"
-                        primaryText="Coming soon"
-                        reason="A detailed, item-by-item Bill of Quantities for confirmed orders is on its way. For now, this quotation's price above is what you share with the customer."
-                      />
-
-                      <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                        <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Sample preview - not real pricing</p>
-                        <div className="mt-2 divide-y divide-slate-50">
-                          {SAMPLE_BOQ_ITEMS.map((row) => (
-                            <div key={row.item} className="flex items-center justify-between gap-2 py-2 text-[11px]">
-                              <span className="font-bold text-slate-700">{row.item}</span>
-                              <span className="text-slate-400">{row.qty} {row.unit}</span>
-                              <span className="font-black text-slate-900">₹{(row.qty * row.rate).toLocaleString("en-IN")}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs font-black text-slate-800">Ready to onboard this customer?</p>
-                        <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                          Adds them to the customer master and starts a 1-year AMC today.
-                        </p>
-                        {onboardError && (
-                          <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{onboardError}</p>
-                        )}
-                        <button
-                          type="button"
-                          disabled={onboarding}
-                          onClick={handleOnboardCustomer}
-                          className="mt-3 h-11 w-full flex items-center justify-center gap-2 rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-70 active:scale-98 transition"
-                        >
-                          {onboarding && <Spinner />}
-                          {onboarding ? "Adding Customer…" : "Add Customer"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </>
+                </div>
               )}
             </div>
           )}
@@ -785,7 +880,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onShared }) {
+function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -809,7 +904,7 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
       </div>
       <p className="mt-2 text-[11px] text-slate-400 truncate">{quotation.doorType} · {quotation.cabinType}</p>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
-        <p className="text-sm font-black text-slate-900">{quotation.finalPrice ? `₹${Number(quotation.finalPrice).toLocaleString("en-IN")}` : "—"}</p>
+        <p className="text-sm font-black text-slate-900">{quotation.finalPrice ? `₹${formatRupees(quotation.finalPrice)}` : "—"}</p>
         <div className="flex flex-wrap gap-2">
           {shareEnabled && (
             <button
@@ -817,15 +912,6 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
               className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700 active:scale-95 transition"
             >
               View Quotation
-            </button>
-          )}
-          {shareEnabled && (
-            <button
-              onClick={() => shareQuotation(quotation, onShared)}
-              className="h-9 rounded-xl px-3 text-xs font-bold text-white active:scale-95 transition"
-              style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
-            >
-              WhatsApp
             </button>
           )}
           {canGenerate && quotation.status === "DRAFT" && (
@@ -883,6 +969,41 @@ function TextField({ fieldKey, required = false, helper = "", inputMode, form, e
   );
 }
 
+// Numeric-keypad dimension input (Wall Width / Wall Depth) with an mm/inches
+// unit toggle — defaults to mm, matching the sheet's existing data.
+function DimensionField({ fieldKey, form, errors, registerField, onChange, unit, onUnitChange }) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">
+        {fieldLabels[fieldKey]} <span className="text-red-500">*</span>
+      </span>
+      <div className="flex gap-2">
+        <input
+          ref={(node) => registerField(fieldKey, node)}
+          value={form[fieldKey]}
+          type="text"
+          inputMode="decimal"
+          onChange={(e) => {
+            const value = e.target.value;
+            if (/^\d*\.?\d*$/.test(value)) onChange(fieldKey, value);
+          }}
+          placeholder={placeholders[fieldKey]}
+          className={`h-12 min-w-0 flex-1 rounded-2xl border px-4 text-sm outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.08)] transition ${errors[fieldKey] ? "border-red-300 bg-red-50" : "border-slate-200 bg-white"}`}
+        />
+        <select
+          value={unit}
+          onChange={(e) => onUnitChange(e.target.value)}
+          className="h-12 w-24 shrink-0 rounded-2xl border border-slate-200 bg-white px-2 text-sm font-bold text-slate-700 outline-none focus:border-[#0a649d] transition"
+        >
+          <option value="mm">mm</option>
+          <option value="inches">inches</option>
+        </select>
+      </div>
+      {errors[fieldKey] && <span className="mt-1 block text-[10px] font-bold text-red-600">{errors[fieldKey]}</span>}
+    </label>
+  );
+}
+
 function SelectField({ fieldKey, required = false, form, errors, registerField, onChange, options }) {
   return (
     <label className="block">
@@ -919,52 +1040,3 @@ function Modal({ title, children, onClose }) {
   );
 }
 
-function buildQuotationMessage(quotation) {
-  return `Hello ${quotation.customerName},
-
-Your lift quotation from Amardip Lifts is ready.
-
-Quotation No: ${quotation.quotationNo}
-Date: ${new Date(quotation.createdAt).toLocaleDateString("en-IN")}
-
-LIFT SPECIFICATION:
-Wall Width: ${quotation.wellWidth}
-Wall Depth: ${quotation.wellDepth}
-No. of Floors: ${quotation.noOfFloors}
-Passenger Capacity: ${quotation.noOfPassenger}
-Door Type: ${quotation.doorType}
-Cabin Type: ${quotation.cabinType}
-Motor Type: ${quotation.motorType}
-Head Room: ${quotation.headRoom}
-Door Opening: ${quotation.doorOpening}
-
-TOTAL QUOTED PRICE: ₹${Number(quotation.finalPrice ?? 0).toLocaleString("en-IN")}
-
-Thank you for choosing Amardip Lifts.
-For queries, please contact us.`;
-}
-
-function getWhatsappPhone(mobileNo) {
-  const digits = String(mobileNo || "").replace(/\D/g, "");
-  if (digits.length === 10) return `91${digits}`;
-  return digits;
-}
-
-async function shareQuotation(quotation, onShared) {
-  const message = buildQuotationMessage(quotation);
-  const phone = getWhatsappPhone(quotation.mobileNo);
-  const waWeb = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-  // Native share sheet (iOS/Android) lets user pick WhatsApp directly — no intermediate browser page
-  if (navigator.share) {
-    try {
-      await navigator.share({ text: message });
-      onShared?.("Shared.");
-      return;
-    } catch {
-      // User cancelled or browser blocked — fall through
-    }
-  }
-  // Open in new tab so the current app page stays open
-  window.open(waWeb, "_blank");
-  onShared?.("Opening WhatsApp…");
-}

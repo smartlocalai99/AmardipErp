@@ -14,7 +14,7 @@
     "bcryptjs": "^3.0.3",
     "framer-motion": "^12.42.0",
     "googleapis": "^174.0.1",
-    "html2canvas": "^1.4.1",
+    "html2canvas-pro": "^2.3.3",
     "html5-qrcode": "^2.3.8",
     "jsonwebtoken": "^9.0.3",
     "jspdf": "^4.2.1",
