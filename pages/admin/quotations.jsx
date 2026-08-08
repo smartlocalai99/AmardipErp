@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
+import { WhatsAppIcon } from "@/components/ui/WhatsAppButton";
 
 const typeOptions = {
   noOfFloors: ["G+1", "G+2", "G+3", "G+4", "G+5"],
@@ -75,36 +76,6 @@ const initialForm = {
   doorOpening: "",
 };
 
-const initialCosts = {
-  commonMaterial: 0,
-  doorMaterial: 0,
-  cabinMaterial: 0,
-  motorMaterial: 0,
-  ropeCost: 0,
-  railCost: 0,
-  additionalLfCost: 0,
-  labourTransport: 75000,
-  taxPercent: 18,
-  marginPercent: 15,
-  discountAmount: 0,
-};
-
-function extractCosts(q) {
-  return {
-    commonMaterial: q.commonMaterial ?? 0,
-    doorMaterial: q.doorMaterial ?? 0,
-    cabinMaterial: q.cabinMaterial ?? 0,
-    motorMaterial: q.motorMaterial ?? 0,
-    ropeCost: q.ropeCost ?? 0,
-    railCost: q.railCost ?? 0,
-    additionalLfCost: q.additionalLfCost ?? 0,
-    labourTransport: q.labourTransport ?? 75000,
-    taxPercent: q.taxPercent ?? 18,
-    marginPercent: q.marginPercent ?? 15,
-    discountAmount: q.discountAmount ?? 0,
-  };
-}
-
 export async function getServerSideProps({ req }) {
   const user = await getUserFromRequest(req);
   if (!user) return { redirect: { destination: "/Adminlogin", permanent: false } };
@@ -126,8 +97,6 @@ export default function QuotationsPage({ user }) {
   const [submitting, setSubmitting] = useState("");
   // quotationView holds the full quotation object to show in the View Quotation full-screen card
   const [quotationView, setQuotationView] = useState(null);
-  const [selected, setSelected] = useState(null);
-  const [costs, setCosts] = useState(initialCosts);
   const fieldRefs = useRef({});
 
   async function load() {
@@ -201,16 +170,16 @@ export default function QuotationsPage({ user }) {
       const createData = await createRes.json();
       if (!createRes.ok || !createData.success) throw new Error(createData.message || "Failed to create quotation");
 
-      // Price is calculated automatically so the quotation is ready to view
-      // and share right away — this is the customer-facing price quotation,
-      // not the (separate, not-yet-built) detailed Bill of Quantities.
+      // Price comes from the client's real "boq automation" Google Sheet — we
+      // post the spec, the sheet's formulas calculate it, we read it back.
+      // This is the customer-facing price quotation, not the (separate,
+      // not-yet-built) detailed Bill of Quantities.
+      setSubmitting("pricing");
       const priceRes = await fetch(`/api/quotations/${createData.quotation.id}/generate-boq`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(initialCosts),
       });
       const priceData = await priceRes.json();
-      if (!priceRes.ok || !priceData.success) throw new Error(priceData.message || "Failed to create quotation");
+      if (!priceRes.ok || !priceData.success) throw new Error(priceData.message || "Failed to get price from sheet");
 
       setForm(initialForm);
       setFormErrors({});
@@ -224,18 +193,14 @@ export default function QuotationsPage({ user }) {
     }
   }
 
-  async function saveQuotationPrice(id) {
+  async function refreshPriceFromSheet(id) {
     setError("");
-    setSubmitting("cost");
+    setNotice("");
+    setSubmitting(`price-${id}`);
     try {
-      const res = await fetch(`/api/quotations/${id}/generate-boq`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(costs),
-      });
+      const res = await fetch(`/api/quotations/${id}/generate-boq`, { method: "POST" });
       const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Failed to save quotation price");
-      setSelected(null);
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to get price from sheet");
       setQuotationView(data.quotation);
       await load();
     } catch (err) {
@@ -340,8 +305,8 @@ export default function QuotationsPage({ user }) {
                 quotation={q}
                 index={i}
                 canGenerate={canGenerate}
-                onGenerate={() => { setSelected(q); setCosts(initialCosts); }}
-                onEditBoq={() => { setSelected(q); setCosts(extractCosts(q)); }}
+                busy={submitting === `price-${q.id}`}
+                onRefreshPrice={() => refreshPriceFromSheet(q.id)}
                 onViewQuotation={() => setQuotationView(q)}
                 onShared={setNotice}
               />
@@ -396,39 +361,13 @@ export default function QuotationsPage({ user }) {
                 className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition shadow-md"
                 style={{ background: submitting ? "#6b7280" : "linear-gradient(135deg, #073354, #0a649d)" }}
               >
-                {submitting === "generate" ? "Creating…" : "Create Quotation"}
+                {submitting === "generate" ? "Creating…" : submitting === "pricing" ? "Getting Price From Sheet…" : "Create Quotation"}
               </button>
             </div>
           </div>
         </Modal>
       )}
 
-      {/* Quotation price modal for existing DRAFT / re-editing price */}
-      {selected && (
-        <Modal title={`${selected.status === "DRAFT" ? "Calculate" : "Edit"} Quotation Price – ${selected.quotationNo}`} onClose={() => !submitting && setSelected(null)}>
-          <div className="space-y-3 pb-3">
-            {Object.keys(initialCosts).map((key) => (
-              <label key={key} className="block">
-                <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">{key.replace(/([A-Z])/g, " $1")}</span>
-                <input
-                  type="number"
-                  value={costs[key]}
-                  onChange={(e) => setCosts({ ...costs, [key]: e.target.value })}
-                  placeholder="0"
-                  className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-[#0a649d] transition bg-white"
-                />
-              </label>
-            ))}
-            <button
-              disabled={Boolean(submitting)}
-              onClick={() => saveQuotationPrice(selected.id)}
-              className="h-12 w-full rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition"
-            >
-              {submitting === "cost" ? "Saving…" : selected.status === "DRAFT" ? "Calculate Price" : "Update Price"}
-            </button>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }
@@ -454,6 +393,74 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
   const [onboardedCustomer, setOnboardedCustomer] = useState(null);
   const alreadyOnboarded = quotation.status === "CONVERTED_TO_CUSTOMER";
 
+  const docRef = useRef(null);
+  const [generatingPdf, setGeneratingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState("");
+  const [pdfFile, setPdfFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [showPreview, setShowPreview] = useState(false);
+
+  async function handlePreviewPdf() {
+    setPdfError("");
+    setGeneratingPdf(true);
+    try {
+      const [{ default: html2canvas }, { default: JsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+      ]);
+
+      const canvas = await html2canvas(docRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
+      const imageData = canvas.toDataURL("image/png");
+
+      const pdf = new JsPDF({ unit: "pt", format: "a4" });
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const imageHeight = (canvas.height * pageWidth) / canvas.width;
+      pdf.addImage(imageData, "PNG", 0, 0, pageWidth, imageHeight);
+
+      const blob = pdf.output("blob");
+      const file = new File([blob], `${quotation.quotationNo}.pdf`, { type: "application/pdf" });
+
+      if (previewUrl) URL.revokeObjectURL(previewUrl);
+      setPdfFile(file);
+      setPreviewUrl(URL.createObjectURL(blob));
+      setShowPreview(true);
+    } catch (err) {
+      setPdfError(err.message || "Could not generate the PDF. Please try again.");
+    } finally {
+      setGeneratingPdf(false);
+    }
+  }
+
+  async function handleShareFilePdf() {
+    if (!pdfFile) return;
+    const shareText = `Lift quotation ${quotation.quotationNo} for ${quotation.customerName} - Final Price ₹${Number(quotation.finalPrice ?? 0).toLocaleString("en-IN")}`;
+
+    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      try {
+        await navigator.share({ files: [pdfFile], title: quotation.quotationNo, text: shareText });
+        setShareStatus("Shared.");
+      } catch {
+        // Cancelled by the user — nothing to report.
+      }
+      return;
+    }
+
+    // This browser can't hand a file to the OS share sheet (common on
+    // desktop browsers) — download it instead so it can be attached manually.
+    handleDownloadPdf();
+    setShareStatus("This browser can't share files directly. PDF downloaded — attach it in WhatsApp manually.");
+  }
+
+  function handleDownloadPdf() {
+    if (!previewUrl) return;
+    const link = document.createElement("a");
+    link.href = previewUrl;
+    link.download = `${quotation.quotationNo}.pdf`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   async function handleOnboardCustomer() {
     setOnboarding(true);
     setOnboardError("");
@@ -468,29 +475,6 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
     } finally {
       setOnboarding(false);
     }
-  }
-
-  function handlePrint() {
-    window.print();
-  }
-
-  async function handleWhatsApp() {
-    const message = buildQuotationMessage(quotation);
-    const phone = getWhatsappPhone(quotation.mobileNo);
-    const waWeb = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    setShareStatus("Opening WhatsApp…");
-    setTimeout(() => setShareStatus(""), 3000);
-    // navigator.share opens the native OS share sheet — user taps WhatsApp and it opens directly
-    if (navigator.share) {
-      try {
-        await navigator.share({ text: message });
-        return;
-      } catch {
-        // Cancelled or not supported — fall through to open in new tab
-      }
-    }
-    // Open in a new tab so the current app page stays intact
-    window.open(waWeb, "_blank");
   }
 
   const specs = [
@@ -527,8 +511,8 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
       </div>
 
       <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
-        {/* BOQ Document Card */}
-        <div className="rounded-3xl bg-white shadow-sm overflow-hidden print:shadow-none print:rounded-none" style={{ boxShadow: "0 4px 24px rgba(15,23,42,0.10)" }}>
+        {/* Quotation Document Card — snapshotted into the shared PDF */}
+        <div ref={docRef} className="rounded-3xl bg-white shadow-sm overflow-hidden print:shadow-none print:rounded-none" style={{ boxShadow: "0 4px 24px rgba(15,23,42,0.10)" }}>
           {/* Company header */}
           <div className="px-6 pt-6 pb-5 border-b border-slate-100" style={{ background: "linear-gradient(135deg, #04182b 0%, #073354 60%, #0a649d 100%)" }}>
             <div className="flex items-start justify-between gap-4">
@@ -624,27 +608,20 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
 
         {/* Action buttons */}
         <div className="mt-4 space-y-2.5 pb-8 print:hidden">
-          {shareStatus && (
-            <p className="rounded-xl bg-emerald-50 border border-emerald-100 p-3 text-xs font-bold text-emerald-700 text-center">{shareStatus}</p>
+          {pdfError && (
+            <p className="rounded-xl bg-red-50 border border-red-100 p-3 text-xs font-bold text-red-700 text-center">{pdfError}</p>
           )}
           <button
-            onClick={handleWhatsApp}
-            className="w-full h-13 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md"
-            style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
-          >
-            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-            </svg>
-            Share on WhatsApp
-          </button>
-          <button
-            onClick={handlePrint}
-            className="w-full h-12 rounded-2xl border-2 border-slate-200 bg-white text-sm font-black text-slate-700 flex items-center justify-center gap-2.5 active:scale-98 transition"
+            onClick={handlePreviewPdf}
+            disabled={generatingPdf}
+            className="w-full h-13 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md disabled:opacity-60"
+            style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}
           >
             <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
             </svg>
-            Print / Download
+            {generatingPdf ? "Preparing PDF…" : "Preview PDF"}
           </button>
           <Link
             href="/admin/quotations"
@@ -732,6 +709,55 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
         </div>
       </main>
 
+      {showPreview && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/80 print:hidden">
+          <div className="flex items-center justify-between bg-[#0a649d] px-4 py-3 text-white">
+            <div>
+              <p className="text-[9px] font-black uppercase tracking-widest text-white/60">PDF Preview</p>
+              <p className="text-sm font-black">{quotation.quotationNo}.pdf</p>
+            </div>
+            <button
+              onClick={() => setShowPreview(false)}
+              className="h-9 w-9 rounded-full bg-white/15 flex items-center justify-center active:bg-white/25 transition"
+              aria-label="Close preview"
+            >
+              <svg className="h-4.5 w-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="flex-1 bg-slate-200">
+            {previewUrl && (
+              <iframe src={previewUrl} title={`${quotation.quotationNo} preview`} className="h-full w-full border-0" />
+            )}
+          </div>
+
+          <div className="space-y-2.5 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            {shareStatus && (
+              <p className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-xs font-bold text-emerald-700 text-center">{shareStatus}</p>
+            )}
+            <p className="text-center text-[11px] font-semibold text-slate-500">
+              This is exactly what the customer will receive. Share it only when you&apos;re ready.
+            </p>
+            <button
+              onClick={handleShareFilePdf}
+              className="w-full h-13 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md"
+              style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
+            >
+              <WhatsAppIcon className="h-5 w-5" />
+              Share to WhatsApp
+            </button>
+            <button
+              onClick={handleDownloadPdf}
+              className="w-full h-11 rounded-2xl border-2 border-slate-200 bg-white text-sm font-black text-slate-700 active:scale-98 transition"
+            >
+              Download PDF
+            </button>
+          </div>
+        </div>
+      )}
+
       <style jsx global>{`
         @media print {
           .print\\:hidden { display: none !important; }
@@ -743,7 +769,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, onViewQuotation, onShared }) {
+function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onShared }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -788,18 +814,20 @@ function QuotationCard({ quotation, index, canGenerate, onGenerate, onEditBoq, o
           )}
           {canGenerate && quotation.status === "DRAFT" && (
             <button
-              onClick={onGenerate}
-              className="h-9 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition"
+              onClick={onRefreshPrice}
+              disabled={busy}
+              className="h-9 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition disabled:opacity-50"
             >
-              Calculate Price
+              {busy ? "Getting Price…" : "Get Price From Sheet"}
             </button>
           )}
           {canGenerate && ["BOQ_GENERATED", "CALCULATED", "SENT"].includes(quotation.status) && (
             <button
-              onClick={onEditBoq}
-              className="h-9 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition"
+              onClick={onRefreshPrice}
+              disabled={busy}
+              className="h-9 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition disabled:opacity-50"
             >
-              Edit Price
+              {busy ? "Refreshing…" : "Refresh Price From Sheet"}
             </button>
           )}
         </div>

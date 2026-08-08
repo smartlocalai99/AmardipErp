@@ -33,7 +33,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const result = await generateBoqForQuotation({ quotationId: req.query.id, actor, costs: req.body || {} });
+    const result = await generateBoqForQuotation({ quotationId: req.query.id, actor });
     await safeAudit({ req, actor, entityType: "QUOTATION", entityId: req.query.id, action: isEdit ? "BOQ_EDITED" : "BOQ_GENERATED", newValues: result.costBreakdown, changedFields: ["costBreakdown", "status"] });
     return res.status(200).json({ success: true, ...result });
   } catch (err) {
