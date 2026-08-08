@@ -76,6 +76,10 @@ const initialForm = {
   doorOpening: "",
 };
 
+function Spinner({ className = "h-4 w-4 border-2" }) {
+  return <span className={`inline-block shrink-0 rounded-full border-white/40 border-t-white animate-spin ${className}`} />;
+}
+
 export async function getServerSideProps({ req }) {
   const user = await getUserFromRequest(req);
   if (!user) return { redirect: { destination: "/Adminlogin", permanent: false } };
@@ -345,6 +349,12 @@ export default function QuotationsPage({ user }) {
           </div>
           <div className="sticky bottom-0 -mx-4 -mb-4 border-t border-slate-100 bg-white/95 p-4 pb-[calc(1rem+env(safe-area-inset-bottom))] backdrop-blur">
             {error && <p className="mb-3 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{error}</p>}
+            {submitting === "pricing" && (
+              <p className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-sky-100 bg-sky-50 p-2.5 text-xs font-bold text-sky-700">
+                <Spinner className="h-3.5 w-3.5 border-sky-200 border-t-sky-600" />
+                Waiting for the sheet to calculate the price — this can take up to 10 seconds.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2.5">
               <button
                 type="button"
@@ -358,10 +368,11 @@ export default function QuotationsPage({ user }) {
                 type="button"
                 disabled={Boolean(submitting)}
                 onClick={createQuotation}
-                className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition shadow-md"
+                className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition shadow-md flex items-center justify-center gap-2"
                 style={{ background: submitting ? "#6b7280" : "linear-gradient(135deg, #073354, #0a649d)" }}
               >
-                {submitting === "generate" ? "Creating…" : submitting === "pricing" ? "Getting Price From Sheet…" : "Create Quotation"}
+                {Boolean(submitting) && <Spinner />}
+                {submitting === "generate" ? "Creating…" : submitting === "pricing" ? "Getting Price…" : "Create Quotation"}
               </button>
             </div>
           </div>
@@ -617,10 +628,14 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
             className="w-full h-13 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md disabled:opacity-60"
             style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}
           >
-            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-            </svg>
+            {generatingPdf ? (
+              <Spinner />
+            ) : (
+              <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            )}
             {generatingPdf ? "Preparing PDF…" : "Preview PDF"}
           </button>
           <Link
@@ -695,8 +710,9 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
                           type="button"
                           disabled={onboarding}
                           onClick={handleOnboardCustomer}
-                          className="mt-3 h-11 w-full rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-98 transition"
+                          className="mt-3 h-11 w-full flex items-center justify-center gap-2 rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-70 active:scale-98 transition"
                         >
+                          {onboarding && <Spinner />}
                           {onboarding ? "Adding Customer…" : "Add Customer"}
                         </button>
                       </div>
@@ -816,8 +832,9 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
             <button
               onClick={onRefreshPrice}
               disabled={busy}
-              className="h-9 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition disabled:opacity-50"
+              className="h-9 flex items-center gap-1.5 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition disabled:opacity-70"
             >
+              {busy && <Spinner className="h-3 w-3 border-white/40 border-t-white" />}
               {busy ? "Getting Price…" : "Get Price From Sheet"}
             </button>
           )}
@@ -825,8 +842,9 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
             <button
               onClick={onRefreshPrice}
               disabled={busy}
-              className="h-9 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition disabled:opacity-50"
+              className="h-9 flex items-center gap-1.5 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition disabled:opacity-70"
             >
+              {busy && <Spinner className="h-3 w-3 border-[#0a649d]/30 border-t-[#0a649d]" />}
               {busy ? "Refreshing…" : "Refresh Price From Sheet"}
             </button>
           )}
