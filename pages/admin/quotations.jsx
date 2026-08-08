@@ -110,7 +110,8 @@ export default function QuotationsPage({ user }) {
   const [submitting, setSubmitting] = useState("");
   // quotationView holds the full quotation object to show in the View Quotation full-screen card
   const [quotationView, setQuotationView] = useState(null);
-  const [autoOpenBoq, setAutoOpenBoq] = useState(false);
+  const [boqView, setBoqView] = useState(null);
+  const [autoPreviewPdf, setAutoPreviewPdf] = useState(false);
   const fieldRefs = useRef({});
   // Guards against double-tap double-submits: React state updates (and the
   // `disabled` attribute they drive) land on the next render, which is too
@@ -243,15 +244,22 @@ export default function QuotationsPage({ user }) {
 
   const frontOffice = user.role === "front_office";
 
+  // Open BOQ is its own simple screen — just the quotation number and the
+  // full sheet row for that one quotation, nothing else.
+  if (boqView) {
+    return <BoqOnlyView quotation={boqView} onBack={() => setBoqView(null)} />;
+  }
+
   // Full-screen View Quotation — the price quotation shared with the
-  // customer, plus Open BOQ (the full underlying sheet row) and Add Customer.
+  // customer, plus Add Customer onboarding.
   if (quotationView) {
     return (
       <QuotationViewCard
         quotation={quotationView}
         canGenerate={canGenerate}
-        autoOpenBoq={autoOpenBoq}
-        onBack={() => { setQuotationView(null); setAutoOpenBoq(false); }}
+        autoPreviewPdf={autoPreviewPdf}
+        onBack={() => { setQuotationView(null); setAutoPreviewPdf(false); }}
+        onOpenBoq={() => setBoqView(quotationView)}
         onOnboarded={(updatedQuotation) => {
           setQuotationView(updatedQuotation);
           load();
@@ -348,7 +356,8 @@ export default function QuotationsPage({ user }) {
                 busy={submitting === `price-${q.id}`}
                 onRefreshPrice={() => refreshPriceFromSheet(q.id)}
                 onViewQuotation={() => setQuotationView(q)}
-                onOpenBoq={() => { setQuotationView(q); setAutoOpenBoq(true); }}
+                onShareQuotation={() => { setQuotationView(q); setAutoPreviewPdf(true); }}
+                onOpenBoq={() => setBoqView(q)}
               />
             ))}
           </div>
@@ -463,44 +472,92 @@ export default function QuotationsPage({ user }) {
   );
 }
 
+// ─── Open BOQ ────────────────────────────────────────────────────────────────
+// Deliberately minimal: the quotation number on top, and nothing below it but
+// that one quotation's full sheet row (every calculated cost column). No
+// price document, no PDF, no onboarding — just the BOQ.
+function BoqOnlyView({ quotation, onBack }) {
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      setError("");
+      try {
+        const res = await fetch(`/api/quotations/${quotation.id}/boq-row`);
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error(data.message || "Failed to open BOQ");
+        if (!cancelled) setRows(data.rows);
+      } catch (err) {
+        if (!cancelled) setError(err.message || "Failed to open BOQ");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, [quotation.id]);
+
+  return (
+    <div className="min-h-screen bg-[#eef2f7]">
+      <div className="sticky top-0 z-20 bg-[#0a649d] px-4 pt-safe-top">
+        <div className="flex items-center gap-3 py-4">
+          <button
+            onClick={onBack}
+            className="h-9 w-9 shrink-0 rounded-xl bg-white/15 flex items-center justify-center active:bg-white/25 transition"
+          >
+            <svg className="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div className="min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-widest text-white/60">Full BOQ</p>
+            <h1 className="truncate text-lg font-black text-white">{quotation.quotationNo}</h1>
+          </div>
+        </div>
+      </div>
+
+      <main className="mx-auto max-w-2xl p-4">
+        {loading && (
+          <p className="rounded-3xl bg-white p-8 text-center text-xs font-bold text-slate-400">Loading BOQ…</p>
+        )}
+        {error && (
+          <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>
+        )}
+        {rows && (
+          <div className="divide-y divide-slate-100 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            {rows.map(({ heading, value }) => (
+              <div key={heading} className="flex items-center justify-between gap-3 py-3 text-sm">
+                <span className="font-bold text-slate-500">{heading}</span>
+                <span className="max-w-[55%] text-right font-black text-slate-900">{value || "—"}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
 // ─── Full-screen View Quotation Card ────────────────────────────────────────
-// This is the customer-facing price quotation. "Open BOQ" below shows the
-// full underlying sheet row (every calculated cost column), and "Add
+// This is the customer-facing price quotation. "Open BOQ" is its own simple
+// screen (see BoqOnlyView) with the full underlying sheet row, and "Add
 // Customer" onboards the quotation into the real customer master once the
 // customer has accepted on a call.
-function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, autoOpenBoq = false }) {
+function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpenBoq, autoPreviewPdf = false }) {
   const [shareStatus, setShareStatus] = useState("");
-  const [showBoq, setShowBoq] = useState(false);
-  const [boqRows, setBoqRows] = useState(null);
-  const [boqLoading, setBoqLoading] = useState(false);
-  const [boqError, setBoqError] = useState("");
   const [onboarding, setOnboarding] = useState(false);
   const [onboardError, setOnboardError] = useState("");
   const [onboardedCustomer, setOnboardedCustomer] = useState(null);
   const alreadyOnboarded = quotation.status === "CONVERTED_TO_CUSTOMER";
   const onboardInFlightRef = useRef(false);
-
-  useEffect(() => {
-    if (autoOpenBoq) handleOpenBoq();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function handleOpenBoq() {
-    setShowBoq(true);
-    if (boqRows) return; // already fetched
-    setBoqLoading(true);
-    setBoqError("");
-    try {
-      const res = await fetch(`/api/quotations/${quotation.id}/boq-row`);
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Failed to open BOQ");
-      setBoqRows(data.rows);
-    } catch (err) {
-      setBoqError(err.message || "Failed to open BOQ");
-    } finally {
-      setBoqLoading(false);
-    }
-  }
 
   const docRef = useRef(null);
   const [generatingPdf, setGeneratingPdf] = useState(false);
@@ -508,6 +565,11 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, autoOp
   const [pdfFile, setPdfFile] = useState(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [showPreview, setShowPreview] = useState(false);
+
+  useEffect(() => {
+    if (autoPreviewPdf) handlePreviewPdf();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handlePreviewPdf() {
     setPdfError("");
@@ -750,40 +812,14 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, autoOp
             <div className="pt-2 space-y-3">
               <button
                 type="button"
-                onClick={handleOpenBoq}
-                disabled={boqLoading}
-                className="w-full h-12 rounded-2xl border-2 border-[#0a649d]/30 bg-[#0a649d]/5 text-sm font-black text-[#0a649d] flex items-center justify-center gap-2.5 active:scale-98 transition disabled:opacity-70"
+                onClick={onOpenBoq}
+                className="w-full h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md"
               >
-                {boqLoading ? (
-                  <Spinner className="h-4 w-4 border-[#0a649d]/30 border-t-[#0a649d]" />
-                ) : (
-                  <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                  </svg>
-                )}
-                {boqLoading ? "Opening BOQ…" : showBoq ? "Hide BOQ" : "Open BOQ"}
+                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                </svg>
+                Open BOQ
               </button>
-
-              {showBoq && (
-                <div className="rounded-2xl border border-slate-200 bg-white p-4">
-                  <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">
-                    Full BOQ {quotation.sheetRow ? `- Sheet Row ${quotation.sheetRow}` : ""}
-                  </p>
-                  {boqError && (
-                    <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{boqError}</p>
-                  )}
-                  {boqRows && (
-                    <div className="mt-2 divide-y divide-slate-50">
-                      {boqRows.map(({ heading, value }) => (
-                        <div key={heading} className="flex items-center justify-between gap-3 py-2 text-[11px]">
-                          <span className="font-bold text-slate-500">{heading}</span>
-                          <span className="max-w-[55%] text-right font-black text-slate-900">{value || "—"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
 
               <div className="border-t border-slate-200 pt-4">
                 <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Customer accepted on a call?</p>
@@ -887,7 +923,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, autoOp
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onOpenBoq }) {
+function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onShareQuotation, onOpenBoq }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -921,6 +957,16 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
               View Quotation
             </button>
           )}
+          {shareEnabled && (
+            <button
+              onClick={onShareQuotation}
+              className="h-9 flex items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-white active:scale-95 transition"
+              style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
+            >
+              <WhatsAppIcon className="h-3.5 w-3.5" />
+              Share Quotation
+            </button>
+          )}
           {canGenerate && quotation.status === "DRAFT" && (
             <button
               onClick={onRefreshPrice}
@@ -946,7 +992,7 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
       {canGenerate && shareEnabled && (
         <button
           onClick={onOpenBoq}
-          className="mt-2 h-10 w-full rounded-xl border border-[#0a649d]/30 bg-[#0a649d]/5 text-xs font-black text-[#0a649d] active:scale-95 transition"
+          className="mt-2 h-10 w-full rounded-xl bg-[#0a649d] text-xs font-black text-white active:scale-95 transition shadow-sm"
         >
           Open BOQ
         </button>
