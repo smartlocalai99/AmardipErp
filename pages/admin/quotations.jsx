@@ -96,7 +96,6 @@ export async function getServerSideProps({ req }) {
 export default function QuotationsPage({ user }) {
   const [quotations, setQuotations] = useState([]);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [total, setTotal] = useState(0);
@@ -125,7 +124,6 @@ export default function QuotationsPage({ user }) {
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
       if (search) params.set("search", search);
-      if (status) params.set("status", status);
       const res = await fetch(`/api/quotations?${params.toString()}`);
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to load quotations");
@@ -142,7 +140,7 @@ export default function QuotationsPage({ user }) {
   useEffect(() => {
     const timer = setTimeout(load, 250);
     return () => clearTimeout(timer);
-  }, [search, status, page, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, page, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-set serial number when creating form opens — uses the real total
   // count, not the current page's length, since the list is now paginated.
@@ -304,16 +302,6 @@ export default function QuotationsPage({ user }) {
             placeholder="Search by name, mobile, quotation no…"
             className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
           />
-          <select
-            value={status}
-            onChange={(e) => { setPage(1); setStatus(e.target.value); }}
-            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
-          >
-            <option value="">All statuses</option>
-            {["DRAFT", "BOQ_GENERATED", "CALCULATED", "SENT", "ACCEPTED", "REJECTED", "CONVERTED_TO_CUSTOMER"].map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
           <select
             value={pageSize}
             onChange={(e) => { setPage(1); setPageSize(Number(e.target.value)); }}
@@ -946,13 +934,23 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
         <p>Passenger: <span className="text-slate-800">{quotation.noOfPassenger}</span></p>
       </div>
       <p className="mt-2 text-[11px] text-slate-400 truncate">{quotation.doorType} · {quotation.cabinType}</p>
-      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3">
+      <div className="mt-3 border-t border-slate-100 pt-3">
         <p className="text-sm font-black text-slate-900">{quotation.finalPrice ? `₹${formatRupees(quotation.finalPrice)}` : "—"}</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {canGenerate && quotation.status === "DRAFT" && (
+            <button
+              onClick={onRefreshPrice}
+              disabled={busy}
+              className="col-span-2 h-10 flex items-center justify-center gap-1.5 rounded-xl bg-[#0a649d] text-xs font-bold text-white active:scale-95 transition disabled:opacity-70"
+            >
+              {busy && <Spinner className="h-3 w-3 border-white/40 border-t-white" />}
+              {busy ? "Getting Price…" : "Get Price From Sheet"}
+            </button>
+          )}
           {shareEnabled && (
             <button
               onClick={onViewQuotation}
-              className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-700 active:scale-95 transition"
+              className="h-10 rounded-xl border border-slate-200 text-xs font-bold text-slate-700 active:scale-95 transition"
             >
               View Quotation
             </button>
@@ -960,43 +958,23 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
           {shareEnabled && (
             <button
               onClick={onShareQuotation}
-              className="h-9 flex items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-white active:scale-95 transition"
+              className="h-10 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold text-white active:scale-95 transition"
               style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
             >
               <WhatsAppIcon className="h-3.5 w-3.5" />
               Share Quotation
             </button>
           )}
-          {canGenerate && quotation.status === "DRAFT" && (
+          {canGenerate && shareEnabled && (
             <button
-              onClick={onRefreshPrice}
-              disabled={busy}
-              className="h-9 flex items-center gap-1.5 rounded-xl bg-[#0a649d] px-3 text-xs font-bold text-white active:scale-95 transition disabled:opacity-70"
+              onClick={onOpenBoq}
+              className="col-span-2 h-10 rounded-xl bg-[#0a649d] text-xs font-black text-white active:scale-95 transition shadow-sm"
             >
-              {busy && <Spinner className="h-3 w-3 border-white/40 border-t-white" />}
-              {busy ? "Getting Price…" : "Get Price From Sheet"}
-            </button>
-          )}
-          {canGenerate && ["BOQ_GENERATED", "CALCULATED", "SENT"].includes(quotation.status) && (
-            <button
-              onClick={onRefreshPrice}
-              disabled={busy}
-              className="h-9 flex items-center gap-1.5 rounded-xl border border-[#0a649d]/30 px-3 text-xs font-bold text-[#0a649d] active:scale-95 transition disabled:opacity-70"
-            >
-              {busy && <Spinner className="h-3 w-3 border-[#0a649d]/30 border-t-[#0a649d]" />}
-              {busy ? "Refreshing…" : "Refresh Price From Sheet"}
+              Open BOQ
             </button>
           )}
         </div>
       </div>
-      {canGenerate && shareEnabled && (
-        <button
-          onClick={onOpenBoq}
-          className="mt-2 h-10 w-full rounded-xl bg-[#0a649d] text-xs font-black text-white active:scale-95 transition shadow-sm"
-        >
-          Open BOQ
-        </button>
-      )}
     </div>
   );
 }

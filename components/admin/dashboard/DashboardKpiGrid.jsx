@@ -284,15 +284,6 @@ export default function DashboardKpiGrid({
           />
 
           <KpiCard
-            title={"Open\nComplaints"}
-            value={kpiCounts?.openComplaints ?? 0}
-            icon={<AlertIcon className="h-4 w-4" />}
-            accent="bg-red-50 text-red-500"
-            onClick={() => setActiveTab("complaints")}
-            enabled={isLive("complaints")}
-          />
-
-          <KpiCard
             title={"Technician\nStatus"}
             value={`${kpiCounts?.availTechnicians ?? 0}/${kpiCounts?.totalTechnicians ?? 0}`}
             body="Available / Total"
