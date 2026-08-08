@@ -110,6 +110,7 @@ export default function QuotationsPage({ user }) {
   const [submitting, setSubmitting] = useState("");
   // quotationView holds the full quotation object to show in the View Quotation full-screen card
   const [quotationView, setQuotationView] = useState(null);
+  const [autoOpenBoq, setAutoOpenBoq] = useState(false);
   const fieldRefs = useRef({});
   // Guards against double-tap double-submits: React state updates (and the
   // `disabled` attribute they drive) land on the next render, which is too
@@ -242,15 +243,15 @@ export default function QuotationsPage({ user }) {
 
   const frontOffice = user.role === "front_office";
 
-  // Full-screen View Quotation — the price quotation shared with the customer.
-  // This is not the Bill of Quantities (see the separate "Generate BOQ" action
-  // on this screen, which is a not-yet-built future feature).
+  // Full-screen View Quotation — the price quotation shared with the
+  // customer, plus Open BOQ (the full underlying sheet row) and Add Customer.
   if (quotationView) {
     return (
       <QuotationViewCard
         quotation={quotationView}
         canGenerate={canGenerate}
-        onBack={() => setQuotationView(null)}
+        autoOpenBoq={autoOpenBoq}
+        onBack={() => { setQuotationView(null); setAutoOpenBoq(false); }}
         onOnboarded={(updatedQuotation) => {
           setQuotationView(updatedQuotation);
           load();
@@ -347,6 +348,7 @@ export default function QuotationsPage({ user }) {
                 busy={submitting === `price-${q.id}`}
                 onRefreshPrice={() => refreshPriceFromSheet(q.id)}
                 onViewQuotation={() => setQuotationView(q)}
+                onOpenBoq={() => { setQuotationView(q); setAutoOpenBoq(true); }}
               />
             ))}
           </div>
@@ -466,7 +468,7 @@ export default function QuotationsPage({ user }) {
 // full underlying sheet row (every calculated cost column), and "Add
 // Customer" onboards the quotation into the real customer master once the
 // customer has accepted on a call.
-function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
+function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, autoOpenBoq = false }) {
   const [shareStatus, setShareStatus] = useState("");
   const [showBoq, setShowBoq] = useState(false);
   const [boqRows, setBoqRows] = useState(null);
@@ -477,6 +479,11 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
   const [onboardedCustomer, setOnboardedCustomer] = useState(null);
   const alreadyOnboarded = quotation.status === "CONVERTED_TO_CUSTOMER";
   const onboardInFlightRef = useRef(false);
+
+  useEffect(() => {
+    if (autoOpenBoq) handleOpenBoq();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleOpenBoq() {
     setShowBoq(true);
@@ -880,7 +887,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded }) {
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation }) {
+function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onOpenBoq }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -936,6 +943,14 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
           )}
         </div>
       </div>
+      {canGenerate && shareEnabled && (
+        <button
+          onClick={onOpenBoq}
+          className="mt-2 h-10 w-full rounded-xl border border-[#0a649d]/30 bg-[#0a649d]/5 text-xs font-black text-[#0a649d] active:scale-95 transition"
+        >
+          Open BOQ
+        </button>
+      )}
     </div>
   );
 }
