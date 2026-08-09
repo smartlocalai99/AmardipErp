@@ -43,6 +43,9 @@ export default async function handler(req, res) {
     const offset = (page - 1) * pageSize;
     const search = String(req.query.search || "").trim();
     const status = String(req.query.status || "").trim();
+    const validDueFilters = new Set(["this_month", "next_month", "expired"]);
+    const dueFilterRaw = String(req.query.dueFilter || "").trim().toLowerCase();
+    const dueFilter = validDueFilters.has(dueFilterRaw) ? dueFilterRaw : "";
 
     const params = [];
     const whereParts = [];
@@ -86,12 +89,40 @@ export default async function handler(req, res) {
       whereParts.push(`UPPER(TRIM(customer_status)) = $${params.length}`);
     }
 
+    if (dueFilter === "expired") {
+      whereParts.push(`due_date IS NOT NULL AND due_date < CURRENT_DATE`);
+    } else if (dueFilter === "this_month") {
+      whereParts.push(`due_date IS NOT NULL AND date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE)`);
+    } else if (dueFilter === "next_month") {
+      whereParts.push(`due_date IS NOT NULL AND date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE + INTERVAL '1 month')`);
+    }
+
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
+    // Dates are free-text from import (some invalid, e.g. 31/11/2026), so this
+    // mirrors the defensive ISO-format check already used in amc-stats.js.
+    // Computed once in a CTE so both the count and the page of rows — and the
+    // dueFilter/urgency ordering below — can filter/sort on the same value.
+    const scopedCte = `
+      WITH scoped AS (
+        SELECT
+          *,
+          CASE
+            WHEN amc_warranty_due IS NOT NULL AND amc_warranty_due::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              THEN amc_warranty_due::text::date
+            WHEN amc_ending_date IS NOT NULL AND amc_ending_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+              THEN amc_ending_date::text::date
+            ELSE NULL
+          END AS due_date
+        FROM elevator_service_customers
+      )
+    `;
 
     const countResult = await query(
       `
+      ${scopedCte}
       SELECT COUNT(*)::int AS total
-      FROM elevator_service_customers
+      FROM scoped
       ${whereSql}
       `,
       params
@@ -102,12 +133,11 @@ export default async function handler(req, res) {
     const limitParam = params.length + 1;
     const offsetParam = params.length + 2;
 
-    // For AMC/EMC/Warranty views, surface the most urgent contracts first:
-    // expiring this month, then next month, then already-expired, then active.
-    // Dates are free-text from import (some invalid, e.g. 31/11/2026), so this
-    // mirrors the defensive ISO-format check already used in amc-stats.js.
+    // For AMC/EMC/Warranty views (or any due-date bucket), surface the most
+    // urgent contracts first: expiring this month, then next month, then
+    // already-expired, then active.
     const urgencyStatuses = new Set(["AMC", "EMC", "WARRANTY"]);
-    const useUrgencyOrder = urgencyStatuses.has(status.toUpperCase());
+    const useUrgencyOrder = urgencyStatuses.has(status.toUpperCase()) || Boolean(dueFilter);
 
     const orderBySql = useUrgencyOrder
       ? `
@@ -131,45 +161,15 @@ export default async function handler(req, res) {
 
     const dataResult = await query(
       `
-      SELECT * FROM (
-        SELECT
-          id,
-          record_no,
-          customer_code,
-          customer_name,
-          address,
-          city,
-          mobile_no,
-          hoc_date,
-          customer_status,
-          amc_warranty_due,
-          amc_starting_date,
-          amc_ending_date,
-          no_of_passenger,
-          door_type,
-          cabin,
-          no_of_floors,
-          motor_make,
-          controller_make,
-          drive_make,
-          ard_make,
-          drive_model_no,
-          motor_model_no,
-          elevator_type,
-          door_make,
-          remarks,
-          created_at,
-          updated_at,
-          CASE
-            WHEN amc_warranty_due IS NOT NULL AND amc_warranty_due::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-              THEN amc_warranty_due::text::date
-            WHEN amc_ending_date IS NOT NULL AND amc_ending_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-              THEN amc_ending_date::text::date
-            ELSE NULL
-          END AS due_date
-        FROM elevator_service_customers
-        ${whereSql}
-      ) AS scoped
+      ${scopedCte}
+      SELECT
+        id, record_no, customer_code, customer_name, address, city, mobile_no,
+        hoc_date, customer_status, amc_warranty_due, amc_starting_date, amc_ending_date,
+        no_of_passenger, door_type, cabin, no_of_floors, motor_make, controller_make,
+        drive_make, ard_make, drive_model_no, motor_model_no, elevator_type, door_make,
+        remarks, created_at, updated_at, due_date
+      FROM scoped
+      ${whereSql}
       ${orderBySql}
       LIMIT $${limitParam}
       OFFSET $${offsetParam}

@@ -33,6 +33,9 @@ export default async function handler(req, res) {
         COUNT(*) FILTER (
           WHERE date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE)
         )::int AS due_this_month,
+        COUNT(*) FILTER (
+          WHERE date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE + INTERVAL '1 month')
+        )::int AS due_next_month,
         COUNT(*) FILTER (WHERE UPPER(TRIM(customer_status)) = 'AMC')::int AS status_amc,
         COUNT(*) FILTER (WHERE due_date IS NULL)::int AS no_date
       FROM dated
@@ -46,6 +49,7 @@ export default async function handler(req, res) {
         expired: row.expired || 0,
         dueIn30: row.due_in_30 || 0,
         dueThisMonth: row.due_this_month || 0,
+        dueNextMonth: row.due_next_month || 0,
         statusAmc: row.status_amc || 0,
         noDate: row.no_date || 0,
       },

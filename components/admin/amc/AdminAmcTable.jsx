@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
-import { cachedGetJson } from "@/lib/cachedFetch";
 
 const AMC_COLUMNS = [
   { key: "record_no", label: "Record No" },
@@ -112,9 +111,8 @@ function Pager({ pagination, page, setPage }) {
   );
 }
 
-export default function AdminAmcTable({ user, embedded = false, returnTo = "/admin/amc" }) {
+export default function AdminAmcTable({ user, embedded = false, returnTo = "/admin/amc", filterMode = "amc" }) {
   const router = useRouter();
-  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [searchInput, setSearchInput] = useState("");
@@ -123,6 +121,9 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
   const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+
+  const filterModeLabel =
+    filterMode === "expired" ? "expired AMC" : filterMode === "this_month" ? "expiring this month" : filterMode === "next_month" ? "expiring next month" : "active AMC";
 
   const visibleFrom = useMemo(() => {
     if (!pagination || pagination.total === 0) return 0;
@@ -144,6 +145,11 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
   }, [searchInput]);
 
   useEffect(() => {
+    const timer = setTimeout(() => setPage(1), 0);
+    return () => clearTimeout(timer);
+  }, [filterMode]);
+
+  useEffect(() => {
     const controller = new AbortController();
 
     async function fetchAmcCustomers() {
@@ -154,20 +160,20 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
         const params = new URLSearchParams({
           page: String(page),
           pageSize: String(pageSize),
-          status: "AMC",
         });
+        if (filterMode === "amc") {
+          params.set("status", "AMC");
+        } else {
+          params.set("dueFilter", filterMode);
+        }
 
         if (search) params.set("search", search);
 
-        const data = await cachedGetJson(`/api/elevator-customers?${params.toString()}`, {
-          cacheKey: `amc_${params.toString()}`,
-          ttlMs: 5 * 60 * 1000,
-          user: userCacheKey,
-          fetchOptions: { signal: controller.signal },
-          onNetworkStart: () => setLoading(true),
-        });
-
-        if (!data.success) {
+        // Real-time AMC data, no client cache — an admin renewing a contract
+        // or completing a service needs the list to reflect that immediately.
+        const response = await fetch(`/api/elevator-customers?${params.toString()}`, { signal: controller.signal });
+        const data = await response.json();
+        if (!response.ok || !data.success) {
           throw new Error(data.message || "Failed to load AMC customers");
         }
 
@@ -185,7 +191,7 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
     fetchAmcCustomers();
 
     return () => controller.abort();
-  }, [page, pageSize, search, userCacheKey]);
+  }, [page, pageSize, search, filterMode]);
 
   function openCustomer(customer) {
     if (!customer?.id) return;
@@ -228,7 +234,7 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
                 <CountSkeleton />
               ) : (
                 <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} active AMC records
+                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} {filterModeLabel} records
                 </p>
               )}
             </div>
@@ -271,7 +277,13 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
 
         {!loading && !error && customers.length === 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-sm font-bold text-slate-500 shadow-sm">
-            No active AMC customers found.
+            {filterMode === "expired"
+              ? "No expired AMC contracts."
+              : filterMode === "this_month"
+              ? "Nothing expiring this month."
+              : filterMode === "next_month"
+              ? "Nothing expiring next month."
+              : "No active AMC customers found."}
           </div>
         )}
 

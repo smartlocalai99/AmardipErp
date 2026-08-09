@@ -15,12 +15,11 @@ import {
     buildStaffFromUsers,
     buildTechniciansFromUsers,
     buildUpcomingActivities,
-    buildUpcomingVisits,
     formatUserRole,
 } from "@/lib/adminDashboardData";
 import { browserSupportsPasskeys, startPasskeyRegistration } from "@/lib/passkeyClient";
 import { useRouter } from "next/router";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
 
 export async function getServerSideProps(context) {
@@ -220,9 +219,9 @@ function AmcStatStrip({ stats, loading }) {
             dot: "bg-amber-400",
         },
         {
-            label: "Next 30 Days",
-            value: stats?.dueIn30 ?? "—",
-            sub: "Expiring soon",
+            label: "Next Month",
+            value: stats?.dueNextMonth ?? "—",
+            sub: "AMC due next month",
             color: "bg-sky-50 border-sky-100 text-sky-700",
             dot: "bg-sky-400",
         },
@@ -234,7 +233,7 @@ function AmcStatStrip({ stats, loading }) {
             dot: "bg-red-400",
         },
         {
-            label: "Active AMC",
+            label: "AMC",
             value: stats?.statusAmc ?? "—",
             sub: "Status = AMC",
             color: "bg-emerald-50 border-emerald-100 text-emerald-700",
@@ -433,6 +432,9 @@ function AdmindashboardShell({ user }) {
     const [upcomingServiceLoading, setUpcomingServiceLoading] = useState(false);
     const [amcStats, setAmcStats] = useState(null);
     const [amcStatsLoading, setAmcStatsLoading] = useState(false);
+    const [amcFilterMode, setAmcFilterMode] = useState("amc");
+    const [notifyingAmc, setNotifyingAmc] = useState(false);
+    const [notifyAmcResult, setNotifyAmcResult] = useState(null);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -505,6 +507,21 @@ function AdmindashboardShell({ user }) {
     const serviceStats = adminAppData.serviceStats || fallbackServiceStats;
     const dashboardStatsLoading = adminAppData.loading && !adminAppData.customerStats && !adminAppData.serviceStats;
     const moduleAvailability = adminAppData.moduleAvailability || {};
+
+    // AdminAppDataProvider only fetches once on mount. Re-pull live counts
+    // (Upcoming Services, AMC, etc.) every time the admin comes back to the
+    // dashboard tab, e.g. after completing a service or renewing an AMC
+    // elsewhere in the app, so the numbers shown are never stale.
+    const isFirstDashboardEffectRunRef = useRef(true);
+    useEffect(() => {
+        if (isFirstDashboardEffectRunRef.current) {
+            isFirstDashboardEffectRunRef.current = false;
+            return; // the provider already fetched once on its own mount
+        }
+        if (activeTab !== "dashboard") return;
+        adminAppData.refreshAdminData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTab]);
     const moduleIsLive = (key) => moduleAvailability?.[key]?.enabled !== false;
     const waitingModule = (title, key, fallbackReason) => (
         <ModuleComingSoon
@@ -693,7 +710,6 @@ function AdmindashboardShell({ user }) {
     }
 
     async function fetchAmcStats() {
-        if (amcStats) return; // already loaded
         setAmcStatsLoading(true);
         try {
             const res = await fetch("/api/elevator-customers/amc-stats");
@@ -701,6 +717,22 @@ function AdmindashboardShell({ user }) {
             if (data.success) setAmcStats(data.stats);
         } catch {}
         finally { setAmcStatsLoading(false); }
+    }
+
+    async function notifyExpiringNextMonth() {
+        if (notifyingAmc) return;
+        setNotifyingAmc(true);
+        setNotifyAmcResult(null);
+        try {
+            const res = await fetch("/api/elevator-customers/notify-expiring", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ bucket: "next_month" }),
+            });
+            const data = await res.json();
+            if (data.success) setNotifyAmcResult(data);
+        } catch {}
+        finally { setNotifyingAmc(false); }
     }
 
     useEffect(() => {
@@ -809,12 +841,6 @@ function AdmindashboardShell({ user }) {
         if (activeTab !== "more") return;
         if (moreSubTab === "inventory") fetchInventoryItems();
     }, [activeTab, moreSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
-
-    // Upcoming AMC Visits
-    const amcVisits = useMemo(
-        () => buildUpcomingVisits(adminAppData.upcomingPreview),
-        [adminAppData.upcomingPreview]
-    );
 
     // Technician availability list
     const [technicians, setTechnicians] = useState([]);
@@ -1326,92 +1352,7 @@ function AdmindashboardShell({ user }) {
                                 complaintStats={complaintStats}
                             />
 
-                            {/* Section 1: Today's Activities */}
-                            {moduleIsLive("servicePlanner") ? (
-                            <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-[13px] font-bold text-slate-900">Today&apos;s Activities</h3>
-                                    <span className="text-[10px] font-medium text-slate-400">{activities.length} events</span>
-                                </div>
-                                <div className="space-y-4">
-                                    {activities.map(a => (
-                                        <div key={a.id} className="flex gap-3.5 items-start">
-                                            <div className="text-center w-16 shrink-0 pt-0.5">
-                                                <p className="text-[11px] font-bold text-[#0a649d] leading-none tabular-nums">{a.time}</p>
-                                                <p className="text-[9px] font-medium text-slate-400 mt-0.5 uppercase">Service</p>
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-[12px] font-semibold text-slate-800 truncate">{a.type}</p>
-                                                <p className="text-[11px] text-slate-400 mt-0.5 truncate">{a.site}</p>
-                                            </div>
-                                            <span className={`shrink-0 text-[9px] font-bold px-2 py-1 rounded-lg ${a.status === "In Progress" ? "bg-red-50 text-red-700" : a.status === "Scheduled" ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-700"}`}>
-                                                {a.status}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            ) : (
-                                waitingModule("Today's Activities", "servicePlanner", "Waiting for service planning data")
-                            )}
-
-                            {/* Section 2: Recent Complaints */}
-                            <div className="rounded-[22px] bg-white p-5 space-y-3" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-[13px] font-bold text-slate-900">Recent Complaints</h3>
-                                    <button onClick={() => openTab("complaints")} className="text-[10px] font-semibold text-[#0a649d]">View all</button>
-                                </div>
-                                <div className="space-y-2">
-                                    {complaintsLoading && complaints.length === 0 ? (
-                                        <p className="text-center text-xs text-slate-400 py-5">Loading complaints...</p>
-                                    ) : complaints.slice(0, 3).length === 0 ? (
-                                        <p className="text-center text-xs text-slate-400 py-5">No real complaints yet.</p>
-                                    ) : complaints.slice(0, 3).map(c => (
-                                        <div
-                                            key={c.id}
-                                            onClick={() => openComplaintDetails(c)}
-                                            className="flex items-center justify-between p-3.5 rounded-2xl bg-slate-50 active:scale-[0.98] transition-transform cursor-pointer"
-                                        >
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="text-[12px] font-bold text-slate-900">{c.complaintNo}</span>
-                                                    <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${c.priority === "EMERGENCY" ? "bg-red-50 border-red-100 text-red-700" : "bg-slate-50 border-slate-100 text-slate-600"}`}>{c.priority}</span>
-                                                </div>
-                                                <p className="text-[11px] text-slate-400 mt-0.5 truncate">{c.customerName}</p>
-                                            </div>
-                                            <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-xl border ${complaintStatusClass(c.status)}`}>
-                                                {c.status}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Section 3: Upcoming AMC Visits */}
-                            <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
-                                <h3 className="text-[13px] font-bold text-slate-900">Upcoming AMC Visits</h3>
-                                <div className="space-y-4">
-                                    {amcVisits.map(v => (
-                                        <div key={v.id} className="flex justify-between items-center gap-3">
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-[12px] font-semibold text-slate-800 truncate">{v.customer}</p>
-                                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">{v.building}</p>
-                                                <p className="text-[10px] font-medium text-slate-500 mt-1">Due <span className="text-slate-700">{v.dueDate}</span></p>
-                                            </div>
-                                            {v.phone ? (
-                                                <a href={`tel:${v.phone.replace(/\D/g, "").length === 10 ? "+91" + v.phone.replace(/\D/g, "") : v.phone}`} className="h-9 px-3.5 rounded-xl flex items-center justify-center gap-1.5 active:scale-90 transition-transform text-[11px] font-bold text-white shrink-0" style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}>
-                                                    <PhoneIcon className="h-3.5 w-3.5" />
-                                                    Call
-                                                </a>
-                                            ) : (
-                                                <span className="h-9 px-3.5 rounded-xl flex items-center justify-center text-[10px] font-bold text-slate-400 bg-slate-100 shrink-0">No number</span>
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* Section 4: Technician Status */}
+                            {/* Technician Status */}
                             <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
                                 <div className="flex items-center justify-between">
                                     <h3 className="text-[13px] font-bold text-slate-900">Technician Status</h3>
@@ -1980,9 +1921,78 @@ function AdmindashboardShell({ user }) {
                                             <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
                                         </button>
                                         <div>
-                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Active AMCs</h1>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">AMC</h1>
                                             <p className="text-[10px] text-slate-500 mt-0.5">Real AMC customer records.</p>
                                         </div>
+                                    </div>
+
+                                    {!amcStatsLoading && (amcStats?.dueThisMonth ?? 0) > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setAmcFilterMode("this_month")}
+                                            className="w-full rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left active:scale-[0.99] transition"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                                                    <AlertIcon className="h-5 w-5 text-amber-600" />
+                                                </div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-black text-amber-900">
+                                                        {amcStats.dueThisMonth} AMC {amcStats.dueThisMonth === 1 ? "contract" : "contracts"} expiring this month
+                                                    </p>
+                                                    <p className="text-[11px] font-semibold text-amber-700 mt-0.5">Tap to see the list</p>
+                                                </div>
+                                                <ChevronRightIcon className="h-4 w-4 text-amber-500 shrink-0" />
+                                            </div>
+                                        </button>
+                                    )}
+
+                                    <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-xl bg-sky-100 flex items-center justify-center shrink-0">
+                                                <BellIcon className="h-5 w-5 text-sky-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-black text-sky-900">
+                                                    {amcStatsLoading ? "—" : amcStats?.dueNextMonth ?? 0} expiring next month
+                                                </p>
+                                                <p className="text-[11px] font-semibold text-sky-700 mt-0.5">Send a renewal reminder to their Amardip app</p>
+                                            </div>
+                                        </div>
+                                        {notifyAmcResult && (
+                                            <p className="mt-3 rounded-xl border border-sky-100 bg-white/70 p-2.5 text-[11px] font-bold text-sky-800">
+                                                Notified {notifyAmcResult.notified} of {notifyAmcResult.matchedAccounts} customer{notifyAmcResult.matchedAccounts === 1 ? "" : "s"} with the app installed
+                                                {notifyAmcResult.totalDue > notifyAmcResult.matchedAccounts
+                                                    ? ` — ${notifyAmcResult.totalDue - notifyAmcResult.matchedAccounts} of them don't have an account yet.`
+                                                    : "."}
+                                            </p>
+                                        )}
+                                        <button
+                                            type="button"
+                                            disabled={notifyingAmc || !((amcStats?.dueNextMonth ?? 0) > 0)}
+                                            onClick={notifyExpiringNextMonth}
+                                            className="mt-3 h-10 w-full flex items-center justify-center gap-2 rounded-xl bg-sky-600 text-xs font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                        >
+                                            {notifyingAmc && <span className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-white/40 border-t-white animate-spin" />}
+                                            {notifyingAmc ? "Sending…" : "Notify Customers"}
+                                        </button>
+                                    </div>
+
+                                    <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
+                                        {[
+                                            ["this_month", "This Month"],
+                                            ["next_month", "Next Month"],
+                                            ["expired", "Expired"],
+                                            ["amc", "AMC"],
+                                        ].map(([mode, label]) => (
+                                            <button
+                                                key={mode}
+                                                onClick={() => setAmcFilterMode(mode)}
+                                                className={`amardip-filter-chip shrink-0 ${amcFilterMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"}`}
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
                                     </div>
 
                                     <AmcStatStrip stats={amcStats} loading={amcStatsLoading} />
@@ -1991,6 +2001,7 @@ function AdmindashboardShell({ user }) {
                                         user={user}
                                         embedded
                                         returnTo="/Admindashboard?tab=more&subtab=amc"
+                                        filterMode={amcFilterMode}
                                     />
                                 </div>
                             ) : moreSubTab === "serviceVisits" ? (

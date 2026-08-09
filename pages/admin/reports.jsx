@@ -379,7 +379,7 @@ export default function AdminReportsPage({ user }) {
         <div className="mx-auto flex max-w-7xl items-center gap-3">
           <button
             type="button"
-            onClick={() => router.back()}
+            onClick={() => router.push("/Admindashboard")}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/15 text-white active:scale-95"
             aria-label="Go back"
           >

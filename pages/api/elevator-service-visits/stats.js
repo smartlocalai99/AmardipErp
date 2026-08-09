@@ -3,8 +3,6 @@ import { query } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
-const CACHE_TTL_MS = 5 * 60 * 1000;
-let statsCache = null;
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -29,11 +27,6 @@ export default async function handler(req, res) {
         success: false,
         message: "Not allowed",
       });
-    }
-
-    if (statsCache && Date.now() - statsCache.at < CACHE_TTL_MS) {
-      res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
-      return res.status(200).json(statsCache.payload);
     }
 
     await ensureServiceSchedulesTable();
@@ -109,8 +102,7 @@ export default async function handler(req, res) {
       },
     };
 
-    statsCache = { at: Date.now(), payload };
-    res.setHeader("Cache-Control", "private, max-age=60, stale-while-revalidate=300");
+    res.setHeader("Cache-Control", "private, no-cache");
     return res.status(200).json(payload);
   } catch (error) {
     console.error("Failed to fetch service visit stats:", error);

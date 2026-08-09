@@ -32,28 +32,22 @@ export function AdminAppDataProvider({ user, children }) {
       setState((current) => ({ ...current, loading: true }));
     };
 
+    // Customer/service/upcoming-service counts drive the admin's real-time
+    // decisions (who to call, what's due) so they always hit the network —
+    // no localStorage TTL cache. Module availability changes rarely, so that
+    // one alone stays cached.
+    const fetchFreshJson = async (url) => {
+      markNetworkLoading();
+      const response = await fetch(url);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || "Request failed");
+      return data;
+    };
+
     fetchRef.current = Promise.all([
-      cachedGetJson("/api/elevator-customers/stats", {
-        cacheKey: "dashboard_customer_stats",
-        ttlMs: DASHBOARD_TTL_MS,
-        forceRefresh,
-        user: userCacheKey,
-        onNetworkStart: markNetworkLoading,
-      }),
-      cachedGetJson("/api/elevator-service-visits/stats", {
-        cacheKey: "dashboard_service_stats",
-        ttlMs: DASHBOARD_TTL_MS,
-        forceRefresh,
-        user: userCacheKey,
-        onNetworkStart: markNetworkLoading,
-      }),
-      cachedGetJson("/api/service-schedules/upcoming?page=1&pageSize=5", {
-        cacheKey: "dashboard_upcoming_preview",
-        ttlMs: DASHBOARD_TTL_MS,
-        forceRefresh,
-        user: userCacheKey,
-        onNetworkStart: markNetworkLoading,
-      }),
+      fetchFreshJson("/api/elevator-customers/stats"),
+      fetchFreshJson("/api/elevator-service-visits/stats"),
+      fetchFreshJson("/api/service-schedules/upcoming?page=1&pageSize=5"),
       cachedGetJson("/api/admin/module-availability", {
         cacheKey: "dashboard_module_availability",
         ttlMs: 60 * 1000,
