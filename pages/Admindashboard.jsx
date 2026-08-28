@@ -353,8 +353,8 @@ function AdmindashboardShell({ user }) {
     useEffect(() => {
         const q = spareQuery.trim();
         if (!q) {
-            setSpareSearchResults([]);
-            return;
+            const timer = setTimeout(() => setSpareSearchResults([]), 0);
+            return () => clearTimeout(timer);
         }
         const timer = setTimeout(async () => {
             try {
@@ -639,7 +639,7 @@ function AdmindashboardShell({ user }) {
     async function fetchServiceSchedules() {
         setSchedulesLoading(true);
         try {
-            const res = await fetch("/api/service-schedules?pageSize=100");
+            const res = await fetch("/api/service-schedules?pageSize=100", { cache: "no-store" });
             const data = await res.json();
             if (data.success) setSchedules(data.schedules || []);
         } catch {}
@@ -655,7 +655,7 @@ function AdmindashboardShell({ user }) {
         try {
             const params = new URLSearchParams({ page: "1", pageSize: "100", mode: "all", status: "ALL" });
             if (search.trim()) params.set("search", search.trim());
-            const res = await fetch(`/api/service-schedules/upcoming?${params.toString()}`);
+            const res = await fetch(`/api/service-schedules/upcoming?${params.toString()}`, { cache: "no-store" });
             const data = await res.json();
             if (data.success) setUpcomingServiceRows(data.rows || []);
         } catch {}
@@ -712,7 +712,7 @@ function AdmindashboardShell({ user }) {
     async function fetchAmcStats() {
         setAmcStatsLoading(true);
         try {
-            const res = await fetch("/api/elevator-customers/amc-stats");
+            const res = await fetch("/api/elevator-customers/amc-stats", { cache: "no-store" });
             const data = await res.json();
             if (data.success) setAmcStats(data.stats);
         } catch {}
@@ -737,19 +737,22 @@ function AdmindashboardShell({ user }) {
 
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "all") return;
-        fetchServiceSchedules();
-    }, [activeTab, serviceViewMode]); // eslint-disable-line react-hooks/exhaustive-deps
+        const timer = setTimeout(() => fetchServiceSchedules(), 0);
+        return () => clearTimeout(timer);
+    }, [activeTab, serviceViewMode]);
 
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "month") return;
         const timer = setTimeout(() => fetchUpcomingServiceRows(serviceSearch), 250);
         return () => clearTimeout(timer);
-    }, [activeTab, serviceViewMode, serviceSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeTab, serviceViewMode, serviceSearch]);
 
     useEffect(() => {
         if (activeTab !== "more") return;
-        if (moreSubTab === "customers" || moreSubTab === "amc") fetchAmcStats();
-    }, [activeTab, moreSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+        if (moreSubTab !== "customers" && moreSubTab !== "amc") return;
+        const timer = setTimeout(() => fetchAmcStats(), 0);
+        return () => clearTimeout(timer);
+    }, [activeTab, moreSubTab]);
 
     async function handleCreateComplaint(e) {
         e.preventDefault();
@@ -840,7 +843,7 @@ function AdmindashboardShell({ user }) {
     useEffect(() => {
         if (activeTab !== "more") return;
         if (moreSubTab === "inventory") fetchInventoryItems();
-    }, [activeTab, moreSubTab]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeTab, moreSubTab]);
 
     // Technician availability list
     const [technicians, setTechnicians] = useState([]);

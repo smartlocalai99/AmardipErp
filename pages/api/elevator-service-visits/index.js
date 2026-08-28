@@ -154,6 +154,7 @@ export default async function handler(req, res) {
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
     return res.status(200).json({
       success: true,
       visits: dataResult.rows,

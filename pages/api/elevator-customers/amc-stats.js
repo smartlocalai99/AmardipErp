@@ -41,6 +41,7 @@ export default async function handler(req, res) {
     `);
 
     const row = result.rows[0] || {};
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
     return res.status(200).json({
       success: true,
       stats: {

@@ -205,7 +205,7 @@ export default function DashboardKpiGrid({
 
   function openCustomersTable() { setMoreSubTab?.("customers"); }
   function openAmcTable() { setMoreSubTab?.("amc"); }
-  function openServiceVisits() { setActiveTab?.("service"); }
+  function openServiceVisits() { setMoreSubTab?.("serviceVisits"); }
   function openUpcomingServices() { setActiveTab?.("service"); }
   function openReports() { setMoreSubTab?.("reports"); }
   function openQuotations() { router.push("/admin/quotations"); }

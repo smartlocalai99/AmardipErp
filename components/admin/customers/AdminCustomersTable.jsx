@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
-import { cachedGetJson } from "@/lib/cachedFetch";
 import { getCustomerDueDate } from "@/lib/customerDates";
 
 const TABLE_COLUMNS = [
@@ -246,14 +245,12 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
           params.set("search", search);
         }
 
-        const data = await cachedGetJson(`/api/elevator-customers?${params.toString()}`, {
-          cacheKey: `customers_${params.toString()}`,
-          ttlMs: 5 * 60 * 1000,
-          user: userCacheKey,
-          fetchOptions: { signal: controller.signal },
-          onNetworkStart: () => setLoading(true),
+        const response = await fetch(`/api/elevator-customers?${params.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
         });
-        if (!data.success) {
+        const data = await response.json();
+        if (!response.ok || !data.success) {
           throw new Error(data.message || "Failed to load customers");
         }
 
