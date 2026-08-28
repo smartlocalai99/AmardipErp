@@ -18,9 +18,13 @@ export default async function handler(req, res) {
       data: { url: roleHome(actor.role) },
     });
 
-    return res.status(200).json({
-      success: true,
-      message: result.total > 0 ? "Test notification sent." : "No saved subscription found for this user.",
+    const delivered = result.sent > 0;
+
+    return res.status(delivered ? 200 : 409).json({
+      success: delivered,
+      message: delivered
+        ? `Test notification sent to ${result.sent} device${result.sent === 1 ? "" : "s"}.`
+        : "No working subscription was found. Tap Enable to renew notifications on this device.",
       ...result,
     });
   } catch (err) {

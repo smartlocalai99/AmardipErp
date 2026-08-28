@@ -12,10 +12,11 @@ export default function PushNotificationCard() {
     setStatus("enabling");
     setMessage("");
     try {
-      await subscribeToPush();
+      await subscribeToPush({ renew: true });
+      const result = await requestTestNotification();
       setPermission("granted");
       setStatus("enabled");
-      setMessage("Notifications enabled on this device.");
+      setMessage(result.message || "Notifications enabled and verified on this device.");
     } catch (err) {
       setStatus("error");
       setMessage(err.message || "Unable to enable notifications on this device.");
@@ -26,17 +27,22 @@ export default function PushNotificationCard() {
     setStatus("testing");
     setMessage("");
     try {
-      const response = await fetch("/api/push/test", { method: "POST" });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) {
-        throw new Error(result.message || "Test notification failed.");
-      }
+      const result = await requestTestNotification();
       setStatus("enabled");
       setMessage(result.message || "Test notification sent.");
     } catch (err) {
       setStatus("error");
       setMessage(err.message || "Test notification failed.");
     }
+  }
+
+  async function requestTestNotification() {
+    const response = await fetch("/api/push/test", { method: "POST" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || "Test notification failed.");
+    }
+    return result;
   }
 
   const isBusy = status === "enabling" || status === "testing";
