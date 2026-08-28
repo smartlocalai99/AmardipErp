@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { filterHandoverDocuments } from "@/lib/customerHandoverDocument";
 import { loadCustomerPdfResource } from "@/lib/customerDocumentResource";
+import PdfCanvasViewer from "@/components/ui/PdfCanvasViewer";
 
 export default function CustomerDocumentsPanel({ customerRecords = [] }) {
   const [search, setSearch] = useState("");
@@ -148,11 +149,7 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
                   <button type="button" onClick={() => openDocument(selected)} className="rounded-xl bg-[#0a649d] px-4 py-2 text-xs font-bold text-white">Try again</button>
                 </div>
               ) : resource ? (
-                // The browser's built-in PDF viewer defaults to a zoom that
-                // overflows a narrow screen, forcing side-to-side scrolling.
-                // #view=FitH (a standard PDF Open Parameter) tells it to fit
-                // the page to the viewer's width instead.
-                <iframe title={selected.name} src={`${resource.objectUrl}#view=FitH`} className="h-[65vh] w-full rounded-xl bg-white" />
+                <PdfCanvasViewer url={resource.objectUrl} className="h-[65vh] w-full rounded-xl bg-white" />
               ) : null}
             </div>
 

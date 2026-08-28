@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { WhatsAppIcon } from "@/components/ui/WhatsAppButton";
+import PdfCanvasViewer from "@/components/ui/PdfCanvasViewer";
 
 const typeOptions = {
   noOfFloors: ["G+1", "G+2", "G+3", "G+4", "G+5"],
@@ -896,12 +897,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpen
           </div>
 
           <div className="flex-1 bg-slate-200">
-            {previewUrl && (
-              // #view=FitH (a standard PDF Open Parameter) fits the page to
-              // the viewer's width instead of the browser's default zoom,
-              // which overflows a narrow screen and forces side scrolling.
-              <iframe src={`${previewUrl}#view=FitH`} title={`${quotation.quotationNo} preview`} className="h-full w-full border-0" />
-            )}
+            {previewUrl && <PdfCanvasViewer url={previewUrl} className="h-full w-full" />}
           </div>
 
           <div className="space-y-2.5 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">

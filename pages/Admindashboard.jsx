@@ -282,16 +282,19 @@ const AMC_NOTIFICATION_COPY = {
         title: "Notify customers due this month",
         description: "Sends a reminder that their AMC is due this month.",
         button: "Notify This Month",
+        sentMessage: "AMC renewal reminders sent to customers due this month.",
     },
     next_month: {
         title: "Notify customers due next month",
         description: "Sends a reminder that their AMC is due next month.",
         button: "Notify Next Month",
+        sentMessage: "AMC renewal reminders sent to customers due next month.",
     },
     expired: {
         title: "Notify customers with expired AMC",
         description: "Sends an expiry notice asking them to renew their AMC.",
         button: "Notify Expired Customers",
+        sentMessage: "AMC renewal notices sent to customers with expired contracts.",
     },
 };
 
@@ -471,7 +474,6 @@ function AdmindashboardShell({ user }) {
     const [amcStatsLoading, setAmcStatsLoading] = useState(false);
     const [amcFilterMode, setAmcFilterMode] = useState("amc");
     const [notifyingAmc, setNotifyingAmc] = useState(false);
-    const [notifyAmcResult, setNotifyAmcResult] = useState(null);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -756,11 +758,20 @@ function AdmindashboardShell({ user }) {
         finally { setAmcStatsLoading(false); }
     }
 
+    // Feedback for this action lives in the bell icon's notification center,
+    // not an inline count on the button — the admin sends the reminder and
+    // moves on, without a "notified N people" tally to read.
+    function pushAdminNotification(message) {
+        setNotifications(prev => [
+            { id: prev.length ? Math.max(...prev.map(n => n.id)) + 1 : 1, category: "AMC Notifications", message, time: "Just now" },
+            ...prev,
+        ]);
+    }
+
     async function notifySelectedAmcCustomers() {
         const bucket = amcFilterMode;
         if (notifyingAmc || !AMC_NOTIFICATION_COPY[bucket]) return;
         setNotifyingAmc(true);
-        setNotifyAmcResult(null);
         try {
             const res = await fetch("/api/elevator-customers/notify-expiring", {
                 method: "POST",
@@ -768,9 +779,14 @@ function AdmindashboardShell({ user }) {
                 body: JSON.stringify({ bucket }),
             });
             const data = await res.json();
-            if (data.success) setNotifyAmcResult(data);
-        } catch {}
-        finally { setNotifyingAmc(false); }
+            pushAdminNotification(data.success ? AMC_NOTIFICATION_COPY[bucket].sentMessage : "Couldn't send AMC renewal reminders. Please try again.");
+        } catch {
+            pushAdminNotification("Couldn't send AMC renewal reminders. Please try again.");
+        }
+        finally {
+            setNotifyingAmc(false);
+            setShowNotificationCenter(true);
+        }
     }
 
     useEffect(() => {
@@ -1988,11 +2004,6 @@ function AdmindashboardShell({ user }) {
                                                 </p>
                                             </div>
                                         </div>
-                                        {notifyAmcResult && (
-                                            <p className="mt-3 rounded-xl border border-sky-100 bg-white/70 p-2.5 text-[11px] font-bold text-sky-800">
-                                                Notified {notifyAmcResult.notified} customer{notifyAmcResult.notified === 1 ? "" : "s"}.
-                                            </p>
-                                        )}
                                         <button
                                             type="button"
                                             disabled={notifyingAmc || !AMC_NOTIFICATION_COPY[amcFilterMode]}
