@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
+import { getCustomerRecordsForUser } from "@/lib/customerAccounts";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
@@ -29,11 +30,9 @@ export async function getServerSideProps(context) {
         };
     }
 
-    return {
-        props: {
-            user,
-        },
-    };
+    const customerRecords = await getCustomerRecordsForUser(user.id);
+
+    return { props: { user, customerRecords } };
 }
 
 // SVG Icons
@@ -117,8 +116,18 @@ function LogoutIcon({ className = "h-5 w-5" }) {
     );
 }
 
-export default function Customerdashboard({ user }) {
+export default function Customerdashboard({ user, customerRecords = [] }) {
     const router = useRouter();
+
+    const primaryCustomer = customerRecords[0] || null;
+    const initialLifts = customerRecords.map((record) => ({
+        customerId: record.id,
+        id: record.customer_code || `LIFT-${record.record_no || "NA"}`,
+        name: record.elevator_type || record.no_of_passenger || "Elevator",
+        building: record.location || record.customer_name || "Customer site",
+        amcStatus: record.customer_status || "Not available",
+        lastChecked: String(record.hoc_date || "").slice(0, 10) || "Not available",
+    }));
 
     const [activeTab, setActiveTab] = useState("home"); // home, complaints, documents, support, profile
     const [complaintSubTab, setComplaintSubTab] = useState("logs"); // logs, raise
@@ -142,19 +151,16 @@ export default function Customerdashboard({ user }) {
     ]);
 
     // Lifts
-    const [lifts, setLifts] = useState([
-        { id: "LIFT-9821", name: "Passenger Cabin 1", building: "Grand Plaza, Block A", amcStatus: "Active", lastChecked: "2026-06-15" },
-        { id: "LIFT-7652", name: "Service Elevator 2", building: "Grand Plaza, Block B", amcStatus: "Active", lastChecked: "2026-05-20" }
-    ]);
+    const [lifts] = useState(initialLifts);
 
     // AMC Details
     const [amcData] = useState({
-        number: "AMC-29810",
-        status: "Active",
-        startDate: "2025-09-20",
-        endDate: "2026-09-20",
-        servicesRemaining: 4,
-        contractSigned: "Amardip Elevators AMC Standard"
+        number: primaryCustomer?.customer_code || `AMC-${primaryCustomer?.record_no || "NA"}`,
+        status: primaryCustomer?.customer_status || "Not available",
+        startDate: String(primaryCustomer?.amc_starting_date || "").slice(0, 10) || "Not available",
+        endDate: String(primaryCustomer?.amc_ending_date || primaryCustomer?.amc_warranty_due || "").slice(0, 10) || "Not available",
+        servicesRemaining: 0,
+        contractSigned: "Amardip Elevators Service Contract"
     });
 
     // Complaints
@@ -165,7 +171,7 @@ export default function Customerdashboard({ user }) {
     const [selectedTrackComplaint, setSelectedTrackComplaint] = useState(null);
 
     // Raise Complaint Form State
-    const [formLift, setFormLift] = useState(lifts[0]?.id || "");
+    const [formLift, setFormLift] = useState(lifts[0]?.customerId || "");
     const [formCategory, setFormCategory] = useState("Lift Not Working");
     const [formDescription, setFormDescription] = useState("");
     const [formEmergency, setFormEmergency] = useState(false);
@@ -175,26 +181,20 @@ export default function Customerdashboard({ user }) {
     const [newCompId, setNewCompId] = useState("");
 
     // Documents
-    const [documents] = useState([
-        { id: "DOC-209", name: "Annual AMC Agreement", type: "PDF", size: "1.8 MB", date: "2025-09-20", category: "AMC Agreement" },
-        { id: "DOC-102", name: "Warranty Certificate - Cabin", type: "PDF", size: "950 KB", date: "2024-05-15", category: "Warranty" },
-        { id: "DOC-340", name: "June 2026 Monthly Service Report", type: "PDF", size: "1.2 MB", date: "2026-06-15", category: "Service Reports" },
-        { id: "DOC-328", name: "May 2026 Monthly Service Report", type: "PDF", size: "1.1 MB", date: "2026-05-20", category: "Service Reports" },
-        { id: "DOC-054", name: "Lift Installation Blueprint Map", type: "PDF", size: "4.5 MB", date: "2024-05-01", category: "Installation" }
-    ]);
+    const [documents] = useState([]);
     const [docSearch, setDocSearch] = useState("");
     const [viewingDoc, setViewingDoc] = useState(null);
     const [viewingAmc, setViewingAmc] = useState(false);
 
     // Profile Settings State
-    const [customerProfile, setCustomerProfile] = useState({
-        name: "Apex Business Park (Client)",
-        mobile: "+91 99999 88888",
-        email: "facility@apexpark.com",
-        building: "Apex Business Complex",
-        address: "Phase 3, Sector 15, Near Metro Junction, Bangalore"
+    const [customerProfile] = useState({
+        name: primaryCustomer?.customer_name || user.name || "Customer",
+        mobile: primaryCustomer?.mobile_no || user.username || "Not available",
+        email: "Not available",
+        building: primaryCustomer?.location || primaryCustomer?.customer_name || "Not available",
+        address: [primaryCustomer?.address, primaryCustomer?.city].filter(Boolean).join(", ") || "Not available"
     });
-    const [passwordVal, setPasswordVal] = useState("customer123");
+    const [passwordVal, setPasswordVal] = useState("");
     const [profileMessage, setProfileMessage] = useState("");
     const [profileErr, setProfileErr] = useState("");
 
@@ -254,6 +254,7 @@ export default function Customerdashboard({ user }) {
     // Remaining days calculation
     const getRemainingDays = () => {
         const end = new Date(amcData.endDate);
+        if (Number.isNaN(end.getTime())) return 0;
         const today = new Date();
         const diff = end - today;
         return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
@@ -271,15 +272,28 @@ export default function Customerdashboard({ user }) {
         }
     };
 
-    const handlePasswordChange = (e) => {
+    const handlePasswordChange = async (e) => {
         e.preventDefault();
         setProfileErr("");
         setProfileMessage("");
-        if (!passwordVal.trim()) {
-            setProfileErr("Password cannot be empty.");
+        if (passwordVal.trim().length < 4) {
+            setProfileErr("Password must be at least 4 characters.");
             return;
         }
-        setProfileMessage("Password updated successfully!");
+
+        try {
+            const response = await fetch("/api/customer/change-password", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ newPassword: passwordVal }),
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success) throw new Error(data.message || "Unable to update password.");
+            setPasswordVal("");
+            setProfileMessage("Password updated successfully!");
+        } catch (error) {
+            setProfileErr(error.message || "Unable to update password.");
+        }
     };
 
     const handlePhotoUpload = (e) => {
@@ -309,6 +323,7 @@ export default function Customerdashboard({ user }) {
             "Other Issue": "OTHER",
         };
 
+        const selectedLift = lifts.find((lift) => lift.customerId === formLift);
         const res = await fetch("/api/complaints", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -316,7 +331,8 @@ export default function Customerdashboard({ user }) {
                 complaintType: typeMap[formCategory] || "OTHER",
                 priority: formEmergency ? "EMERGENCY" : "NORMAL",
                 description: formDescription,
-                customerNotes: `Lift: ${formLift}`,
+                customerId: selectedLift?.customerId,
+                customerNotes: `Lift: ${selectedLift?.id || "LIFT"}`,
             }),
         });
         const data = await res.json();
@@ -352,6 +368,7 @@ export default function Customerdashboard({ user }) {
                 complaintType: "BREAKDOWN",
                 priority: "EMERGENCY",
                 description: "CRITICAL: Urgent breakdown safety alarm triggered via Support Portal.",
+                customerId: lifts[0]?.customerId,
                 customerNotes: `Lift: ${lifts[0]?.id || "LIFT"}`,
             }),
         });
@@ -732,7 +749,7 @@ export default function Customerdashboard({ user }) {
                                                     className="h-11 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
                                                 >
                                                     {lifts.map(l => (
-                                                        <option key={l.id} value={l.id}>{l.id} - {l.name} ({l.building})</option>
+                                                        <option key={l.customerId} value={l.customerId}>{l.id} - {l.name} ({l.building})</option>
                                                     ))}
                                                 </select>
                                             </div>
@@ -972,7 +989,7 @@ export default function Customerdashboard({ user }) {
                             <div className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
                                 <div className="flex items-center gap-3">
                                     <div className="h-11 w-11 rounded-2xl bg-sky-50 text-[#0a649d] border border-slate-100 flex items-center justify-center font-extrabold text-sm uppercase">
-                                        AP
+                                        {customerProfile.name.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
                                     </div>
                                     <div>
                                         <h3 className="text-sm font-extrabold text-slate-800 leading-tight">{customerProfile.name}</h3>
@@ -1012,10 +1029,13 @@ export default function Customerdashboard({ user }) {
                                 <div>
                                     <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 pl-1">Password</label>
                                     <input
-                                        type="text"
+                                        type="password"
                                         required
+                                        minLength={4}
                                         value={passwordVal}
                                         onChange={(e) => setPasswordVal(e.target.value)}
+                                        placeholder="Enter a new password"
+                                        autoComplete="new-password"
                                         className="h-10.5 w-full px-3.5 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition font-medium"
                                     />
                                 </div>

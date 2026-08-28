@@ -176,7 +176,7 @@ function FieldShell({ children }) {
 export default function Customerlogin() {
   const router = useRouter();
 
-  const [username, setUsername] = useState("");
+  const [mobileNumber, setMobileNumber] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
@@ -195,7 +195,7 @@ export default function Customerlogin() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          username,
+          mobileNumber,
           password,
         }),
       });
@@ -271,14 +271,17 @@ export default function Customerlogin() {
 
                   <div className="min-w-0 flex-1">
                     <label className="block text-[11px] font-medium leading-none text-[#9ca3af]">
-                      Username
+                      Mobile number
                     </label>
                     <input
-                      type="text"
-                      value={username}
-                      onChange={(event) => setUsername(event.target.value)}
-                      placeholder="Enter username"
-                      autoComplete="username"
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={15}
+                      value={mobileNumber}
+                      onChange={(event) => setMobileNumber(event.target.value.replace(/\D/g, ""))}
+                      placeholder="Enter mobile number"
+                      autoComplete="tel"
                       required
                       className="mt-1 w-full bg-transparent text-[14px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
                     />

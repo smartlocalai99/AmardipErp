@@ -1,4 +1,6 @@
 import { query } from "@/lib/db";
+import { normalizeMobileNumber } from "@/lib/customerAccounts";
+import { ensureCustomerAccountSchema } from "@/lib/usersSchema";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 
@@ -7,18 +9,39 @@ export default async function handler(req, res) {
         return res.status(405).json({ success: false, message: "Method not allowed" });
     }
 
-    const { username, password } = req.body;
+    const { mobileNumber, username, password } = req.body || {};
+    const isCustomerMobileLogin = mobileNumber !== undefined;
+    const identifier = isCustomerMobileLogin
+        ? normalizeMobileNumber(mobileNumber)
+        : String(username || "").trim().toLowerCase();
 
-    if (!username || !password) {
-        return res.status(400).json({ success: false, message: "Username and password are required" });
+    if (!identifier || !password) {
+        return res.status(400).json({
+            success: false,
+            message: isCustomerMobileLogin
+                ? "Mobile number and password are required"
+                : "Username and password are required",
+        });
     }
 
     try {
+        await ensureCustomerAccountSchema();
+
         // Retrieve user from the database
-        const userRes = await query("SELECT * FROM users WHERE username = $1", [username.trim().toLowerCase()]);
+        const userRes = await query(
+            isCustomerMobileLogin
+                ? "SELECT * FROM users WHERE username = $1 AND role = 'customer' LIMIT 1"
+                : "SELECT * FROM users WHERE username = $1 LIMIT 1",
+            [identifier]
+        );
         
         if (userRes.rowCount === 0) {
-            return res.status(401).json({ success: false, message: "Invalid username or password" });
+            return res.status(401).json({
+                success: false,
+                message: isCustomerMobileLogin
+                    ? "Invalid mobile number or password"
+                    : "Invalid username or password",
+            });
         }
 
         const user = userRes.rows[0];
@@ -26,7 +49,12 @@ export default async function handler(req, res) {
         // Compare password hash
         const isPasswordCorrect = await bcrypt.compare(password, user.password_hash);
         if (!isPasswordCorrect) {
-            return res.status(401).json({ success: false, message: "Invalid username or password" });
+            return res.status(401).json({
+                success: false,
+                message: isCustomerMobileLogin
+                    ? "Invalid mobile number or password"
+                    : "Invalid username or password",
+            });
         }
 
         // Generate signed JWT token containing ID, username, name, and role
