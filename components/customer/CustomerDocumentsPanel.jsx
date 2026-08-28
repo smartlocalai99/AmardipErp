@@ -148,7 +148,11 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
                   <button type="button" onClick={() => openDocument(selected)} className="rounded-xl bg-[#0a649d] px-4 py-2 text-xs font-bold text-white">Try again</button>
                 </div>
               ) : resource ? (
-                <iframe title={selected.name} src={resource.objectUrl} className="h-[65vh] w-full rounded-xl bg-white" />
+                // The browser's built-in PDF viewer defaults to a zoom that
+                // overflows a narrow screen, forcing side-to-side scrolling.
+                // #view=FitH (a standard PDF Open Parameter) tells it to fit
+                // the page to the viewer's width instead.
+                <iframe title={selected.name} src={`${resource.objectUrl}#view=FitH`} className="h-[65vh] w-full rounded-xl bg-white" />
               ) : null}
             </div>
 

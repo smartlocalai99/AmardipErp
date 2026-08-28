@@ -897,7 +897,10 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpen
 
           <div className="flex-1 bg-slate-200">
             {previewUrl && (
-              <iframe src={previewUrl} title={`${quotation.quotationNo} preview`} className="h-full w-full border-0" />
+              // #view=FitH (a standard PDF Open Parameter) fits the page to
+              // the viewer's width instead of the browser's default zoom,
+              // which overflows a narrow screen and forces side scrolling.
+              <iframe src={`${previewUrl}#view=FitH`} title={`${quotation.quotationNo} preview`} className="h-full w-full border-0" />
             )}
           </div>
 
