@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
-import { cachedGetJson } from "@/lib/cachedFetch";
 
 const CONDITION_FIELDS = [
   { key: "ard_condition", label: "ARD" },
@@ -220,7 +219,6 @@ function VisitDetailModal({ visit, onClose, onViewCustomer }) {
 
 export default function ServiceVisitsTable({ user, embedded = false }) {
   const router = useRouter();
-  const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [visits, setVisits] = useState([]);
   const [stats, setStats] = useState(null);
@@ -263,14 +261,11 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
   useEffect(() => {
     async function fetchStats() {
       try {
-        const data = await cachedGetJson("/api/elevator-service-visits/stats", {
-          cacheKey: `service_visits_stats_${refreshVersion}`,
-          ttlMs: 5 * 60 * 1000,
-          user: userCacheKey,
-          onNetworkStart: () => setStats(null),
-        });
+        setStats(null);
+        const response = await fetch("/api/elevator-service-visits/stats", { cache: "no-store" });
+        const data = await response.json();
 
-        if (data.success) {
+        if (response.ok && data.success) {
           setStats(data.stats);
         }
       } catch (err) {
@@ -279,7 +274,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     }
 
     fetchStats();
-  }, [refreshVersion, userCacheKey]);
+  }, [refreshVersion]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -299,15 +294,13 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
           if (value) params.set(key, value);
         });
 
-        const data = await cachedGetJson(`/api/elevator-service-visits?${params.toString()}`, {
-          cacheKey: `service_visits_${refreshVersion}_${params.toString()}`,
-          ttlMs: 5 * 60 * 1000,
-          user: userCacheKey,
-          fetchOptions: { signal: controller.signal },
-          onNetworkStart: () => setLoading(true),
+        const response = await fetch(`/api/elevator-service-visits?${params.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
         });
+        const data = await response.json();
 
-        if (!data.success) {
+        if (!response.ok || !data.success) {
           throw new Error(data.message || "Failed to load service visits");
         }
 
@@ -325,7 +318,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     fetchVisits();
 
     return () => controller.abort();
-  }, [page, pageSize, search, filters, refreshVersion, userCacheKey]);
+  }, [page, pageSize, search, filters, refreshVersion]);
 
   async function syncFromSheets() {
     setSyncing(true);

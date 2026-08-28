@@ -102,7 +102,7 @@ export default async function handler(req, res) {
       },
     };
 
-    res.setHeader("Cache-Control", "private, no-cache");
+    res.setHeader("Cache-Control", "private, no-store, max-age=0");
     return res.status(200).json(payload);
   } catch (error) {
     console.error("Failed to fetch service visit stats:", error);

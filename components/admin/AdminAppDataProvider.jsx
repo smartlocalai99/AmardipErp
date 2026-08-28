@@ -38,7 +38,7 @@ export function AdminAppDataProvider({ user, children }) {
     // one alone stays cached.
     const fetchFreshJson = async (url) => {
       markNetworkLoading();
-      const response = await fetch(url);
+      const response = await fetch(url, { cache: "no-store" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || "Request failed");
       return data;

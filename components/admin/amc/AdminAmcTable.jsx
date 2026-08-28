@@ -169,7 +169,10 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
 
         // Real-time AMC data, no client cache — an admin renewing a contract
         // or completing a service needs the list to reflect that immediately.
-        const response = await fetch(`/api/elevator-customers?${params.toString()}`, { signal: controller.signal });
+        const response = await fetch(`/api/elevator-customers?${params.toString()}`, {
+          signal: controller.signal,
+          cache: "no-store",
+        });
         const data = await response.json();
         if (!response.ok || !data.success) {
           throw new Error(data.message || "Failed to load AMC customers");
