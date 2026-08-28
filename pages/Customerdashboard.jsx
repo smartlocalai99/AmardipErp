@@ -7,6 +7,8 @@ import { subscribeToPush } from "@/lib/pushClient";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import CustomerDocumentsPanel from "@/components/customer/CustomerDocumentsPanel";
 
+const AMARDIP_SUPPORT_PHONE = "+918562359223";
+
 export async function getServerSideProps(context) {
     const user = await getUserFromRequest(context.req);
 
@@ -338,6 +340,7 @@ export default function Customerdashboard({
                 message: n.message,
                 time: formatNotificationTime(n.createdAt),
                 read: n.read,
+                type: n.data?.type || null,
             })));
         } catch {
             // Keep the local placeholder list if the fetch fails.
@@ -618,6 +621,16 @@ export default function Customerdashboard({
                                             <span className="text-[10px] text-slate-400">{n.time}</span>
                                         </div>
                                         <p className="text-slate-600 font-semibold leading-relaxed">{n.message}</p>
+                                        {String(n.type || "").startsWith("AMC_") && (
+                                            <a
+                                                href={`tel:${AMARDIP_SUPPORT_PHONE}`}
+                                                className="mt-2.5 inline-flex h-8 items-center gap-1.5 rounded-xl px-3 text-[11px] font-bold text-white active:scale-95 transition"
+                                                style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}
+                                            >
+                                                <PhoneIcon className="h-3.5 w-3.5" />
+                                                Call Amardip
+                                            </a>
+                                        )}
                                     </div>
                                 ))
                             )}
@@ -1169,7 +1182,7 @@ export default function Customerdashboard({
 
                                 <div className="grid grid-cols-2 gap-2.5">
                                     <a
-                                        href="tel:+919999999999"
+                                        href={`tel:${AMARDIP_SUPPORT_PHONE}`}
                                         className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition active:scale-[0.98]"
                                     >
                                         <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sky-50 text-[#0a649d]">
