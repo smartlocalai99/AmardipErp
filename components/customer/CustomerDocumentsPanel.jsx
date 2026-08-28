@@ -102,7 +102,7 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
       </div>
 
       {selected && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-3 backdrop-blur-sm">
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/70 p-3 backdrop-blur-sm">
           <div className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
             <div className="flex items-center justify-between bg-[#0a649d] px-5 py-4 text-white">
               <div className="min-w-0">
