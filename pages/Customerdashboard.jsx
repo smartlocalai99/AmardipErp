@@ -307,10 +307,6 @@ export default function Customerdashboard({
     const [profileMessage, setProfileMessage] = useState("");
     const [profileErr, setProfileErr] = useState("");
 
-    // Support Form State
-    const [supportMsg, setSupportMsg] = useState("");
-    const [supportSent, setSupportSent] = useState(false);
-
     const [materialRequests, setMaterialRequests] = useState([]);
 
     const fetchCustomerComplaints = useCallback(async () => {
@@ -1184,7 +1180,7 @@ export default function Customerdashboard({
                                     </div>
                                     <div>
                                         <h2 className="text-sm font-black text-slate-900">Support Desk</h2>
-                                        <p className="text-[10px] font-semibold text-slate-500">Call, WhatsApp, or leave a message.</p>
+                                        <p className="text-[10px] font-semibold text-slate-500">Call or WhatsApp our support team.</p>
                                     </div>
                                 </div>
 
@@ -1213,33 +1209,6 @@ export default function Customerdashboard({
                                     </a>
                                 </div>
 
-                                {supportSent ? (
-                                    <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-center shadow-sm">
-                                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-200 text-emerald-700">
-                                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                        </div>
-                                        <h3 className="mt-3 text-sm font-black text-emerald-950">Message Dispatched</h3>
-                                        <p className="mt-1 text-xs font-semibold leading-relaxed text-emerald-800">We received your enquiry. A staff member will respond shortly.</p>
-                                        <button type="button" onClick={() => setSupportSent(false)} className="mt-3 text-xs font-black text-[#0a649d]">Send another query</button>
-                                    </div>
-                                ) : (
-                                    <form onSubmit={(event) => { event.preventDefault(); if (supportMsg.trim()) setSupportSent(true); setSupportMsg(""); }} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
-                                        <label className="block">
-                                            <span className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Message Description</span>
-                                            <textarea
-                                                required
-                                                rows={3}
-                                                value={supportMsg}
-                                                onChange={(event) => setSupportMsg(event.target.value)}
-                                                placeholder="Write your AMC enquiry or service question here..."
-                                                className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-base font-medium leading-relaxed outline-none transition focus:border-[#0a649d]"
-                                            />
-                                        </label>
-                                        <button type="submit" className="h-11 w-full rounded-xl bg-[#0a649d] text-xs font-bold tracking-wider text-white transition hover:bg-[#085282]">
-                                            SEND MESSAGE
-                                        </button>
-                                    </form>
-                                )}
                             </section>
 
                             {/* Logout */}

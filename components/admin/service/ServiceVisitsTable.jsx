@@ -237,6 +237,9 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [refreshVersion, setRefreshVersion] = useState(0);
+  const [syncing, setSyncing] = useState(false);
+  const [syncNotice, setSyncNotice] = useState(null);
 
   const visibleFrom = useMemo(() => {
     if (!pagination || pagination.total === 0) return 0;
@@ -261,7 +264,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     async function fetchStats() {
       try {
         const data = await cachedGetJson("/api/elevator-service-visits/stats", {
-          cacheKey: "service_visits_stats",
+          cacheKey: `service_visits_stats_${refreshVersion}`,
           ttlMs: 5 * 60 * 1000,
           user: userCacheKey,
           onNetworkStart: () => setStats(null),
@@ -276,7 +279,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     }
 
     fetchStats();
-  }, [userCacheKey]);
+  }, [refreshVersion, userCacheKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -297,7 +300,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
         });
 
         const data = await cachedGetJson(`/api/elevator-service-visits?${params.toString()}`, {
-          cacheKey: `service_visits_${params.toString()}`,
+          cacheKey: `service_visits_${refreshVersion}_${params.toString()}`,
           ttlMs: 5 * 60 * 1000,
           user: userCacheKey,
           fetchOptions: { signal: controller.signal },
@@ -322,7 +325,40 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     fetchVisits();
 
     return () => controller.abort();
-  }, [page, pageSize, search, filters, userCacheKey]);
+  }, [page, pageSize, search, filters, refreshVersion, userCacheKey]);
+
+  async function syncFromSheets() {
+    setSyncing(true);
+    setSyncNotice(null);
+
+    try {
+      const response = await fetch("/api/service-history/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to sync service history");
+      }
+
+      setSyncNotice({
+        tone: "success",
+        message: data.inserted > 0
+          ? `Sheet synced: ${data.inserted} new service ${data.inserted === 1 ? "visit" : "visits"} added.`
+          : `Sheet synced: all ${data.sheetRows || 0} service visits are up to date.`,
+      });
+      setPage(1);
+      setRefreshVersion((current) => current + 1);
+    } catch (syncError) {
+      setSyncNotice({
+        tone: "error",
+        message: syncError.message || "Failed to sync service history",
+      });
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   function updateFilter(key, value) {
     setPage(1);
@@ -375,18 +411,53 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
 
         <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
           <div className="space-y-3">
-            <div>
-              <h2 className="text-base font-black text-slate-900">
-                Service Ledger
-              </h2>
-              {loading && !pagination ? (
-                <CountSkeleton />
-              ) : (
-                <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} service records
-                </p>
-              )}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-base font-black text-slate-900">
+                  Service Ledger
+                </h2>
+                {loading && !pagination ? (
+                  <CountSkeleton />
+                ) : (
+                  <p className="mt-1 text-xs font-semibold text-slate-500">
+                    Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} service records
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={syncFromSheets}
+                disabled={syncing}
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white shadow-sm transition hover:bg-[#085282] active:scale-[0.98] disabled:cursor-wait disabled:opacity-70 sm:w-auto"
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  className={`h-4 w-4 ${syncing ? "animate-spin" : ""}`}
+                  aria-hidden="true"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5" />
+                </svg>
+                {syncing ? "Syncing services..." : "Sync from Sheets"}
+              </button>
             </div>
+
+            {syncNotice ? (
+              <p
+                role="status"
+                aria-live="polite"
+                className={`rounded-xl border px-3 py-2 text-xs font-bold ${
+                  syncNotice.tone === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-red-200 bg-red-50 text-red-700"
+                }`}
+              >
+                {syncNotice.message}
+              </p>
+            ) : null}
 
             <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-6">
               <input
