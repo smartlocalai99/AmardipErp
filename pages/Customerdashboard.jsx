@@ -460,11 +460,16 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                 priority
                             />
                         </div>
-                        <div>
+                        <div className="min-w-0">
                             <span className="text-[10px] text-white/80 font-bold uppercase tracking-widest leading-none block">
-                                Amardip Lifts
+                                {primaryCustomer?.customer_code ? `Customer ID ${primaryCustomer.customer_code}` : "Customer Portal"}
                             </span>
-                            <span className="text-base font-extrabold tracking-tight leading-normal">Apex Business Complex</span>
+                            <span
+                                className="block max-w-[220px] truncate text-base font-extrabold leading-normal tracking-tight"
+                                title={customerProfile.name}
+                            >
+                                {customerProfile.name}
+                            </span>
                         </div>
                     </div>
 
