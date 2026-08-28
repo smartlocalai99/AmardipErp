@@ -220,8 +220,10 @@ export default function IndexPage() {
 
             <div className="relative flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="relative h-11 w-14 overflow-hidden rounded-xl bg-white"><Image src="/logo.png" alt="Amardip Elevators" fill priority sizes="56px" className="object-contain p-1" /></div>
-                <div><p className="text-sm font-black tracking-[-0.01em]">Amardip Elevators</p><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.18em] text-sky-200/70">Service assistance</p></div>
+                <div className="relative h-14 w-20 shrink-0 overflow-hidden rounded-2xl bg-white shadow-[0_8px_24px_rgba(0,0,0,0.2)] ring-1 ring-white/20">
+                  <Image src="/adlogo.png" alt="Amardip Elevators logo" fill priority sizes="80px" className="object-contain p-2" />
+                </div>
+                <div><p className="text-[15px] font-black tracking-[-0.015em]">Amardip Elevators</p><p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.18em] text-sky-200/70">Service assistance</p></div>
               </div>
               <div className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.12)]" />Online</div>
             </div>
