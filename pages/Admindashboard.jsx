@@ -474,6 +474,7 @@ function AdmindashboardShell({ user }) {
     const [amcStatsLoading, setAmcStatsLoading] = useState(false);
     const [amcFilterMode, setAmcFilterMode] = useState("amc");
     const [notifyingAmc, setNotifyingAmc] = useState(false);
+    const [notifySentBucket, setNotifySentBucket] = useState(null);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -758,16 +759,10 @@ function AdmindashboardShell({ user }) {
         finally { setAmcStatsLoading(false); }
     }
 
-    // Feedback for this action lives in the bell icon's notification center,
-    // not an inline count on the button — the admin sends the reminder and
-    // moves on, without a "notified N people" tally to read.
-    function pushAdminNotification(message) {
-        setNotifications(prev => [
-            { id: prev.length ? Math.max(...prev.map(n => n.id)) + 1 : 1, category: "AMC Notifications", message, time: "Just now" },
-            ...prev,
-        ]);
-    }
-
+    // The bell icon belongs to the customers who receive these reminders —
+    // each gets a persisted, in-app notification (see notify-expiring.js).
+    // On the admin side, the send button just briefly confirms it went out,
+    // with no "notified N people" tally to read.
     async function notifySelectedAmcCustomers() {
         const bucket = amcFilterMode;
         if (notifyingAmc || !AMC_NOTIFICATION_COPY[bucket]) return;
@@ -779,13 +774,13 @@ function AdmindashboardShell({ user }) {
                 body: JSON.stringify({ bucket }),
             });
             const data = await res.json();
-            pushAdminNotification(data.success ? AMC_NOTIFICATION_COPY[bucket].sentMessage : "Couldn't send AMC renewal reminders. Please try again.");
+            setNotifySentBucket(data.success ? bucket : null);
         } catch {
-            pushAdminNotification("Couldn't send AMC renewal reminders. Please try again.");
+            setNotifySentBucket(null);
         }
         finally {
             setNotifyingAmc(false);
-            setShowNotificationCenter(true);
+            setTimeout(() => setNotifySentBucket(null), 2500);
         }
     }
 
@@ -2008,10 +2003,14 @@ function AdmindashboardShell({ user }) {
                                             type="button"
                                             disabled={notifyingAmc || !AMC_NOTIFICATION_COPY[amcFilterMode]}
                                             onClick={notifySelectedAmcCustomers}
-                                            className="mt-3 h-10 w-full flex items-center justify-center gap-2 rounded-xl bg-sky-600 text-xs font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                            className={`mt-3 h-10 w-full flex items-center justify-center gap-2 rounded-xl text-xs font-black text-white disabled:opacity-50 active:scale-95 transition ${notifySentBucket === amcFilterMode ? "bg-emerald-600" : "bg-sky-600"}`}
                                         >
                                             {notifyingAmc && <span className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-white/40 border-t-white animate-spin" />}
-                                            {notifyingAmc ? "Sending…" : AMC_NOTIFICATION_COPY[amcFilterMode]?.button || "Select an expiry group"}
+                                            {notifyingAmc
+                                                ? "Sending…"
+                                                : notifySentBucket === amcFilterMode
+                                                ? "Sent ✓"
+                                                : AMC_NOTIFICATION_COPY[amcFilterMode]?.button || "Select an expiry group"}
                                         </button>
                                     </div>
 

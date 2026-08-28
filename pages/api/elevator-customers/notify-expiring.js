@@ -3,6 +3,7 @@ import { CUSTOMER_DUE_DATE_SQL } from "@/lib/customerDates";
 import { query } from "@/lib/db";
 import { createAuditLog } from "@/lib/auditLog";
 import { sendPushToUserIds } from "@/lib/pushNotifications";
+import { createCustomerNotification } from "@/lib/customerNotifications";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const VALID_BUCKETS = new Set(["this_month", "next_month", "expired"]);
@@ -85,11 +86,23 @@ export default async function handler(req, res) {
     const matched = rows.filter((row) => row.user_id);
 
     const results = await Promise.allSettled(
-      matched.map((row) => {
+      matched.map(async (row) => {
         const dueLabel = new Date(row.due_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
+        const message = notification.message(dueLabel);
+
+        // Persisted so it shows in the customer's own bell icon next time
+        // they open the app, independent of whether the push below actually
+        // reaches a live subscription.
+        await createCustomerNotification({
+          userId: row.user_id,
+          category: notification.title,
+          message,
+          data: { type: notification.type, customerRecordId: row.id },
+        }).catch((err) => console.error("Failed to persist customer notification:", err));
+
         return sendPushToUserIds([row.user_id], {
           title: notification.title,
-          body: notification.message(dueLabel),
+          body: message,
           data: { url: "/Customerdashboard", type: notification.type },
         });
       })

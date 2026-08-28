@@ -121,6 +121,18 @@ function formatGroupDate(dateStr) {
     }
 }
 
+function formatNotificationTime(isoString) {
+    if (!isoString) return "";
+    const then = new Date(isoString).getTime();
+    if (Number.isNaN(then)) return "";
+    const diffMinutes = Math.round((Date.now() - then) / 60000);
+    if (diffMinutes < 1) return "Just now";
+    if (diffMinutes < 60) return `${diffMinutes}m ago`;
+    const diffHours = Math.round(diffMinutes / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return new Date(isoString).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+}
+
 function mapComplaintForCustomer(complaint) {
     return {
         id: complaint.complaintNo,
@@ -310,9 +322,32 @@ export default function Customerdashboard({
         }
     }, []);
 
+    // AMC renewal reminders (and anything else sent from the admin side) land
+    // here — persisted server-side so they're waiting in the bell icon the
+    // next time the customer opens the app, not just a push banner they
+    // might have missed.
+    const fetchCustomerNotifications = useCallback(async () => {
+        try {
+            const res = await fetch("/api/customer/notifications");
+            const data = await res.json();
+            if (!res.ok || !data.success) return;
+            if ((data.notifications || []).length === 0) return;
+            setNotifications(data.notifications.map((n) => ({
+                id: n.id,
+                category: n.category,
+                message: n.message,
+                time: formatNotificationTime(n.createdAt),
+                read: n.read,
+            })));
+        } catch {
+            // Keep the local placeholder list if the fetch fails.
+        }
+    }, []);
+
     useEffect(() => {
         const initialLoad = window.setTimeout(() => {
             fetchCustomerComplaints();
+            fetchCustomerNotifications();
 
             const storedReqs = localStorage.getItem("amardip_material_requests");
             if (storedReqs) {
@@ -325,7 +360,7 @@ export default function Customerdashboard({
         }, 0);
 
         return () => window.clearTimeout(initialLoad);
-    }, [fetchCustomerComplaints]);
+    }, [fetchCustomerComplaints, fetchCustomerNotifications]);
 
     const contractEndDate = parsePortalDate(amcData.endDate);
     const contractStatus = String(amcData.status || "").trim().toUpperCase();
@@ -434,7 +469,7 @@ export default function Customerdashboard({
 
         // Add Notification
         const newNotif = {
-            id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
+            id: `local-${Date.now()}`, // server-fetched notifications use UUID ids, so this can't rely on numeric max+1
             category: "Complaint Registered",
             message: `New ticket ${data.complaint.complaintNo} logged. We are assigning a technician.`,
             time: "Just now",
@@ -471,7 +506,7 @@ export default function Customerdashboard({
 
         // Push to notification center
         const newNotif = {
-            id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
+            id: `local-${Date.now()}`, // server-fetched notifications use UUID ids, so this can't rely on numeric max+1
             category: "Emergency Alarm",
             message: `CRITICAL breakdown response registered as ${data.complaint.complaintNo}.`,
             time: "Just now",
@@ -488,11 +523,13 @@ export default function Customerdashboard({
     const handleMarkAllRead = () => {
         setNotifications(prev => prev.map(n => ({ ...n, read: true })));
         clearAppBadgeCount();
+        fetch("/api/customer/notifications", { method: "PATCH" }).catch(() => {});
     };
 
     const handleClearNotifications = () => {
         setNotifications([]);
         clearAppBadgeCount();
+        fetch("/api/customer/notifications", { method: "DELETE" }).catch(() => {});
     };
 
     const openComplaintDetails = (complaint) => {
