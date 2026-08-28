@@ -29,7 +29,8 @@ export default async function handler(req, res) {
         COUNT(*) FILTER (WHERE is_service_contract AND due_date >= CURRENT_DATE AND due_date <= CURRENT_DATE + INTERVAL '30 days')::int AS due_in_30,
         COUNT(*) FILTER (
           WHERE is_service_contract
-            AND date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE)
+            AND due_date >= CURRENT_DATE
+            AND due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date
         )::int AS due_this_month,
         COUNT(*) FILTER (
           WHERE is_service_contract

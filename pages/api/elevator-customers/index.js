@@ -93,7 +93,11 @@ export default async function handler(req, res) {
     if (dueFilter === "expired") {
       whereParts.push(`due_date IS NOT NULL AND due_date < CURRENT_DATE`);
     } else if (dueFilter === "this_month") {
-      whereParts.push(`due_date IS NOT NULL AND date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE)`);
+      whereParts.push(`
+        due_date IS NOT NULL
+        AND due_date >= CURRENT_DATE
+        AND due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date
+      `);
     } else if (dueFilter === "next_month") {
       whereParts.push(`due_date IS NOT NULL AND date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE + INTERVAL '1 month')`);
     }

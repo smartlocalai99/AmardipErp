@@ -5,7 +5,25 @@ import { createAuditLog } from "@/lib/auditLog";
 import { sendPushToUserIds } from "@/lib/pushNotifications";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
-const VALID_BUCKETS = new Set(["this_month", "next_month"]);
+const VALID_BUCKETS = new Set(["this_month", "next_month", "expired"]);
+
+const NOTIFICATION_CONTENT = {
+  this_month: {
+    title: "AMC renewal reminder",
+    message: (dueLabel) => `Your AMC is due this month on ${dueLabel}. Contact Amardip Lifts to renew and avoid a service gap.`,
+    type: "AMC_DUE_THIS_MONTH",
+  },
+  next_month: {
+    title: "AMC renewal reminder",
+    message: (dueLabel) => `Your AMC is due next month on ${dueLabel}. Contact Amardip Lifts to renew in time.`,
+    type: "AMC_DUE_NEXT_MONTH",
+  },
+  expired: {
+    title: "Your AMC has expired",
+    message: (dueLabel) => `Your AMC expired on ${dueLabel}. Contact Amardip Lifts to renew your contract and restore coverage.`,
+    type: "AMC_EXPIRED",
+  },
+};
 
 async function safeAudit(args) {
   try {
@@ -26,12 +44,23 @@ export default async function handler(req, res) {
 
   const bucketRaw = String(req.body?.bucket || "next_month").trim().toLowerCase();
   const bucket = VALID_BUCKETS.has(bucketRaw) ? bucketRaw : "next_month";
-  const monthOffsetSql = bucket === "this_month" ? "" : "+ INTERVAL '1 month'";
+  const bucketWhereSql = {
+    this_month: `
+      d.due_date >= CURRENT_DATE
+      AND d.due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date
+    `,
+    next_month: `
+      d.due_date >= (date_trunc('month', CURRENT_DATE) + INTERVAL '1 month')::date
+      AND d.due_date < (date_trunc('month', CURRENT_DATE) + INTERVAL '2 months')::date
+    `,
+    expired: "d.due_date < CURRENT_DATE",
+  }[bucket];
+  const notification = NOTIFICATION_CONTENT[bucket];
 
   try {
-    // Every AMC/EMC/Warranty customer whose contract falls due in the target
-    // month, matched to a customer login (if any) by mobile number — the
-    // same normalization the complaints module already uses.
+    // Every AMC/EMC/Warranty customer in the selected expiry group, matched
+    // to a customer login (if any) by mobile number — the same normalization
+    // the complaints module already uses.
     const dueResult = await query(`
       WITH dated AS (
         SELECT
@@ -49,7 +78,7 @@ export default async function handler(req, res) {
         AND regexp_replace(COALESCE(u.username, ''), '\\D', '', 'g') = regexp_replace(COALESCE(d.mobile_no, ''), '\\D', '', 'g')
         AND regexp_replace(COALESCE(d.mobile_no, ''), '\\D', '', 'g') <> ''
       WHERE d.due_date IS NOT NULL
-        AND date_trunc('month', d.due_date) = date_trunc('month', CURRENT_DATE ${monthOffsetSql})
+        AND ${bucketWhereSql}
     `);
 
     const rows = dueResult.rows;
@@ -59,9 +88,9 @@ export default async function handler(req, res) {
       matched.map((row) => {
         const dueLabel = new Date(row.due_date).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
         return sendPushToUserIds([row.user_id], {
-          title: "AMC Renewal Reminder",
-          body: `Your AMC/warranty is due on ${dueLabel}. Contact Amardip Lifts to renew and avoid a service gap.`,
-          data: { url: "/Customerdashboard", type: "AMC_RENEWAL_REMINDER" },
+          title: notification.title,
+          body: notification.message(dueLabel),
+          data: { url: "/Customerdashboard", type: notification.type },
         });
       })
     );
@@ -73,7 +102,7 @@ export default async function handler(req, res) {
       actor,
       entityType: "AMC_NOTIFY",
       entityId: bucket,
-      action: "AMC_EXPIRING_NOTIFIED",
+      action: "AMC_CUSTOMERS_NOTIFIED",
       newValues: { bucket, totalDue: rows.length, matchedAccounts: matched.length, notified },
       changedFields: ["bucket", "notified"],
     });

@@ -209,9 +209,10 @@ function PlusIcon({ className = "h-5 w-5" }) {
     );
 }
 
-function AmcStatStrip({ stats, loading }) {
+function AmcStatStrip({ stats, loading, selectedMode, onSelect }) {
     const cards = [
         {
+            mode: "this_month",
             label: "This Month",
             value: stats?.dueThisMonth ?? "—",
             sub: "AMC due this month",
@@ -219,6 +220,7 @@ function AmcStatStrip({ stats, loading }) {
             dot: "bg-amber-400",
         },
         {
+            mode: "next_month",
             label: "Next Month",
             value: stats?.dueNextMonth ?? "—",
             sub: "AMC due next month",
@@ -226,6 +228,7 @@ function AmcStatStrip({ stats, loading }) {
             dot: "bg-sky-400",
         },
         {
+            mode: "expired",
             label: "Expired",
             value: stats?.expired ?? "—",
             sub: "Past due date",
@@ -233,6 +236,7 @@ function AmcStatStrip({ stats, loading }) {
             dot: "bg-red-400",
         },
         {
+            mode: "amc",
             label: "AMC",
             value: stats?.statusAmc ?? "—",
             sub: "Status = AMC",
@@ -242,8 +246,22 @@ function AmcStatStrip({ stats, loading }) {
     ];
     return (
         <div className="grid grid-cols-2 gap-2">
-            {cards.map((c) => (
-                <div key={c.label} className={`rounded-2xl border p-3.5 ${c.color}`}>
+            {cards.map((c) => {
+                const isSelectable = typeof onSelect === "function";
+                const Component = isSelectable ? "button" : "div";
+
+                return (
+                <Component
+                    key={c.label}
+                    type={isSelectable ? "button" : undefined}
+                    aria-pressed={isSelectable ? selectedMode === c.mode : undefined}
+                    onClick={isSelectable ? () => onSelect(c.mode) : undefined}
+                    className={`rounded-2xl border p-3.5 text-left ${c.color} ${
+                        isSelectable
+                            ? `transition active:scale-[0.98] ${selectedMode === c.mode ? "ring-2 ring-[#0a649d] ring-offset-1" : "hover:brightness-[0.98]"}`
+                            : ""
+                    }`}
+                >
                     <div className="flex items-center gap-1.5 mb-1">
                         <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${c.dot}`} />
                         <span className="text-[9px] font-black uppercase tracking-wider opacity-70">{c.label}</span>
@@ -252,11 +270,30 @@ function AmcStatStrip({ stats, loading }) {
                         {loading ? <span className="block h-7 w-10 animate-pulse rounded-lg bg-current opacity-15" /> : c.value}
                     </p>
                     <p className="text-[9px] font-semibold mt-1 opacity-60">{c.sub}</p>
-                </div>
-            ))}
+                </Component>
+                );
+            })}
         </div>
     );
 }
+
+const AMC_NOTIFICATION_COPY = {
+    this_month: {
+        title: "Notify customers due this month",
+        description: "Sends a reminder that their AMC is due this month.",
+        button: "Notify This Month",
+    },
+    next_month: {
+        title: "Notify customers due next month",
+        description: "Sends a reminder that their AMC is due next month.",
+        button: "Notify Next Month",
+    },
+    expired: {
+        title: "Notify customers with expired AMC",
+        description: "Sends an expiry notice asking them to renew their AMC.",
+        button: "Notify Expired Customers",
+    },
+};
 
 function formatGroupDate(dateStr) {
     if (!dateStr || dateStr === "Unknown Date") return "No Scheduled Date";
@@ -719,15 +756,16 @@ function AdmindashboardShell({ user }) {
         finally { setAmcStatsLoading(false); }
     }
 
-    async function notifyExpiringNextMonth() {
-        if (notifyingAmc) return;
+    async function notifySelectedAmcCustomers() {
+        const bucket = amcFilterMode;
+        if (notifyingAmc || !AMC_NOTIFICATION_COPY[bucket]) return;
         setNotifyingAmc(true);
         setNotifyAmcResult(null);
         try {
             const res = await fetch("/api/elevator-customers/notify-expiring", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ bucket: "next_month" }),
+                body: JSON.stringify({ bucket }),
             });
             const data = await res.json();
             if (data.success) setNotifyAmcResult(data);
@@ -1929,26 +1967,12 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                     </div>
 
-                                    {!amcStatsLoading && (amcStats?.dueThisMonth ?? 0) > 0 && (
-                                        <button
-                                            type="button"
-                                            onClick={() => setAmcFilterMode("this_month")}
-                                            className="w-full rounded-2xl border border-amber-200 bg-amber-50 p-4 text-left active:scale-[0.99] transition"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-                                                    <AlertIcon className="h-5 w-5 text-amber-600" />
-                                                </div>
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-sm font-black text-amber-900">
-                                                        {amcStats.dueThisMonth} AMC {amcStats.dueThisMonth === 1 ? "contract" : "contracts"} expiring this month
-                                                    </p>
-                                                    <p className="text-[11px] font-semibold text-amber-700 mt-0.5">Tap to see the list</p>
-                                                </div>
-                                                <ChevronRightIcon className="h-4 w-4 text-amber-500 shrink-0" />
-                                            </div>
-                                        </button>
-                                    )}
+                                    <AmcStatStrip
+                                        stats={amcStats}
+                                        loading={amcStatsLoading}
+                                        selectedMode={amcFilterMode}
+                                        onSelect={setAmcFilterMode}
+                                    />
 
                                     <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
                                         <div className="flex items-center gap-3">
@@ -1957,9 +1981,11 @@ function AdmindashboardShell({ user }) {
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-black text-sky-900">
-                                                    {amcStatsLoading ? "—" : amcStats?.dueNextMonth ?? 0} expiring next month
+                                                    {AMC_NOTIFICATION_COPY[amcFilterMode]?.title || "Select an expiry group to notify"}
                                                 </p>
-                                                <p className="text-[11px] font-semibold text-sky-700 mt-0.5">Send a renewal reminder to their Amardip app</p>
+                                                <p className="text-[11px] font-semibold text-sky-700 mt-0.5">
+                                                    {AMC_NOTIFICATION_COPY[amcFilterMode]?.description || "Choose This Month, Next Month, or Expired above."}
+                                                </p>
                                             </div>
                                         </div>
                                         {notifyAmcResult && (
@@ -1972,33 +1998,14 @@ function AdmindashboardShell({ user }) {
                                         )}
                                         <button
                                             type="button"
-                                            disabled={notifyingAmc || !((amcStats?.dueNextMonth ?? 0) > 0)}
-                                            onClick={notifyExpiringNextMonth}
+                                            disabled={notifyingAmc || !AMC_NOTIFICATION_COPY[amcFilterMode]}
+                                            onClick={notifySelectedAmcCustomers}
                                             className="mt-3 h-10 w-full flex items-center justify-center gap-2 rounded-xl bg-sky-600 text-xs font-black text-white disabled:opacity-50 active:scale-95 transition"
                                         >
                                             {notifyingAmc && <span className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-white/40 border-t-white animate-spin" />}
-                                            {notifyingAmc ? "Sending…" : "Notify Customers"}
+                                            {notifyingAmc ? "Sending…" : AMC_NOTIFICATION_COPY[amcFilterMode]?.button || "Select an expiry group"}
                                         </button>
                                     </div>
-
-                                    <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
-                                        {[
-                                            ["this_month", "This Month"],
-                                            ["next_month", "Next Month"],
-                                            ["expired", "Expired"],
-                                            ["amc", "AMC"],
-                                        ].map(([mode, label]) => (
-                                            <button
-                                                key={mode}
-                                                onClick={() => setAmcFilterMode(mode)}
-                                                className={`amardip-filter-chip shrink-0 ${amcFilterMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"}`}
-                                            >
-                                                {label}
-                                            </button>
-                                        ))}
-                                    </div>
-
-                                    <AmcStatStrip stats={amcStats} loading={amcStatsLoading} />
 
                                     <AdminAmcTable
                                         user={user}
