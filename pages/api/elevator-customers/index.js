@@ -1,4 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
+import { CUSTOMER_DUE_DATE_SQL } from "@/lib/customerDates";
 import { query } from "@/lib/db";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
@@ -97,23 +98,21 @@ export default async function handler(req, res) {
       whereParts.push(`due_date IS NOT NULL AND date_trunc('month', due_date) = date_trunc('month', CURRENT_DATE + INTERVAL '1 month')`);
     }
 
+    if (dueFilter) {
+      whereParts.push(`UPPER(TRIM(COALESCE(customer_status, ''))) IN ('AMC', 'EMC', 'WARRANTY')`);
+    }
+
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
 
-    // Dates are free-text from import (some invalid, e.g. 31/11/2026), so this
-    // mirrors the defensive ISO-format check already used in amc-stats.js.
+    // Dates are free-text from import (some invalid, e.g. 31/11/2026), so use
+    // the shared strict parser for ISO and slash-formatted customer dates.
     // Computed once in a CTE so both the count and the page of rows — and the
     // dueFilter/urgency ordering below — can filter/sort on the same value.
     const scopedCte = `
       WITH scoped AS (
         SELECT
           *,
-          CASE
-            WHEN amc_warranty_due IS NOT NULL AND amc_warranty_due::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-              THEN amc_warranty_due::text::date
-            WHEN amc_ending_date IS NOT NULL AND amc_ending_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-              THEN amc_ending_date::text::date
-            ELSE NULL
-          END AS due_date
+          ${CUSTOMER_DUE_DATE_SQL} AS due_date
         FROM elevator_service_customers
       )
     `;

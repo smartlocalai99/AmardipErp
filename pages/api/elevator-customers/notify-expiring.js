@@ -1,4 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
+import { CUSTOMER_DUE_DATE_SQL } from "@/lib/customerDates";
 import { query } from "@/lib/db";
 import { createAuditLog } from "@/lib/auditLog";
 import { sendPushToUserIds } from "@/lib/pushNotifications";
@@ -37,14 +38,9 @@ export default async function handler(req, res) {
           id,
           customer_name,
           mobile_no,
-          CASE
-            WHEN amc_warranty_due IS NOT NULL AND amc_warranty_due::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-              THEN amc_warranty_due::text::date
-            WHEN amc_ending_date IS NOT NULL AND amc_ending_date::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
-              THEN amc_ending_date::text::date
-            ELSE NULL
-          END AS due_date
+          ${CUSTOMER_DUE_DATE_SQL} AS due_date
         FROM elevator_service_customers
+        WHERE UPPER(TRIM(COALESCE(customer_status, ''))) IN ('AMC', 'EMC', 'WARRANTY')
       )
       SELECT d.id, d.customer_name, d.mobile_no, d.due_date, u.id AS user_id
       FROM dated d

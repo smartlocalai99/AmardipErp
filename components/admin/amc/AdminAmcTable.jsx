@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
+import { getCustomerDueDate } from "@/lib/customerDates";
 
 const AMC_COLUMNS = [
   { key: "record_no", label: "Record No" },
@@ -36,13 +37,10 @@ function CountSkeleton() {
 }
 
 function getAmcState(customer) {
-  const rawDate = customer?.amc_warranty_due || customer?.amc_ending_date;
-  if (!rawDate) return { label: "Missing", classes: "border-slate-200 bg-slate-100 text-slate-700" };
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const dueDate = new Date(`${String(rawDate).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(dueDate.getTime())) return { label: "Missing", classes: "border-slate-200 bg-slate-100 text-slate-700" };
+  const dueDate = getCustomerDueDate(customer);
+  if (!dueDate) return { label: "Missing", classes: "border-slate-200 bg-slate-100 text-slate-700" };
 
   const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / 86400000);
   if (diffDays < 0) return { label: "Expired", classes: "border-red-100 bg-red-50 text-red-700" };
