@@ -1,13 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
-import { getCustomerRecordsForUser } from "@/lib/customerAccounts";
+import { getCustomerRecordsForUser, getCustomerServiceVisitsForUser } from "@/lib/customerAccounts";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
-import PushNotificationCard from "@/components/ui/PushNotificationCard";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
-
-const PRIMARY_COLOR = "#0a649d";
 
 export async function getServerSideProps(context) {
     const user = await getUserFromRequest(context.req);
@@ -30,9 +27,114 @@ export async function getServerSideProps(context) {
         };
     }
 
-    const customerRecords = await getCustomerRecordsForUser(user.id);
+    const [customerRecords, serviceVisits] = await Promise.all([
+        getCustomerRecordsForUser(user.id),
+        getCustomerServiceVisitsForUser(user.id, 20),
+    ]);
+    const requestedTab = Array.isArray(context.query.tab) ? context.query.tab[0] : context.query.tab;
+    const normalizedTab = requestedTab === "support" ? "profile" : requestedTab;
+    const initialTab = ["home", "complaints", "documents", "service", "profile"].includes(normalizedTab)
+        ? normalizedTab
+        : "home";
+    const requestedSubTab = Array.isArray(context.query.subtab) ? context.query.subtab[0] : context.query.subtab;
+    const initialComplaintSubTab = ["logs", "raise"].includes(requestedSubTab) ? requestedSubTab : "logs";
 
-    return { props: { user, customerRecords } };
+    return {
+        props: {
+            user,
+            customerRecords,
+            serviceVisits,
+            initialTab,
+            initialComplaintSubTab,
+            contractEvaluationDate: new Intl.DateTimeFormat("en-CA", {
+                timeZone: "Asia/Kolkata",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+            }).format(new Date()),
+        },
+    };
+}
+
+function parsePortalDate(value) {
+    const cleanValue = String(value || "").trim();
+    if (!cleanValue || cleanValue === "Not available") return null;
+
+    const isoMatch = cleanValue.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    const indianMatch = cleanValue.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/);
+    let year;
+    let month;
+    let day;
+
+    if (isoMatch) {
+        [, year, month, day] = isoMatch.map(Number);
+    } else if (indianMatch) {
+        [, day, month, year] = indianMatch.map(Number);
+        if (year < 100) year += 2000;
+    } else {
+        return null;
+    }
+
+    const parsed = new Date(Date.UTC(year, month - 1, day));
+    if (
+        parsed.getUTCFullYear() !== year
+        || parsed.getUTCMonth() !== month - 1
+        || parsed.getUTCDate() !== day
+    ) {
+        return null;
+    }
+
+    return parsed;
+}
+
+function formatPortalDate(value) {
+    const parsed = parsePortalDate(value);
+    if (!parsed) return "Not recorded";
+
+    return new Intl.DateTimeFormat("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+    }).format(parsed);
+}
+
+function formatGroupDate(dateStr) {
+    if (!dateStr) return "";
+    try {
+        const today = new Date().toISOString().split("T")[0];
+        const yesterdayObj = new Date();
+        yesterdayObj.setDate(yesterdayObj.getDate() - 1);
+        const yesterday = yesterdayObj.toISOString().split("T")[0];
+
+        if (dateStr === today) return "Today";
+        if (dateStr === yesterday) return "Yesterday";
+
+        return new Date(dateStr).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric"
+        });
+    } catch {
+        return dateStr;
+    }
+}
+
+function mapComplaintForCustomer(complaint) {
+    return {
+        id: complaint.complaintNo,
+        dbId: complaint.id,
+        liftId: complaint.customerCode || "LIFT",
+        date: complaint.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
+        category: complaint.complaintType?.replaceAll("_", " ") || "SERVICE REQUEST",
+        description: complaint.description,
+        status: complaint.status?.replaceAll("_", " ") || "UNASSIGNED",
+        emergency: complaint.priority === "EMERGENCY",
+        assignedTech: complaint.assignedTechnicianName || "",
+        techPhone: "",
+        eta: "",
+        timeline: [`Raised - ${complaint.createdAt ? formatGroupDate(complaint.createdAt.slice(0, 10)) : "Just now"}`],
+    };
 }
 
 // SVG Icons
@@ -64,6 +166,14 @@ function SupportIcon({ className = "h-5 w-5" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+    );
+}
+
+function ServiceIcon({ className = "h-5 w-5" }) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={className}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17 17 20.75a2.12 2.12 0 0 0 3-3l-5.58-5.58M14.5 6.5l3-3m-1.5 0 1.5 1.5M4.5 20.5l6.75-6.75M9 5.25A4.25 4.25 0 0 0 3.5 10.7l3.05-3.05 2.8 2.8-3.05 3.05A4.25 4.25 0 0 0 11.75 8" />
         </svg>
     );
 }
@@ -116,7 +226,14 @@ function LogoutIcon({ className = "h-5 w-5" }) {
     );
 }
 
-export default function Customerdashboard({ user, customerRecords = [] }) {
+export default function Customerdashboard({
+    user,
+    customerRecords = [],
+    serviceVisits = [],
+    initialTab = "home",
+    initialComplaintSubTab = "logs",
+    contractEvaluationDate,
+}) {
     const router = useRouter();
 
     const primaryCustomer = customerRecords[0] || null;
@@ -129,20 +246,12 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
         lastChecked: String(record.hoc_date || "").slice(0, 10) || "Not available",
     }));
 
-    const [activeTab, setActiveTab] = useState("home"); // home, complaints, documents, support, profile
-    const [complaintSubTab, setComplaintSubTab] = useState("logs"); // logs, raise
+    const [activeTab, setActiveTab] = useState(initialTab); // home, complaints, documents, service, profile
+    const [complaintSubTab, setComplaintSubTab] = useState(initialComplaintSubTab); // logs, raise
 
     useEffect(() => {
         subscribeToPush().catch(() => {});
-        if (router.isReady) {
-            if (router.query.tab) {
-                setActiveTab(router.query.tab);
-            }
-            if (router.query.subtab) {
-                setComplaintSubTab(router.query.subtab);
-            }
-        }
-    }, [router.isReady, router.query]);
+    }, []);
 
     // Notifications Center
     const [showNotificationCenter, setShowNotificationCenter] = useState(false);
@@ -204,63 +313,60 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
 
     const [materialRequests, setMaterialRequests] = useState([]);
 
-    function mapComplaintForCustomer(c) {
-        return {
-            id: c.complaintNo,
-            dbId: c.id,
-            liftId: c.customerCode || "LIFT",
-            date: c.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
-            category: c.complaintType?.replaceAll("_", " ") || "SERVICE REQUEST",
-            description: c.description,
-            status: c.status?.replaceAll("_", " ") || "UNASSIGNED",
-            emergency: c.priority === "EMERGENCY",
-            assignedTech: c.assignedTechnicianName || "",
-            techPhone: "",
-            eta: "",
-            timeline: [`Raised - ${c.createdAt ? formatGroupDate(c.createdAt.slice(0, 10)) : "Just now"}`],
-        };
-    }
-
-    async function fetchCustomerComplaints() {
-        setComplaintError("");
+    const fetchCustomerComplaints = useCallback(async () => {
         try {
             const res = await fetch("/api/customer/complaints?page=1&pageSize=50");
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to load complaints");
+            setComplaintError("");
             setComplaints((data.complaints || []).map(mapComplaintForCustomer));
         } catch (err) {
             setComplaintError(err.message || "Failed to load complaints");
         }
-    }
-
-    useEffect(() => {
-        fetchCustomerComplaints();
-
-        const storedReqs = localStorage.getItem("amardip_material_requests");
-        if (storedReqs) {
-            try {
-                setMaterialRequests(JSON.parse(storedReqs));
-            } catch (e) {
-                console.error(e);
-            }
-        }
     }, []);
 
+    useEffect(() => {
+        const initialLoad = window.setTimeout(() => {
+            fetchCustomerComplaints();
+
+            const storedReqs = localStorage.getItem("amardip_material_requests");
+            if (storedReqs) {
+                try {
+                    setMaterialRequests(JSON.parse(storedReqs));
+                } catch (e) {
+                    console.error(e);
+                }
+            }
+        }, 0);
+
+        return () => window.clearTimeout(initialLoad);
+    }, [fetchCustomerComplaints]);
+
+    const contractEndDate = parsePortalDate(amcData.endDate);
+    const contractStatus = String(amcData.status || "").trim().toUpperCase();
+    const isEligibleContractStatus = ["ACTIVE", "AMC", "EMC", "WARRANTY"].includes(contractStatus);
+    const contractEndTime = contractEndDate ? contractEndDate.getTime() + (24 * 60 * 60 * 1000) - 1 : null;
+    const contractEvaluationTime = parsePortalDate(contractEvaluationDate)?.getTime() || 0;
+    const amcIsActive = isEligibleContractStatus && (contractEndTime === null || contractEndTime >= contractEvaluationTime);
+
+    const remainingDays = amcIsActive && contractEndTime !== null
+        ? Math.max(0, Math.ceil((contractEndTime - contractEvaluationTime) / (1000 * 60 * 60 * 24)))
+        : 0;
+
+    const latestServiceVisit = serviceVisits[0] || null;
+    const latestVisitByCustomer = new Map();
+    serviceVisits.forEach((visit) => {
+        if (visit.customer_id && !latestVisitByCustomer.has(visit.customer_id)) {
+            latestVisitByCustomer.set(visit.customer_id, visit);
+        }
+    });
+    const liftServiceSummaries = lifts.map((lift) => ({
+        ...lift,
+        latestVisit: latestVisitByCustomer.get(lift.customerId) || null,
+    }));
+
     // Dynamic KPI Counts
-    const activeAMC = lifts.filter(l => l.amcStatus === "Active").length;
     const openComplaints = complaints.filter(c => !["RESOLVED", "CLOSED", "Resolved", "Closed"].includes(c.status)).length;
-    const upcomingChecks = 1;
-
-    // Remaining days calculation
-    const getRemainingDays = () => {
-        const end = new Date(amcData.endDate);
-        if (Number.isNaN(end.getTime())) return 0;
-        const today = new Date();
-        const diff = end - today;
-        return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-    };
-
-    const remainingDays = getRemainingDays();
 
     // Handlers
     const handleLogout = async () => {
@@ -409,27 +515,6 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
         setSelectedTrackComplaint(complaint);
     };
 
-    const formatGroupDate = (dateStr) => {
-        if (!dateStr) return "";
-        try {
-            const today = new Date().toISOString().split("T")[0];
-            const yesterdayObj = new Date();
-            yesterdayObj.setDate(yesterdayObj.getDate() - 1);
-            const yesterday = yesterdayObj.toISOString().split("T")[0];
-
-            if (dateStr === today) return "Today";
-            if (dateStr === yesterday) return "Yesterday";
-
-            return new Date(dateStr).toLocaleDateString("en-US", {
-                month: "short",
-                day: "numeric",
-                year: "numeric"
-            });
-        } catch (e) {
-            return dateStr;
-        }
-    };
-
     return (
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
             {/* Phone Bezel Simulator */}
@@ -531,24 +616,33 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                             <button
                                 type="button"
                                 onClick={() => setViewingAmc(true)}
-                                className="w-full rounded-3xl p-5 text-left text-white shadow-md relative overflow-hidden active:scale-[0.99] transition"
-                                style={{ background: `linear-gradient(135deg, ${PRIMARY_COLOR} 0%, #1e4b7a 65%, #0e2a4a 100%)` }}
+                                className={`w-full rounded-3xl border p-5 text-left shadow-md relative overflow-hidden active:scale-[0.99] transition ${amcIsActive
+                                    ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-green-100 to-emerald-200 text-emerald-950"
+                                    : "border-red-500 bg-gradient-to-br from-red-600 via-red-700 to-rose-900 text-white"
+                                    }`}
                             >
-                                <div className="absolute top-0 right-0 h-28 w-28 bg-white/5 rounded-full -mr-8 -mt-8"></div>
-                                <div className="absolute bottom-0 left-0 h-20 w-20 bg-white/5 rounded-full -ml-8 -mb-8"></div>
+                                <div className={`absolute top-0 right-0 h-28 w-28 rounded-full -mr-8 -mt-8 ${amcIsActive ? "bg-emerald-900/5" : "bg-white/5"}`}></div>
+                                <div className={`absolute bottom-0 left-0 h-20 w-20 rounded-full -ml-8 -mb-8 ${amcIsActive ? "bg-emerald-900/5" : "bg-white/5"}`}></div>
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <span className="text-[10px] bg-white/20 border border-white/20 text-white font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider">
-                                            Active AMC Contract
+                                        <span className={`text-[10px] border font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-wider ${amcIsActive
+                                            ? "border-emerald-300 bg-white/65 text-emerald-800"
+                                            : "border-white/25 bg-white/15 text-white"
+                                            }`}>
+                                            {amcIsActive ? "Active AMC Contract" : "Invalid AMC Contract"}
                                         </span>
                                         <h2 className="text-xl font-black mt-3 leading-tight">{amcData.number}</h2>
-                                        <p className="text-[10.5px] text-white/80 font-semibold mt-1">Valid till {amcData.endDate} ({remainingDays} Days Left)</p>
+                                        <p className={`text-[10.5px] font-semibold mt-1 ${amcIsActive ? "text-emerald-800" : "text-white/85"}`}>
+                                            {amcIsActive
+                                                ? `${contractEndDate ? `Valid until ${formatPortalDate(amcData.endDate)} (${remainingDays} days left)` : "Valid contract"}`
+                                                : `${contractEndDate ? `Invalid - expired on ${formatPortalDate(amcData.endDate)}` : "Invalid - contract inactive"}`}
+                                        </p>
                                     </div>
-                                    <div className="h-10.5 w-10.5 rounded-xl bg-white text-[#0a649d] border border-white/70 flex items-center justify-center font-black text-sm">
+                                    <div className={`h-10.5 w-10.5 rounded-xl bg-white border flex items-center justify-center font-black text-sm ${amcIsActive ? "border-emerald-200 text-emerald-700" : "border-white/70 text-red-700"}`}>
                                         AMC
                                     </div>
                                 </div>
-                                <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-white/70">Tap to view contract maintenance</p>
+                                <p className={`mt-3 text-[10px] font-black uppercase tracking-widest ${amcIsActive ? "text-emerald-700/80" : "text-white/70"}`}>Tap to view contract maintenance</p>
                             </button>
 
                             {/* KPI Grid */}
@@ -563,14 +657,16 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Open Support Tickets</span>
                                         <p className={`text-2xl font-black mt-2 ${openComplaints > 0 ? "text-red-600" : "text-slate-900"}`}>{openComplaints}</p>
                                     </div>
-                                    <div className="rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm flex flex-col justify-between h-26 select-none">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Contract AMC Status</span>
-                                        <span className="h-fit w-fit text-[9px] font-bold px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 mt-2">Active</span>
+                                    <div className={`rounded-3xl border p-4 shadow-sm flex flex-col justify-between h-26 select-none ${amcIsActive ? "border-emerald-200 bg-emerald-50" : "border-red-500 bg-red-600"}`}>
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider leading-tight ${amcIsActive ? "text-emerald-700" : "text-white/80"}`}>Contract AMC Status</span>
+                                        <span className={`h-fit w-fit text-[9px] font-black px-2 py-0.5 rounded mt-2 ${amcIsActive ? "bg-emerald-200 text-emerald-900" : "bg-white/20 text-white"}`}>
+                                            {amcIsActive ? "Active" : "Invalid"}
+                                        </span>
                                     </div>
-                                    <div className="rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm flex flex-col justify-between h-26 select-none">
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Upcoming Maintenance</span>
-                                        <p className="text-2xl font-black text-slate-900 mt-2">{upcomingChecks}</p>
-                                    </div>
+                                    <button type="button" onClick={() => setActiveTab("service")} className="rounded-3xl bg-white border border-slate-200/60 p-4 text-left shadow-sm flex flex-col justify-between h-26 select-none active:scale-[0.98] transition">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Last Service</span>
+                                        <p className="text-[13px] font-black text-slate-900 mt-2">{latestServiceVisit ? formatPortalDate(latestServiceVisit.service_date) : "Not recorded"}</p>
+                                    </button>
                                 </div>
                             </div>
 
@@ -582,7 +678,7 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                         onClick={() => { setActiveTab("complaints"); setComplaintSubTab("raise"); }}
                                         className="rounded-2xl bg-[#0a649d] hover:bg-[#085282] text-white p-3 shadow flex flex-col items-center text-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                                     >
-                                        <ComplaintIcon className="h-5 w-5 text-[#0a649d]" />
+                                        <ComplaintIcon className="h-5 w-5 text-white" />
                                         <span className="text-[9.5px] font-bold tracking-tight">Raise Ticket</span>
                                     </button>
                                     <button
@@ -600,7 +696,7 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                         <span className="text-[9.5px] font-bold text-slate-700 tracking-tight">Documents</span>
                                     </button>
                                     <button
-                                        onClick={() => setActiveTab("support")}
+                                        onClick={() => setActiveTab("profile")}
                                         className="rounded-2xl bg-white border border-slate-200 p-3 shadow-sm flex flex-col items-center text-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                                     >
                                         <SupportIcon className="h-5 w-5 text-[#0a649d]" />
@@ -615,9 +711,9 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                     </button>
                                     <button
                                         onClick={triggerEmergencyRequest}
-                                        className="rounded-2xl bg-red-500 hover:bg-red-600 text-white p-3 shadow flex flex-col items-center text-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
+                                        className="rounded-2xl bg-amber-400 hover:bg-amber-500 text-amber-950 p-3 shadow flex flex-col items-center text-center justify-center gap-1.5 active:scale-95 transition cursor-pointer"
                                     >
-                                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-ping"></span>
+                                        <span className="h-1.5 w-1.5 rounded-full bg-amber-950 animate-ping"></span>
                                         <span className="text-[9.5px] font-black uppercase tracking-tight">Emergency</span>
                                     </button>
                                 </div>
@@ -629,27 +725,33 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                     <h3 className="text-sm font-extrabold text-slate-900 uppercase tracking-wider">Recent Activity Feed</h3>
                                 </div>
                                 <div className="space-y-4">
-                                    <div className="flex gap-4">
-                                        <div className="text-center w-14 shrink-0">
-                                            <p className="text-xs font-extrabold text-[#0a649d] leading-none">Today</p>
-                                            <p className="text-[8.5px] font-bold text-slate-400 mt-1 uppercase tracking-wide">10:30 AM</p>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-extrabold text-slate-800 truncate">Complaint Tracking</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">Submitted complaints appear here after DB sync.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex gap-4">
-                                        <div className="text-center w-14 shrink-0">
-                                            <p className="text-xs font-extrabold text-slate-500 leading-none">June 15</p>
-                                            <p className="text-[8.5px] font-bold text-slate-400 mt-1 uppercase tracking-wide">Completed</p>
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <p className="text-xs font-extrabold text-slate-800 truncate">Routine Maintenance Visit</p>
-                                            <p className="text-[10px] text-slate-400 mt-0.5 truncate">Monthly safety checklist signed off for LIFT-9821</p>
-                                        </div>
-                                    </div>
+                                    {latestServiceVisit && (
+                                        <button type="button" onClick={() => setActiveTab("service")} className="flex w-full gap-4 text-left">
+                                            <div className="w-20 shrink-0 text-left">
+                                                <p className="text-[10px] font-extrabold text-[#0a649d] leading-tight">{formatPortalDate(latestServiceVisit.service_date)}</p>
+                                                <p className="text-[8.5px] font-bold text-emerald-600 mt-1 uppercase tracking-wide">Completed</p>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-extrabold text-slate-800 truncate">{String(latestServiceVisit.service_type || "Routine service").replaceAll("_", " ")}</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">Serviced {latestServiceVisit.customer_code || "your elevator"}</p>
+                                            </div>
+                                        </button>
+                                    )}
+                                    {complaints[0] && (
+                                        <button type="button" onClick={() => { setActiveTab("complaints"); setComplaintSubTab("logs"); }} className="flex w-full gap-4 text-left">
+                                            <div className="w-20 shrink-0 text-left">
+                                                <p className="text-[10px] font-extrabold text-slate-500 leading-tight">{formatPortalDate(complaints[0].date)}</p>
+                                                <p className="text-[8.5px] font-bold text-slate-400 mt-1 uppercase tracking-wide">Ticket</p>
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-xs font-extrabold text-slate-800 truncate">{complaints[0].category}</p>
+                                                <p className="text-[10px] text-slate-400 mt-0.5 truncate">{complaints[0].id} • {complaints[0].status}</p>
+                                            </div>
+                                        </button>
+                                    )}
+                                    {!latestServiceVisit && !complaints[0] && (
+                                        <p className="text-xs font-semibold text-slate-400">No service or ticket activity recorded yet.</p>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -810,7 +912,7 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                                 <div className="flex gap-2 flex-wrap pt-2">
                                                     {photos.map((src, i) => (
                                                         <div key={i} className="relative h-10 w-10 rounded-lg overflow-hidden border border-slate-200">
-                                                            <img src={src} className="h-full w-full object-cover" />
+                                                            <Image src={src} alt="Uploaded complaint evidence" fill unoptimized sizes="40px" className="object-cover" />
                                                             <button type="button" onClick={() => setPhotos(prev => prev.filter((_, idx) => idx !== i))} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full h-4 w-4 flex items-center justify-center text-white text-[8px]">&times;</button>
                                                         </div>
                                                     ))}
@@ -901,83 +1003,106 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                         </div>
                     )}
 
-                    {/* VIEW: SUPPORT TAB */}
-                    {activeTab === "support" && (
+                    {/* VIEW: SERVICE TAB */}
+                    {activeTab === "service" && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div>
-                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Support Desk</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Reach customer assistance, log breakdown alerts, or chat.</p>
+                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service</h1>
+                                <p className="text-xs text-slate-500 mt-0.5">See when each lift was last serviced and review completed visits.</p>
                             </div>
 
-                            {/* Support CTA Cards */}
-                            <div className="space-y-2.5">
-                                <a
-                                    href="tel:+919999999999"
-                                    className="rounded-3xl bg-white border border-slate-200 p-4.5 shadow-sm hover:shadow transition flex justify-between items-center"
-                                >
-                                    <div className="flex gap-4 items-center">
-                                        <div className="h-10 w-10 bg-blue-50 text-[#0a649d] rounded-2xl flex items-center justify-center shrink-0">
-                                            <PhoneIcon className="h-5.5 w-5.5" />
-                                        </div>
-                                        <div>
-                                            <h4 className="text-xs font-black text-slate-800">Phone Support Helpline</h4>
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5 tracking-wider">Office Timings: 9:00 AM - 6:00 PM</p>
-                                        </div>
-                                    </div>
-                                    <span className="text-[10px] text-[#0a649d] font-black uppercase tracking-wider pl-2">Call Now</span>
-                                </a>
-
-                                <a
-                                    href="https://wa.me/919999999999"
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="rounded-3xl bg-white border border-slate-200 p-4.5 shadow-sm hover:shadow transition flex justify-between items-center"
-                                >
-                                    <div className="flex gap-4 items-center">
-                                        <div className="h-10 w-10 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shrink-0">
-                                            <svg viewBox="0 0 32 32" fill="currentColor" className="h-5.5 w-5.5"><path d="M16.04 3C9.46 3 4.1 8.26 4.1 14.74c0 2.08.56 4.12 1.62 5.9L4 29l8.56-1.68a12.1 12.1 0 0 0 3.48.51c6.58 0 11.94-5.26 11.94-11.74S22.62 3 16.04 3Zm0 22.77c-1.14 0-2.26-.18-3.32-.55l-.48-.16-5.08 1 1.02-4.9-.25-.5a9.71 9.71 0 0 1-1.36-4.92c0-5.34 4.25-9.68 9.47-9.68 5.22 0 9.47 4.34 9.47 9.68s-4.25 10.03-9.47 10.03Zm5.47-7.25c-.3-.15-1.78-.87-2.06-.97-.28-.1-.48-.15-.68.15-.2.3-.78.97-.96 1.17-.18.2-.35.22-.65.07-.3-.15-1.27-.46-2.42-1.48-.9-.78-1.5-1.75-1.68-2.05-.18-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.08-.15-.68-1.62-.93-2.22-.25-.58-.5-.5-.68-.51h-.58c-.2 0-.52.07-.8.37-.28.3-1.05 1.02-1.05 2.48s1.08 2.88 1.23 3.08c.15.2 2.13 3.23 5.16 4.52.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.72 2.03-1.42.25-.7.25-1.3.18-1.42-.08-.12-.28-.2-.58-.35Z" /></svg>
-                                        </div>
-                                        <div>
-                                            <h4 className="text-xs font-black text-slate-800">WhatsApp Support </h4>
-                                            <p className="text-[10px] text-slate-400 font-bold uppercase mt-0.5 tracking-wider">Fast text response assistance</p>
+                            {latestServiceVisit ? (
+                                <>
+                                    <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#073354] via-[#0a649d] to-[#1687bd] p-5 text-white shadow-md">
+                                        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
+                                        <div className="relative flex items-start justify-between gap-4">
+                                            <div>
+                                                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100">Last serviced</p>
+                                                <p className="mt-2 text-2xl font-black">{formatPortalDate(latestServiceVisit.service_date)}</p>
+                                                <p className="mt-1 text-xs font-bold text-white/80">
+                                                    {latestServiceVisit.customer_code || "Elevator"} • {String(latestServiceVisit.service_type || "Routine service").replaceAll("_", " ")}
+                                                </p>
+                                            </div>
+                                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+                                                <ServiceIcon className="h-6 w-6" />
+                                            </div>
                                         </div>
                                     </div>
-                                    <span className="text-[10px] text-emerald-600 font-black uppercase tracking-wider pl-2">Open Chat</span>
-                                </a>
 
-                            </div>
+                                    <section>
+                                        <h2 className="mb-3 px-1 text-xs font-bold uppercase tracking-wider text-slate-400">Your lifts</h2>
+                                        <div className="space-y-2.5">
+                                            {liftServiceSummaries.map((lift) => (
+                                                <div key={lift.customerId} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                    <div className="flex items-center justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-black text-slate-900">{lift.id}</p>
+                                                            <p className="mt-0.5 truncate text-[10px] font-semibold text-slate-400">{lift.building}</p>
+                                                        </div>
+                                                        <div className={`shrink-0 rounded-xl px-3 py-2 text-right ${lift.latestVisit ? "bg-emerald-50" : "bg-slate-100"}`}>
+                                                            <p className={`text-[8px] font-black uppercase tracking-wider ${lift.latestVisit ? "text-emerald-600" : "text-slate-400"}`}>Last service</p>
+                                                            <p className={`mt-0.5 text-[11px] font-black ${lift.latestVisit ? "text-emerald-900" : "text-slate-500"}`}>
+                                                                {lift.latestVisit ? formatPortalDate(lift.latestVisit.service_date) : "Not recorded"}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </section>
 
-                            {/* Message Desk */}
-                            {supportSent ? (
-                                <div className="rounded-3xl bg-white border border-slate-200 p-5 text-center shadow-sm space-y-3 animate-in zoom-in-95 duration-200">
-                                    <div className="h-10 w-10 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto">
-                                        <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                    </div>
-                                    <h4 className="text-sm font-extrabold text-slate-800">Message Dispatched</h4>
-                                    <p className="text-xs text-slate-500 leading-relaxed font-semibold">We have received your enquiry. A staff member will revert back shortly.</p>
-                                    <button onClick={() => setSupportSent(false)} className="text-xs font-bold text-[#0a649d] hover:underline pt-1 block mx-auto">Send another query</button>
-                                </div>
+                                    <section>
+                                        <h2 className="mb-3 px-1 text-xs font-bold uppercase tracking-wider text-slate-400">Recent service history</h2>
+                                        <div className="space-y-2.5">
+                                            {serviceVisits.map((visit) => {
+                                                const technicians = [visit.technician_1, visit.technician_2].filter(Boolean).join(" & ");
+                                                return (
+                                                    <article key={visit.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                        <div className="flex items-start gap-3">
+                                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#0a649d]">
+                                                                <ServiceIcon className="h-5 w-5" />
+                                                            </div>
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="flex items-start justify-between gap-2">
+                                                                    <div className="min-w-0">
+                                                                        <p className="truncate text-xs font-black text-slate-900">{visit.customer_code || "Elevator service"}</p>
+                                                                        <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                                                                            {String(visit.service_type || "Routine service").replaceAll("_", " ")}
+                                                                        </p>
+                                                                    </div>
+                                                                    <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-emerald-800">Completed</span>
+                                                                </div>
+                                                                <p className="mt-3 text-xs font-black text-[#0a649d]">{formatPortalDate(visit.service_date)}</p>
+                                                                {technicians && <p className="mt-1 text-[10px] font-semibold text-slate-500">Technician: {technicians}</p>}
+                                                                {visit.remarks && <p className="mt-2 text-[10px] font-medium leading-relaxed text-slate-500">{visit.remarks}</p>}
+                                                            </div>
+                                                        </div>
+                                                    </article>
+                                                );
+                                            })}
+                                        </div>
+                                    </section>
+                                </>
                             ) : (
-                                <form onSubmit={(e) => { e.preventDefault(); if (supportMsg.trim()) setSupportSent(true); setSupportMsg(""); }} className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
-                                    <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 pl-1">Leave A Message</h3>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-1">Message Description</label>
-                                        <textarea
-                                            required
-                                            rows={3}
-                                            value={supportMsg}
-                                            onChange={(e) => setSupportMsg(e.target.value)}
-                                            placeholder="Write your AMC enquiry, upgrade request, or checklist feedback here..."
-                                            className="w-full p-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition resize-none font-medium leading-relaxed"
-                                        />
+                                <div className="rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+                                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-50 text-[#0a649d]">
+                                        <ServiceIcon className="h-7 w-7" />
                                     </div>
-                                    <button
-                                        type="submit"
-                                        className="h-11 w-full bg-[#0a649d] text-white rounded-xl font-bold text-xs tracking-wider transition hover:bg-[#085282]"
-                                    >
-                                        SEND MESSAGE
-                                    </button>
-                                </form>
+                                    <h2 className="mt-4 text-sm font-black text-slate-900">No service visit recorded yet</h2>
+                                    <p className="mx-auto mt-2 max-w-xs text-xs font-medium leading-relaxed text-slate-500">
+                                        Completed lift service visits will appear here automatically after the service team records them.
+                                    </p>
+                                    {liftServiceSummaries.length > 0 && (
+                                        <div className="mt-5 space-y-2 text-left">
+                                            {liftServiceSummaries.map((lift) => (
+                                                <div key={lift.customerId} className="rounded-2xl bg-slate-50 px-4 py-3">
+                                                    <p className="text-xs font-black text-slate-800">{lift.id}</p>
+                                                    <p className="mt-0.5 text-[10px] font-semibold text-slate-400">Last service: Not recorded</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
                             )}
                         </div>
                     )}
@@ -987,7 +1112,7 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div>
                                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Client Account</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Manage credentials and facility information.</p>
+                                <p className="text-xs text-slate-500 mt-0.5">Manage credentials, facility information, and support.</p>
                             </div>
 
                             {/* Profile details */}
@@ -1022,8 +1147,6 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                 </div>
                             </div>
 
-                            <PushNotificationCard />
-
                             {/* Password change */}
                             <form onSubmit={handlePasswordChange} className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
                                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 pl-1">Security & Password</h3>
@@ -1052,6 +1175,72 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                     UPDATE PASSWORD
                                 </button>
                             </form>
+
+                            {/* Support moved into Profile */}
+                            <section className="space-y-3">
+                                <div className="flex items-center gap-3 px-1">
+                                    <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sky-100 text-[#0a649d]">
+                                        <SupportIcon className="h-5 w-5" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-sm font-black text-slate-900">Support Desk</h2>
+                                        <p className="text-[10px] font-semibold text-slate-500">Call, WhatsApp, or leave a message.</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2.5">
+                                    <a
+                                        href="tel:+919999999999"
+                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition active:scale-[0.98]"
+                                    >
+                                        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-sky-50 text-[#0a649d]">
+                                            <PhoneIcon className="h-5 w-5" />
+                                        </div>
+                                        <p className="mt-3 text-xs font-black text-slate-800">Call Support</p>
+                                        <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-slate-400">9 AM – 6 PM</p>
+                                    </a>
+                                    <a
+                                        href="https://wa.me/919999999999"
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm transition active:scale-[0.98]"
+                                    >
+                                        <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
+                                            <svg viewBox="0 0 32 32" fill="currentColor" className="h-5 w-5"><path d="M16.04 3C9.46 3 4.1 8.26 4.1 14.74c0 2.08.56 4.12 1.62 5.9L4 29l8.56-1.68a12.1 12.1 0 0 0 3.48.51c6.58 0 11.94-5.26 11.94-11.74S22.62 3 16.04 3Zm0 22.77c-1.14 0-2.26-.18-3.32-.55l-.48-.16-5.08 1 1.02-4.9-.25-.5a9.71 9.71 0 0 1-1.36-4.92c0-5.34 4.25-9.68 9.47-9.68 5.22 0 9.47 4.34 9.47 9.68s-4.25 10.03-9.47 10.03Zm5.47-7.25c-.3-.15-1.78-.87-2.06-.97-.28-.1-.48-.15-.68.15-.2.3-.78.97-.96 1.17-.18.2-.35.22-.65.07-.3-.15-1.27-.46-2.42-1.48-.9-.78-1.5-1.75-1.68-2.05-.18-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.03-.52-.08-.15-.68-1.62-.93-2.22-.25-.58-.5-.5-.68-.51h-.58c-.2 0-.52.07-.8.37-.28.3-1.05 1.02-1.05 2.48s1.08 2.88 1.23 3.08c.15.2 2.13 3.23 5.16 4.52.72.31 1.28.5 1.72.64.72.23 1.38.2 1.9.12.58-.09 1.78-.72 2.03-1.42.25-.7.25-1.3.18-1.42-.08-.12-.28-.2-.58-.35Z" /></svg>
+                                        </div>
+                                        <p className="mt-3 text-xs font-black text-slate-800">WhatsApp</p>
+                                        <p className="mt-1 text-[9px] font-bold uppercase tracking-wide text-emerald-600">Open chat</p>
+                                    </a>
+                                </div>
+
+                                {supportSent ? (
+                                    <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-center shadow-sm">
+                                        <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-200 text-emerald-700">
+                                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                                        </div>
+                                        <h3 className="mt-3 text-sm font-black text-emerald-950">Message Dispatched</h3>
+                                        <p className="mt-1 text-xs font-semibold leading-relaxed text-emerald-800">We received your enquiry. A staff member will respond shortly.</p>
+                                        <button type="button" onClick={() => setSupportSent(false)} className="mt-3 text-xs font-black text-[#0a649d]">Send another query</button>
+                                    </div>
+                                ) : (
+                                    <form onSubmit={(event) => { event.preventDefault(); if (supportMsg.trim()) setSupportSent(true); setSupportMsg(""); }} className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+                                        <label className="block">
+                                            <span className="mb-1.5 block pl-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Message Description</span>
+                                            <textarea
+                                                required
+                                                rows={3}
+                                                value={supportMsg}
+                                                onChange={(event) => setSupportMsg(event.target.value)}
+                                                placeholder="Write your AMC enquiry or service question here..."
+                                                className="w-full resize-none rounded-xl border border-slate-200 bg-white p-3 text-base font-medium leading-relaxed outline-none transition focus:border-[#0a649d]"
+                                            />
+                                        </label>
+                                        <button type="submit" className="h-11 w-full rounded-xl bg-[#0a649d] text-xs font-bold tracking-wider text-white transition hover:bg-[#085282]">
+                                            SEND MESSAGE
+                                        </button>
+                                    </form>
+                                )}
+                            </section>
 
                             {/* Logout */}
                             <div className="pt-2">
@@ -1359,16 +1548,20 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                                 </div>
                             </div>
                             <div className="space-y-4 p-5">
-                                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">Active Contract</p>
-                                    <p className="mt-1 text-xl font-black text-slate-900">{amcData.number}</p>
-                                    <p className="mt-1 text-xs font-bold text-slate-500">{amcData.startDate} to {amcData.endDate}</p>
+                                <div className={`rounded-2xl border p-4 ${amcIsActive ? "border-emerald-200 bg-emerald-50" : "border-red-500 bg-red-600 text-white"}`}>
+                                    <p className={`text-[10px] font-black uppercase tracking-widest ${amcIsActive ? "text-emerald-700" : "text-white/80"}`}>
+                                        {amcIsActive ? "Active Contract" : "Invalid Contract"}
+                                    </p>
+                                    <p className={`mt-1 text-xl font-black ${amcIsActive ? "text-slate-900" : "text-white"}`}>{amcData.number}</p>
+                                    <p className={`mt-1 text-xs font-bold ${amcIsActive ? "text-slate-500" : "text-white/80"}`}>
+                                        {formatPortalDate(amcData.startDate)} to {formatPortalDate(amcData.endDate)}
+                                    </p>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-xs font-bold">
-                                    <p className="rounded-2xl bg-slate-50 p-3">Status<br /><span className="text-emerald-700">{amcData.status}</span></p>
-                                    <p className="rounded-2xl bg-slate-50 p-3">Remaining<br /><span className="text-[#0a649d]">{remainingDays} days</span></p>
+                                    <p className={`rounded-2xl p-3 ${amcIsActive ? "bg-emerald-50 text-slate-700" : "bg-red-50 text-slate-700"}`}>Status<br /><span className={amcIsActive ? "text-emerald-700" : "text-red-700"}>{amcIsActive ? "Active" : "Invalid"}</span></p>
+                                    <p className="rounded-2xl bg-slate-50 p-3">Remaining<br /><span className={amcIsActive ? "text-[#0a649d]" : "text-red-700"}>{amcIsActive ? `${remainingDays} days` : "Expired"}</span></p>
                                     <p className="rounded-2xl bg-slate-50 p-3">Lifts Covered<br /><span className="text-slate-900">{lifts.length}</span></p>
-                                    <p className="rounded-2xl bg-slate-50 p-3">Next Check<br /><span className="text-slate-900">{upcomingChecks}</span></p>
+                                    <p className="rounded-2xl bg-slate-50 p-3">Last Service<br /><span className="text-slate-900">{latestServiceVisit ? formatPortalDate(latestServiceVisit.service_date) : "Not recorded"}</span></p>
                                 </div>
                                 <button onClick={() => { setViewingAmc(false); setActiveTab("documents"); }} className="h-11 w-full rounded-2xl bg-[#0a649d] text-xs font-black text-white">
                                     View Agreement Documents
@@ -1405,11 +1598,11 @@ export default function Customerdashboard({ user, customerRecords = [] }) {
                     </button>
 
                     <button
-                        onClick={() => setActiveTab("support")}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "support" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        onClick={() => setActiveTab("service")}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "service" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
-                        <SupportIcon className="h-5.5 w-5.5 mb-0.5" />
-                        <span className="text-[9px] font-black tracking-tight leading-none">Support</span>
+                        <ServiceIcon className="h-5.5 w-5.5 mb-0.5" />
+                        <span className="text-[9px] font-black tracking-tight leading-none">Service</span>
                     </button>
 
                     <button
