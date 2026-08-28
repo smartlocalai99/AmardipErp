@@ -5,6 +5,7 @@ import { getCustomerRecordsForUser, getCustomerServiceVisitsForUser } from "@/li
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
+import CustomerDocumentsPanel from "@/components/customer/CustomerDocumentsPanel";
 
 export async function getServerSideProps(context) {
     const user = await getUserFromRequest(context.req);
@@ -289,10 +290,6 @@ export default function Customerdashboard({
     const [submitSuccess, setSubmitSuccess] = useState(false);
     const [newCompId, setNewCompId] = useState("");
 
-    // Documents
-    const [documents] = useState([]);
-    const [docSearch, setDocSearch] = useState("");
-    const [viewingDoc, setViewingDoc] = useState(null);
     const [viewingAmc, setViewingAmc] = useState(false);
 
     // Profile Settings State
@@ -953,50 +950,7 @@ export default function Customerdashboard({
 
                     {/* VIEW: DOCUMENTS TAB */}
                     {activeTab === "documents" && (
-                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            <div>
-                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Documents</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Access warranty papers, invoices, and checklist reports.</p>
-                            </div>
-
-                            {/* Search bar */}
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    placeholder="Search documents..."
-                                    value={docSearch}
-                                    onChange={(e) => setDocSearch(e.target.value)}
-                                    className="h-11 w-full pl-10 pr-4 rounded-xl bg-white border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
-                                />
-                                <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                    <SearchIcon className="h-4.5 w-4.5" />
-                                </div>
-                            </div>
-
-                            {/* List */}
-                            <div className="space-y-2.5">
-                                {documents
-                                    .filter(d => d.name.toLowerCase().includes(docSearch.toLowerCase()) || d.category.toLowerCase().includes(docSearch.toLowerCase()))
-                                    .map(d => (
-                                        <div
-                                            key={d.id}
-                                            onClick={() => setViewingDoc(d)}
-                                            className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow transition cursor-pointer flex justify-between items-center"
-                                        >
-                                            <div className="min-w-0 flex gap-3.5 items-center">
-                                                <div className="h-10 w-10 bg-blue-50 text-[#0a649d] rounded-xl flex items-center justify-center shrink-0">
-                                                    <svg className="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <h4 className="text-xs font-extrabold text-slate-800 truncate leading-snug">{d.name}</h4>
-                                                    <p className="text-[10px] text-slate-400 mt-0.5 font-bold uppercase tracking-wider">{d.category} • {d.size}</p>
-                                                </div>
-                                            </div>
-                                            <span className="text-[10px] text-[#0a649d] font-bold shrink-0 pl-2">View &rarr;</span>
-                                        </div>
-                                    ))}
-                            </div>
-                        </div>
+                        <CustomerDocumentsPanel customerRecords={customerRecords} />
                     )}
 
                     {/* VIEW: SERVICE TAB */}
@@ -1415,83 +1369,6 @@ export default function Customerdashboard({
                                 >
                                     Dismiss Tracking
                                 </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {/* MODAL: VIEW DOCUMENT PREVIEW */}
-                {viewingDoc && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
-                        <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                            <div className="px-5 py-4 bg-[#0a649d] text-white flex items-center justify-between">
-                                <div>
-                                    <h2 className="text-sm font-bold truncate max-w-[200px]">{viewingDoc.name}</h2>
-                                    <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">{viewingDoc.id} • {viewingDoc.type}</p>
-                                </div>
-                                <button
-                                    onClick={() => setViewingDoc(null)}
-                                    className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition"
-                                >
-                                    <CloseIcon className="h-5 w-5" />
-                                </button>
-                            </div>
-
-                            <div className="p-5 space-y-4">
-                                <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-inner">
-                                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                                        <div className="relative h-11 w-11 rounded-2xl bg-white">
-                                            <Image src="/adlogo.png" alt="Amardip Lifts" fill className="object-contain" sizes="44px" />
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-[10px] font-black uppercase tracking-widest text-[#0a649d]">Amardip Lifts</p>
-                                            <p className="text-[9px] font-bold text-slate-400">{viewingDoc.category}</p>
-                                        </div>
-                                    </div>
-                                    <div className="mt-4 space-y-3">
-                                        <h3 className="text-sm font-black text-slate-900">{viewingDoc.name}</h3>
-                                        <p className="text-[11px] font-semibold leading-relaxed text-slate-500">
-                                            This branded template preview represents the document available to the customer portal.
-                                        </p>
-                                        <div className="grid grid-cols-2 gap-2 text-[10px] font-bold text-slate-600">
-                                            <p className="rounded-xl bg-slate-50 p-2">Customer<br /><span className="text-slate-900">{customerProfile.name}</span></p>
-                                            <p className="rounded-xl bg-slate-50 p-2">Document ID<br /><span className="text-slate-900">{viewingDoc.id}</span></p>
-                                            <p className="rounded-xl bg-slate-50 p-2">AMC No<br /><span className="text-slate-900">{amcData.number}</span></p>
-                                            <p className="rounded-xl bg-slate-50 p-2">Date<br /><span className="text-slate-900">{viewingDoc.date}</span></p>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-3.5 text-xs">
-                                    <div className="flex justify-between pl-1">
-                                        <span className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">File Size</span>
-                                        <span className="font-extrabold text-slate-700">{viewingDoc.size}</span>
-                                    </div>
-                                    <div className="flex justify-between pl-1">
-                                        <span className="text-slate-400 font-bold uppercase text-[9px] tracking-wider">Category Group</span>
-                                        <span className="font-extrabold text-slate-700">{viewingDoc.category}</span>
-                                    </div>
-                                </div>
-
-                                <div className="pt-2 flex gap-2.5">
-                                    <button
-                                        type="button"
-                                        onClick={() => setViewingDoc(null)}
-                                        className="h-10.5 flex-1 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            alert(`"${viewingDoc.name}" download started! Check notifications.`);
-                                            setViewingDoc(null);
-                                        }}
-                                        className="h-10.5 flex-1 bg-[#0a649d] text-white rounded-xl text-xs font-bold hover:bg-[#085282] transition"
-                                    >
-                                        Download File
-                                    </button>
-                                </div>
                             </div>
                         </div>
                     </div>
