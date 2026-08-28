@@ -60,6 +60,33 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
     resourceRef.current?.dispose();
   }, []);
 
+  // A plain `<a download>` on a blob: URL is silently ignored by iOS Safari
+  // (including inside the installed PWA) — it just opens the file instead of
+  // saving it, which is indistinguishable from tapping View. The native share
+  // sheet's "Save to Files" is the one path that reliably saves the file on
+  // those browsers, so try it first and only fall back to the anchor trick
+  // where the browser actually honors it (desktop, Android Chrome).
+  const handleDownload = useCallback(async () => {
+    if (!resource) return;
+    const file = new File([resource.blob], resource.downloadName, { type: "application/pdf" });
+
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: resource.downloadName });
+      } catch {
+        // User cancelled the share sheet — nothing to report.
+      }
+      return;
+    }
+
+    const link = document.createElement("a");
+    link.href = resource.objectUrl;
+    link.download = resource.downloadName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }, [resource]);
+
   return (
     <div className="p-4 space-y-6 animate-in fade-in duration-200">
       <div>
@@ -127,13 +154,13 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
 
             <div className="border-t border-slate-200 bg-white p-4">
               {resource ? (
-                <a
-                  href={resource.objectUrl}
-                  download={resource.downloadName}
+                <button
+                  type="button"
+                  onClick={handleDownload}
                   className="flex h-11 w-full items-center justify-center rounded-2xl bg-[#0a649d] text-xs font-black text-white"
                 >
                   Download PDF
-                </a>
+                </button>
               ) : (
                 <button type="button" disabled className="h-11 w-full rounded-2xl bg-slate-200 text-xs font-black text-slate-400">Download PDF</button>
               )}

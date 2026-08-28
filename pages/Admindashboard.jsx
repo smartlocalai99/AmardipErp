@@ -1990,10 +1990,7 @@ function AdmindashboardShell({ user }) {
                                         </div>
                                         {notifyAmcResult && (
                                             <p className="mt-3 rounded-xl border border-sky-100 bg-white/70 p-2.5 text-[11px] font-bold text-sky-800">
-                                                Notified {notifyAmcResult.notified} of {notifyAmcResult.matchedAccounts} customer{notifyAmcResult.matchedAccounts === 1 ? "" : "s"} with the app installed
-                                                {notifyAmcResult.totalDue > notifyAmcResult.matchedAccounts
-                                                    ? ` — ${notifyAmcResult.totalDue - notifyAmcResult.matchedAccounts} of them don't have an account yet.`
-                                                    : "."}
+                                                Notified {notifyAmcResult.notified} customer{notifyAmcResult.notified === 1 ? "" : "s"}.
                                             </p>
                                         )}
                                         <button
