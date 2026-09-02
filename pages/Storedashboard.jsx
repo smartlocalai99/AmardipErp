@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
+import { getStaffProfile } from "@/lib/staffProfile";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
@@ -32,9 +33,11 @@ export async function getServerSideProps(context) {
         };
     }
 
+    const profile = await getStaffProfile(user.id);
+
     return {
         props: {
-            user,
+            user: { ...user, phone: profile.phone, designation: profile.designation },
         },
     };
 }
@@ -128,11 +131,6 @@ export default function Storedashboard({ user }) {
     const [addItemSearchResults, setAddItemSearchResults] = useState([]);
     const [addItemQuery, setAddItemQuery] = useState("");
 
-    // Profile password states
-    const [passwordVal, setPasswordVal] = useState("store123");
-    const [profileMsg, setProfileMsg] = useState("");
-    const [profileErr, setProfileErr] = useState("");
-
     // Return Form state
     const [returnForm, setReturnForm] = useState({
         jobId: "",
@@ -215,20 +213,6 @@ export default function Storedashboard({ user }) {
         }, 350);
         return () => clearTimeout(timer);
     }, [addItemQuery]);
-
-    // Password reset
-    const handlePasswordChange = (e) => {
-        e.preventDefault();
-        setProfileErr("");
-        setProfileMsg("");
-
-        if (!passwordVal.trim()) {
-            setProfileErr("Password cannot be empty.");
-            return;
-        }
-
-        setProfileMsg("Security password changed successfully!");
-    };
 
     // Logout
     const handleLogout = async () => {
@@ -465,7 +449,7 @@ export default function Storedashboard({ user }) {
                                 Amardip Lifts
                             </span>
                             <span className="text-base font-extrabold tracking-tight leading-normal">
-                                {user?.name || "Rajesh K. (Store)"}
+                                {user?.name}
                             </span>
                         </div>
                     </div>
@@ -619,7 +603,9 @@ export default function Storedashboard({ user }) {
                                     Store Operational
                                 </span>
                                 <h2 className="text-xl font-black mt-3 leading-tight">Store Dashboard</h2>
-                                <p className="text-[10.5px] text-white/80 font-semibold mt-1">Rajesh K. | Depot East Main Hub</p>
+                                <p className="text-[10.5px] text-white/80 font-semibold mt-1">
+                                    {user?.name} · @{user?.username}
+                                </p>
                             </div>
 
                             {/* Quick Actions grid */}
@@ -961,50 +947,23 @@ export default function Storedashboard({ user }) {
                             {/* Store employee info */}
                             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm text-center space-y-4">
                                 <div className="h-16 w-16 bg-[#0a649d]/10 text-[#0a649d] border border-[#0a649d]/20 rounded-full flex items-center justify-center font-black text-xl mx-auto shadow-inner">
-                                    RK
+                                    {(user?.name || "?").split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                    <h2 className="text-lg font-black text-slate-900">Rajesh K.</h2>
-                                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Depot Storekeeper</span>
+                                    <h2 className="text-lg font-black text-slate-900">{user?.name}</h2>
+                                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">{user?.designation || "Storekeeper"}</span>
                                 </div>
 
                                 <hr className="border-slate-100" />
 
                                 <div className="text-left text-xs text-slate-650 space-y-2 bg-slate-50/50 p-4 rounded-3xl border border-slate-100">
-                                    <p><strong className="text-slate-800">Employee Code:</strong> STORE50</p>
-                                    <p><strong className="text-slate-800">Mobile No:</strong> +91 98765 00003</p>
-                                    <p><strong className="text-slate-800">Designation:</strong> Lead Inventory Supervisor</p>
-                                    <p><strong className="text-slate-800">Assigned Depot:</strong> Bangalore East Hub</p>
+                                    <p><strong className="text-slate-800">Employee Code:</strong> @{user?.username}</p>
+                                    <p><strong className="text-slate-800">Mobile No:</strong> {user?.phone || "Not on file"}</p>
+                                    <p><strong className="text-slate-800">Designation:</strong> {user?.designation || "Not set"}</p>
                                 </div>
                             </div>
 
                             <PushNotificationCard />
-
-                            {/* PASSWORD RESET */}
-                            <form onSubmit={handlePasswordChange} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 pl-1">Security & Password</h3>
-
-                                {profileErr && <p className="text-[11px] font-bold text-red-600 pl-1">{profileErr}</p>}
-                                {profileMsg && <p className="text-[11px] font-bold text-emerald-600 pl-1">{profileMsg}</p>}
-
-                                <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 pl-1">Password</label>
-                                    <input 
-                                        type="text"
-                                        required
-                                        value={passwordVal}
-                                        onChange={(e) => setPasswordVal(e.target.value)}
-                                        className="h-10.5 w-full px-3.5 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition font-medium"
-                                    />
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    className="h-11 w-full bg-[#0a649d] text-white rounded-xl font-bold text-xs tracking-wider transition hover:bg-[#085282] cursor-pointer"
-                                >
-                                    UPDATE PASSWORD
-                                </button>
-                            </form>
 
                             {/* Logout */}
                             <div className="pt-2">

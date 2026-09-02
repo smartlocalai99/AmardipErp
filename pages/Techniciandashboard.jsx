@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { subscribeToPush } from "@/lib/pushClient";
 import { useRouter } from "next/router";
 import { getUserFromRequest } from "@/lib/auth";
+import { getStaffProfile } from "@/lib/staffProfile";
 import Image from "next/image";
 import QRCode from "qrcode";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
@@ -30,9 +31,11 @@ export async function getServerSideProps(context) {
         };
     }
 
+    const profile = await getStaffProfile(user.id);
+
     return {
         props: {
-            user,
+            user: { ...user, phone: profile.phone, designation: profile.designation },
         },
     };
 }
@@ -162,11 +165,6 @@ export default function Techniciandashboard({ user }) {
     const [showJobPassModal, setShowJobPassModal] = useState(false);
     const [jobPassLoading, setJobPassLoading] = useState(false);
     const [jobPassImage, setJobPassImage] = useState(null);
-
-    // Profile password states
-    const [passwordVal, setPasswordVal] = useState("tech123");
-    const [profileMsg, setProfileMsg] = useState("");
-    const [profileErr, setProfileErr] = useState("");
 
     // Photo evidence slots states (stores URL data or filenames)
     const [photoSlots, setPhotoSlots] = useState({
@@ -733,20 +731,6 @@ export default function Techniciandashboard({ user }) {
         }
     };
 
-    // Password reset
-    const handlePasswordChangeSubmit = (e) => {
-        e.preventDefault();
-        setProfileErr("");
-        setProfileMsg("");
-
-        if (!passwordVal.trim()) {
-            setProfileErr("Password cannot be empty.");
-            return;
-        }
-
-        setProfileMsg("Security password changed successfully!");
-    };
-
     // Logout
     const handleLogout = async () => {
         try {
@@ -800,7 +784,7 @@ export default function Techniciandashboard({ user }) {
                                 Amardip Lifts
                             </span>
                             <span className="text-base font-extrabold tracking-tight leading-normal">
-                                {user?.name || "Suresh R. (Lead)"}
+                                {user?.name}
                             </span>
                         </div>
                     </div>
@@ -870,8 +854,10 @@ export default function Techniciandashboard({ user }) {
                                 <span className="text-[10px] bg-emerald-500/20 border border-emerald-400/30 text-emerald-400 font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wider">
                                     Duty Status: Active
                                 </span>
-                                <h2 className="text-xl font-black mt-3 leading-tight">Welcome, Suresh</h2>
-                                <p className="text-[10.5px] text-white/80 font-semibold mt-1">Employee ID: TECH50 | Emergency Breakdown Lead</p>
+                                <h2 className="text-xl font-black mt-3 leading-tight">Welcome, {user?.name}</h2>
+                                <p className="text-[10.5px] text-white/80 font-semibold mt-1">
+                                    @{user?.username}{user?.designation ? ` · ${user.designation}` : ""}
+                                </p>
                             </div>
 
                             {/* KPI Grid */}
@@ -1799,65 +1785,23 @@ export default function Techniciandashboard({ user }) {
                             {/* Profile details */}
                             <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm text-center space-y-4">
                                 <div className="h-16 w-16 bg-[#0a649d]/10 text-[#0a649d] border border-[#0a649d]/20 rounded-full flex items-center justify-center font-black text-xl mx-auto shadow-inner">
-                                    SR
+                                    {(user?.name || "?").split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase()}
                                 </div>
                                 <div>
-                                    <h2 className="text-lg font-black text-slate-900">Suresh R.</h2>
-                                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">Senior Breakdown Tech</span>
+                                    <h2 className="text-lg font-black text-slate-900">{user?.name}</h2>
+                                    <span className="text-[10px] text-slate-400 font-black uppercase tracking-wider">{user?.designation || "Technician"}</span>
                                 </div>
 
                                 <hr className="border-slate-100" />
 
-                                <div className="grid grid-cols-3 gap-2.5 text-center text-xs">
-                                    <div className="bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase block">Experience</span>
-                                        <span className="font-black text-slate-800 block mt-1">6 Years</span>
-                                    </div>
-                                    <div className="bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase block">Resolved</span>
-                                        <span className="font-black text-[#0a649d] block mt-1">24 Lifts</span>
-                                    </div>
-                                    <div className="bg-slate-50 p-2 rounded-2xl border border-slate-100">
-                                        <span className="text-[8.5px] font-bold text-slate-400 uppercase block">Rating</span>
-                                        <span className="font-black text-emerald-600 block mt-1">4.9 ★</span>
-                                    </div>
-                                </div>
-
                                 <div className="text-left text-xs text-slate-650 space-y-2 bg-slate-50/50 p-4 rounded-3xl border border-slate-100">
-                                    <p><strong className="text-slate-800">Employee Code:</strong> TECH50</p>
-                                    <p><strong className="text-slate-800">Mobile No:</strong> +91 98765 00001</p>
-                                    <p><strong className="text-slate-800">Designation:</strong> Service Lead, Breakdown division</p>
-                                    <p><strong className="text-slate-800">Department:</strong> Bangalore East Hub</p>
+                                    <p><strong className="text-slate-800">Employee Code:</strong> @{user?.username}</p>
+                                    <p><strong className="text-slate-800">Mobile No:</strong> {user?.phone || "Not on file"}</p>
+                                    <p><strong className="text-slate-800">Designation:</strong> {user?.designation || "Not set"}</p>
                                 </div>
                             </div>
 
                             <PushNotificationCard />
-
-                            {/* CHANGE PASSWORD */}
-                            <form onSubmit={handlePasswordChangeSubmit} className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 pl-1">Security & Password</h3>
-
-                                {profileErr && <p className="text-[11px] font-bold text-red-600 pl-1">{profileErr}</p>}
-                                {profileMsg && <p className="text-[11px] font-bold text-emerald-600 pl-1">{profileMsg}</p>}
-
-                                <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 pl-1">Password</label>
-                                    <input 
-                                        type="text"
-                                        required
-                                        value={passwordVal}
-                                        onChange={(e) => setPasswordVal(e.target.value)}
-                                        className="h-10.5 w-full px-3.5 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition font-medium"
-                                    />
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    className="h-11 w-full bg-[#0a649d] text-white rounded-xl font-bold text-xs tracking-wider transition hover:bg-[#085282] cursor-pointer"
-                                >
-                                    UPDATE PASSWORD
-                                </button>
-                            </form>
 
                             {/* Logout */}
                             <div className="pt-2">
