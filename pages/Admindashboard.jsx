@@ -534,6 +534,16 @@ function AdmindashboardShell({ user }) {
     const [scheduleCustomers, setScheduleCustomers] = useState([]);
     const [serviceViewMode, setServiceViewMode] = useState("month");
     const [serviceSearch, setServiceSearch] = useState("");
+    // "All Services" browses by month/year — defaults to last month since
+    // the current month is already covered by the "Services This Month" side.
+    const [historyMonthDate] = useState(() => {
+        const d = new Date();
+        d.setDate(1);
+        d.setMonth(d.getMonth() - 1);
+        return d;
+    });
+    const [historyMonth, setHistoryMonth] = useState(() => historyMonthDate.getMonth());
+    const [historyYear, setHistoryYear] = useState(() => historyMonthDate.getFullYear());
     const [upcomingServiceRows, setUpcomingServiceRows] = useState([]);
     const [upcomingServiceLoading, setUpcomingServiceLoading] = useState(false);
     const [upcomingServiceSummary, setUpcomingServiceSummary] = useState({ unassigned: 0, assigned: 0, completed: 0 });
@@ -1537,9 +1547,9 @@ function AdmindashboardShell({ user }) {
                     {/* TAB: SERVICE */}
                     {activeTab === "service" && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <div className="flex items-center gap-2">
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
                                         <h1 className="text-2xl font-black tracking-tight text-slate-900">Maintenance & Service</h1>
                                         <span className="rounded-full bg-sky-50 border border-sky-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#0a649d]">
                                             {new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
@@ -1566,7 +1576,7 @@ function AdmindashboardShell({ user }) {
                             if (d.customers) setScheduleCustomers(d.customers);
                         } catch {}
                     }}
-                                    className="h-9 w-9 rounded-xl bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
+                                    className="h-10 w-10 shrink-0 rounded-full bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
                                 >
                                     <PlusIcon className="h-5 w-5" />
                                 </button>
@@ -1582,15 +1592,15 @@ function AdmindashboardShell({ user }) {
                                         className="amardip-search-field w-full"
                                     />
                                 </div>
-                                <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
+                                <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/50 p-1.5">
                                     {[
-                                        ["month", "Services This Month"],
+                                        ["month", "This Month"],
                                         ["all", "All Services"],
                                     ].map(([mode, label]) => (
                                         <button
                                             key={mode}
                                             onClick={() => setServiceViewMode(mode)}
-                                            className={`amardip-filter-chip shrink-0 ${serviceViewMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"}`}
+                                            className={`h-9 rounded-xl text-xs font-bold transition ${serviceViewMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "text-slate-600"}`}
                                         >
                                             {label}
                                         </button>
@@ -1599,21 +1609,45 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             {serviceViewMode === "month" && (
-                                <div className="flex gap-2 overflow-x-auto">
+                                <div className="grid grid-cols-3 gap-2">
                                     {[
-                                        ["ALL", "All", upcomingServiceSummary.unassigned + upcomingServiceSummary.assigned + upcomingServiceSummary.completed],
                                         ["UNASSIGNED", "Unassigned", upcomingServiceSummary.unassigned],
                                         ["ASSIGNED", "Assigned", upcomingServiceSummary.assigned],
                                         ["COMPLETED", "Completed", upcomingServiceSummary.completed],
                                     ].map(([value, label, count]) => (
                                         <button
                                             key={value}
-                                            onClick={() => setServiceStatusFilter(value)}
-                                            className={`shrink-0 rounded-xl px-3 py-1.5 text-[10px] font-black transition ${serviceStatusFilter === value ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-500"}`}
+                                            type="button"
+                                            onClick={() => setServiceStatusFilter(serviceStatusFilter === value ? "ALL" : value)}
+                                            className={`rounded-2xl border p-3 shadow-sm text-left transition ${serviceStatusFilter === value ? "border-[#0a649d] bg-[#0a649d] text-white" : "border-slate-200 bg-white"}`}
                                         >
-                                            {label} ({count})
+                                            <p className={`text-lg font-black ${serviceStatusFilter === value ? "text-white" : "text-slate-900"}`}>{count}</p>
+                                            <p className={`text-[9px] font-bold uppercase tracking-wide ${serviceStatusFilter === value ? "text-white/70" : "text-slate-400"}`}>{label}</p>
                                         </button>
                                     ))}
+                                </div>
+                            )}
+
+                            {serviceViewMode === "all" && (
+                                <div className="grid grid-cols-2 gap-2">
+                                    <select
+                                        value={historyMonth}
+                                        onChange={(e) => setHistoryMonth(Number(e.target.value))}
+                                        className="h-10.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-[#0a649d]"
+                                    >
+                                        {Array.from({ length: 12 }, (_, i) => (
+                                            <option key={i} value={i}>{new Date(2000, i, 1).toLocaleDateString("en-IN", { month: "long" })}</option>
+                                        ))}
+                                    </select>
+                                    <select
+                                        value={historyYear}
+                                        onChange={(e) => setHistoryYear(Number(e.target.value))}
+                                        className="h-10.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-[#0a649d]"
+                                    >
+                                        {Array.from({ length: 6 }, (_, i) => historyMonthDate.getFullYear() + 1 - i).map((year) => (
+                                            <option key={year} value={year}>{year}</option>
+                                        ))}
+                                    </select>
                                 </div>
                             )}
 
@@ -1720,13 +1754,18 @@ function AdmindashboardShell({ user }) {
                                     <p className="text-center text-xs text-slate-400 py-6">Loading…</p>
                                 ) : (() => {
                                     const searchText = serviceSearch.trim().toLowerCase();
+                                    const monthSchedules = schedules.filter((item) => {
+                                        if (!item.schedule_month) return false;
+                                        const d = new Date(item.schedule_month);
+                                        return d.getUTCMonth() === historyMonth && d.getUTCFullYear() === historyYear;
+                                    });
                                     const visibleSchedules = searchText
-                                        ? schedules.filter((item) =>
+                                        ? monthSchedules.filter((item) =>
                                             [item.customer_name, item.city, item.assigned_technician_name]
                                                 .filter(Boolean)
                                                 .some((value) => String(value).toLowerCase().includes(searchText))
                                         )
-                                        : schedules;
+                                        : monthSchedules;
                                     const grouped = visibleSchedules.reduce((groups, item) => {
                                         const date = item.scheduled_date
                                             ? item.scheduled_date.split("T")[0]
@@ -3367,6 +3406,12 @@ function AdmindashboardShell({ user }) {
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
                                 <p className="text-sm font-extrabold text-slate-800">{selectedSchedule.customerName || "—"}</p>
                                 {selectedSchedule.address && <p className="text-[10px] text-slate-400 mt-0.5">{selectedSchedule.address}{selectedSchedule.city ? `, ${selectedSchedule.city}` : ""}</p>}
+                                {selectedSchedule.mobileNo && <p className="text-[10px] text-slate-400">{selectedSchedule.mobileNo}</p>}
+                                {selectedSchedule.customerStatus && (
+                                    <span className="inline-block mt-1.5 text-[9px] font-black px-2 py-0.5 rounded bg-sky-50 border border-sky-100 text-[#0a649d] uppercase">
+                                        {selectedSchedule.customerStatus}
+                                    </span>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
@@ -3467,6 +3512,26 @@ function AdmindashboardShell({ user }) {
                                         No job completion report yet — the technician has not closed this job out.
                                     </p>
                                 </div>
+                            )}
+
+                            {selectedSchedule.history?.length > 0 && (
+                                <>
+                                    <hr className="border-slate-100" />
+                                    <div>
+                                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Previous Service History</span>
+                                        <div className="space-y-1.5">
+                                            {selectedSchedule.history.map((v) => (
+                                                <div key={v.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 flex items-center justify-between gap-2">
+                                                    <div className="min-w-0">
+                                                        <p className="text-xs font-bold text-slate-700">{v.serviceDate ? new Date(v.serviceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}</p>
+                                                        <p className="text-[10px] text-slate-400 truncate">{v.technicians || "Technician not recorded"}</p>
+                                                    </div>
+                                                    <span className="shrink-0 text-[9px] font-bold uppercase text-slate-400">{v.serviceType?.replaceAll("_", " ") || "Service"}</span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
                             )}
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
