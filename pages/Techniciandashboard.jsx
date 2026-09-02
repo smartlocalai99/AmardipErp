@@ -199,10 +199,18 @@ export default function Techniciandashboard({ user }) {
     ]);
 
     function mapAssignedComplaintToJob(c) {
+        // Only the primary (senior) technician submits the job report — a
+        // junior assignee still gets the notification and can see the job,
+        // but the checklist/GPS/signature workflow is gated off for them.
+        const isPrimary = Number(c.assignedTechnicianUserId) === Number(user.id);
+        const seniorName = (c.assignees || []).find((a) => Number(a.id) === Number(c.assignedTechnicianUserId))?.name
+            || c.assignedTechnicianName;
         return {
             id: c.complaintNo,
             dbId: c.id,
             customerName: c.customerName,
+            isPrimary,
+            seniorName,
             buildingName: c.city || "Customer site",
             address: c.address || "-",
             phone: c.mobileNo || "-",
@@ -1205,14 +1213,20 @@ export default function Techniciandashboard({ user }) {
                                     {/* SECTION 2: GPS SITE CHECK-IN */}
                                     <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
                                         <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Location Check-In</h3>
-                                        
+
+                                        {!activeJob.isPrimary && (
+                                            <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3.5 text-[11px] font-semibold text-amber-800 leading-relaxed">
+                                                You are assisting on this job. {activeJob.seniorName ? `${activeJob.seniorName} is` : "The senior technician is"} the one who checks in and submits the report.
+                                            </div>
+                                        )}
+
                                         {!activeJob.gpsCheckedIn ? (
                                             <div className="space-y-4">
                                                 {!cameraActive ? (
                                                     <>
                                                         <button
                                                             onClick={triggerGPSCheckIn}
-                                                            disabled={checkingIn || activeJob.status === "Assigned"}
+                                                            disabled={checkingIn || activeJob.status === "Assigned" || !activeJob.isPrimary}
                                                             className="h-12 w-full bg-[#0a649d] text-white hover:bg-[#085282] disabled:opacity-40 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition active:scale-98 shadow-sm cursor-pointer"
                                                         >
                                                             {checkingIn ? (
