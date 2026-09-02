@@ -23,20 +23,3 @@ test("descriptor distinguishes one handing-over letter per linked lift", () => {
   const descriptor = documentModule.buildHandoverDocumentDescriptor({ id: "customer-3", customer_code: "LIFT-303", customer_name: "Third Customer", elevator_type: "Goods Lift", hoc_date: "2026-08-29" });
   assert.deepEqual(descriptor, { id: "handover-customer-3", customerId: "customer-3", name: "Handing Over Letter - LIFT-303", category: "Warranty & Handover", type: "PDF", date: "29/08/2026", liftLabel: "Goods Lift", downloadName: "handing-over-letter-LIFT-303.pdf" });
 });
-
-test("filterHandoverDocuments omits missing HOC and searches eligible lifts", () => {
-  const customers = [
-    { id: "1", customer_code: "LIFT-A", customer_name: "Alpha", hoc_date: "2026-08-29", elevator_type: "Passenger Lift" },
-    { id: "2", customer_code: "LIFT-B", customer_name: "Beta", hoc_date: null, elevator_type: "Goods Lift" },
-    { id: "3", customer_code: "LIFT-C", customer_name: "Gamma", hoc_date: "2026-08-30", elevator_type: "Goods Lift" },
-  ];
-
-  assert.deepEqual(
-    documentModule.filterHandoverDocuments(customers, "goods").map((doc) => doc.customerId),
-    ["3"],
-  );
-  assert.deepEqual(
-    documentModule.filterHandoverDocuments(customers, "").map((doc) => doc.customerId),
-    ["1", "3"],
-  );
-});

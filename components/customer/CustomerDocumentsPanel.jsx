@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { filterHandoverDocuments } from "@/lib/customerHandoverDocument";
+import { filterCustomerDocuments } from "@/lib/customerDocuments";
 import { loadCustomerPdfResource } from "@/lib/customerDocumentResource";
 import PdfCanvasViewer from "@/components/ui/PdfCanvasViewer";
 
@@ -11,7 +11,7 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
   const [error, setError] = useState("");
   const resourceRef = useRef(null);
   const requestIdRef = useRef(0);
-  const documents = filterHandoverDocuments(customerRecords, search);
+  const documents = filterCustomerDocuments(customerRecords, search);
 
   const disposeCurrent = useCallback(() => {
     resourceRef.current?.dispose();
@@ -40,6 +40,7 @@ export default function CustomerDocumentsPanel({ customerRecords = [] }) {
       const next = await loadCustomerPdfResource({
         customerId: document.customerId,
         downloadName: document.downloadName,
+        documentType: document.documentType,
       });
       if (requestIdRef.current !== requestId) {
         next.dispose();

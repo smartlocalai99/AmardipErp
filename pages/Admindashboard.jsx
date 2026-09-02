@@ -451,6 +451,37 @@ function AdmindashboardShell({ user }) {
         setSpareQuantity(1);
     };
 
+    async function openTechnicianDetail(technician) {
+        setTechnicianDetail(technician);
+        setTechnicianDetailData({ complaints: [], visits: [], loading: true, error: "" });
+
+        try {
+            const [complaintsRes, visitsRes] = await Promise.all([
+                fetch(`/api/complaints?assignedTechnicianUserId=${technician.id}&pageSize=100`, { cache: "no-store" }),
+                fetch(`/api/elevator-service-visits?technician=${encodeURIComponent(technician.name)}&pageSize=100`, { cache: "no-store" }),
+            ]);
+            const complaintsData = await complaintsRes.json();
+            const visitsData = await visitsRes.json();
+
+            if (!complaintsRes.ok || !complaintsData.success) throw new Error(complaintsData.message || "Failed to load assigned tickets");
+            if (!visitsRes.ok || !visitsData.success) throw new Error(visitsData.message || "Failed to load service visits");
+
+            setTechnicianDetailData({
+                complaints: complaintsData.complaints || [],
+                visits: visitsData.visits || [],
+                loading: false,
+                error: "",
+            });
+        } catch (err) {
+            setTechnicianDetailData({ complaints: [], visits: [], loading: false, error: err.message || "Failed to load assignments" });
+        }
+    }
+
+    function closeTechnicianDetail() {
+        setTechnicianDetail(null);
+        setTechnicianDetailData({ complaints: [], visits: [], loading: false, error: "" });
+    }
+
     useEffect(() => {
         subscribeToPush().catch(() => {});
     }, []);
@@ -475,6 +506,10 @@ function AdmindashboardShell({ user }) {
     const [amcFilterMode, setAmcFilterMode] = useState("amc");
     const [notifyingAmc, setNotifyingAmc] = useState(false);
     const [notifySentBucket, setNotifySentBucket] = useState(null);
+    const [warrantyExpiringCandidates, setWarrantyExpiringCandidates] = useState([]);
+    const [warrantyExpiringLoading, setWarrantyExpiringLoading] = useState(false);
+    const [sendingWarrantyLetters, setSendingWarrantyLetters] = useState(false);
+    const [warrantySendResult, setWarrantySendResult] = useState(null);
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -523,7 +558,6 @@ function AdmindashboardShell({ user }) {
         openComplaints: 0,
         pendingInstallations: 0,
         upcomingMaintenance: 0,
-        availTechnicians: 0,
         totalTechnicians: 0
     });
 
@@ -784,6 +818,39 @@ function AdmindashboardShell({ user }) {
         }
     }
 
+    async function fetchWarrantyExpiringCandidates() {
+        setWarrantyExpiringLoading(true);
+        try {
+            const res = await fetch("/api/elevator-customers/warranty-expiring", { cache: "no-store" });
+            const data = await res.json();
+            setWarrantyExpiringCandidates(data.success ? data.candidates : []);
+        } catch {
+            setWarrantyExpiringCandidates([]);
+        } finally {
+            setWarrantyExpiringLoading(false);
+        }
+    }
+
+    // Cross-checks the source sheet before sending, so a customer who has
+    // already renewed into AMC there isn't sent a stale expiry letter (see
+    // lib/warrantyExpiry.js). The same check + send runs automatically every
+    // night via the Vercel cron; this button just runs it on demand.
+    async function sendWarrantyExpiryLettersNow() {
+        if (sendingWarrantyLetters) return;
+        setSendingWarrantyLetters(true);
+        setWarrantySendResult(null);
+        try {
+            const res = await fetch("/api/elevator-customers/send-warranty-expiry", { method: "POST" });
+            const data = await res.json();
+            setWarrantySendResult(data.success ? data : { error: data.message || "Failed to send" });
+            if (data.success) await fetchWarrantyExpiringCandidates();
+        } catch {
+            setWarrantySendResult({ error: "Failed to send warranty expiry letters" });
+        } finally {
+            setSendingWarrantyLetters(false);
+        }
+    }
+
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "all") return;
         const timer = setTimeout(() => fetchServiceSchedules(), 0);
@@ -800,6 +867,12 @@ function AdmindashboardShell({ user }) {
         if (activeTab !== "more") return;
         if (moreSubTab !== "customers" && moreSubTab !== "amc") return;
         const timer = setTimeout(() => fetchAmcStats(), 0);
+        return () => clearTimeout(timer);
+    }, [activeTab, moreSubTab]);
+
+    useEffect(() => {
+        if (activeTab !== "more" || moreSubTab !== "warranty") return;
+        const timer = setTimeout(() => fetchWarrantyExpiringCandidates(), 0);
         return () => clearTimeout(timer);
     }, [activeTab, moreSubTab]);
 
@@ -897,12 +970,15 @@ function AdmindashboardShell({ user }) {
     // Technician availability list
     const [technicians, setTechnicians] = useState([]);
 
+    // Technician assignment detail (real complaints + service visits, fetched on open)
+    const [technicianDetail, setTechnicianDetail] = useState(null);
+    const [technicianDetailData, setTechnicianDetailData] = useState({ complaints: [], visits: [], loading: false, error: "" });
+
     // Inventory and Staff States
     const [inventory, setInventory] = useState([]);
 
     const [staff, setStaff] = useState([]);
 
-    const allocatableTasks = activities.map((activity) => `${activity.type}: ${activity.site}`);
     const liveKpiCounts = useMemo(
         () => ({
             ...buildAdminKpiCounts({ customerStats, serviceStats, technicians }),
@@ -1145,31 +1221,6 @@ function AdmindashboardShell({ user }) {
         }
     }
 
-    // Interactive updates
-    function toggleTechnicianStatus(id) {
-        setTechnicians(prev =>
-            prev.map(t => {
-                if (t.id === id) {
-                    const statuses = ["Available", "On Duty", "Busy", "Offline"];
-                    const currIndex = statuses.indexOf(t.status);
-                    const nextStatus = statuses[(currIndex + 1) % statuses.length];
-
-                    // Update KPI counts if availability changes
-                    let availChange = 0;
-                    if (t.status === "Available" && nextStatus !== "Available") availChange = -1;
-                    if (t.status !== "Available" && nextStatus === "Available") availChange = 1;
-
-                    if (availChange !== 0) {
-                        setKpiCounts(k => ({ ...k, availTechnicians: Math.max(0, k.availTechnicians + availChange) }));
-                    }
-
-                    return { ...t, status: nextStatus };
-                }
-                return t;
-            })
-        );
-    }
-
     async function handleAddSchedule(e) {
         e.preventDefault();
         if (!newSchedule.customerId) return;
@@ -1245,51 +1296,6 @@ function AdmindashboardShell({ user }) {
             };
             setNotifications(prev => [newNotif, ...prev]);
         }
-    }
-
-    function handleAllocateTask(techId, taskName) {
-        if (!taskName) return;
-
-        setTechnicians(prev =>
-            prev.map(t => {
-                if (t.id === techId) {
-                    const hadTask = !!t.allocatedTask;
-                    let newWorkload = t.workload;
-                    if (!hadTask) {
-                        const parts = t.workload.split("/");
-                        const current = parseInt(parts[0]) + 1;
-                        newWorkload = `${current}/${parts[1]}`;
-                    }
-
-                    // Add notification log
-                    const newNotif = {
-                        id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
-                        category: "Task Allocated",
-                        message: `Assigned task "${taskName}" to technician ${t.name}`,
-                        time: "Just now"
-                    };
-                    setNotifications(n => [newNotif, ...n]);
-
-                    return { ...t, allocatedTask: taskName, workload: newWorkload };
-                }
-                return t;
-            })
-        );
-    }
-
-    function handleClearAllocation(techId) {
-        setTechnicians(prev =>
-            prev.map(t => {
-                if (t.id === techId && t.allocatedTask) {
-                    const parts = t.workload.split("/");
-                    const current = Math.max(0, parseInt(parts[0]) - 1);
-                    const newWorkload = `${current}/${parts[1]}`;
-
-                    return { ...t, allocatedTask: "", workload: newWorkload };
-                }
-                return t;
-            })
-        );
     }
 
     const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
@@ -1403,35 +1409,6 @@ function AdmindashboardShell({ user }) {
                                 hasBoqPermission={hasBoqPermission}
                                 complaintStats={complaintStats}
                             />
-
-                            {/* Technician Status */}
-                            <div className="rounded-[22px] bg-white p-5 space-y-4" style={{ boxShadow: "0 2px 12px rgba(15,23,42,0.07), 0 0 0 1px rgba(15,23,42,0.04)" }}>
-                                <div className="flex items-center justify-between">
-                                    <h3 className="text-[13px] font-bold text-slate-900">Technician Status</h3>
-                                    <span className="text-[10px] font-medium text-slate-400">Tap to toggle</span>
-                                </div>
-                                <div className="space-y-3">
-                                    {technicians.map(t => (
-                                        <div key={t.id} className="flex justify-between items-center">
-                                            <div className="min-w-0">
-                                                <p className="text-[12px] font-semibold text-slate-800">{t.name}</p>
-                                                <p className="text-[10px] text-slate-400 mt-0.5">{t.role} · {t.workload}</p>
-                                            </div>
-                                            <button
-                                                onClick={() => toggleTechnicianStatus(t.id)}
-                                                className={`text-[10px] font-semibold px-3 py-1.5 rounded-xl active:scale-95 transition-transform ${
-                                                    t.status === "Available" ? "bg-emerald-50 text-emerald-700" :
-                                                    t.status === "On Duty" ? "bg-blue-50 text-blue-700" :
-                                                    t.status === "Busy" ? "bg-amber-50 text-amber-700" :
-                                                    "bg-slate-100 text-slate-500"
-                                                }`}
-                                            >
-                                                {t.status}
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
 
                         </div>
                     )}
@@ -1813,126 +1790,31 @@ function AdmindashboardShell({ user }) {
                     {activeTab === "technicians" && moduleIsLive("technicians") && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div>
-                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Crew Status</h1>
-                                <p className="text-xs text-slate-500 mt-0.5">Allocate assignments and technician availability status.</p>
+                                <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Crew</h1>
+                                <p className="text-xs text-slate-500 mt-0.5">Tap a technician to see everything assigned to them.</p>
                             </div>
 
-                            <div className="space-y-5">
-                                {technicians.map(t => {
-                                    const activeTicketsForWorker = complaints.filter(c =>
-                                        Number(c.assignedTechnicianUserId) === Number(t.id) &&
-                                        !["RESOLVED", "CLOSED", "CANCELLED"].includes(String(c.status || "").toUpperCase())
-                                    );
-
-                                    return (
-                                    <div key={t.id} className="rounded-3xl border border-slate-200 bg-white px-6 py-5.5 shadow-md flex flex-col justify-between transition-all hover:shadow-lg">
-                                        <div className="flex justify-between items-start">
-                                            <div>
-                                                <h3 className="text-base font-black text-slate-900 leading-tight">{t.name}</h3>
-                                                <p className="text-[11px] text-[#0a649d] font-bold mt-0.5">{t.role}</p>
-                                                <div className="flex items-center gap-2 mt-2">
-                                                    <span className="text-[10px] font-semibold text-slate-400">Workload:</span>
-                                                    <span className="text-[10px] font-extrabold text-slate-700 bg-slate-100 px-1.5 py-0.2 rounded">{t.workload}</span>
-                                                    {activeTicketsForWorker.length > 0 && (
-                                                        <span className="text-[10px] font-extrabold text-sky-700 bg-sky-50 border border-sky-100 px-1.5 py-0.2 rounded">
-                                                            {activeTicketsForWorker.length} assigned
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            </div>
-                                            <span className={`text-[9px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full border shadow-2xs select-none ${t.status === "Available" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                t.status === "On Duty" ? "bg-blue-50 border-blue-100 text-blue-700" :
-                                                    t.status === "Busy" ? "bg-amber-50 border-amber-100 text-amber-700" :
-                                                        "bg-slate-100 border-slate-200 text-slate-600"
-                                                }`}>
-                                                {t.status}
-                                            </span>
+                            <div className="space-y-2.5">
+                                {technicians.map(t => (
+                                    <button
+                                        key={t.id}
+                                        type="button"
+                                        onClick={() => openTechnicianDetail(t)}
+                                        className="w-full rounded-3xl border border-slate-200 bg-white px-5 py-4 shadow-sm flex items-center justify-between text-left transition-all hover:shadow-md active:scale-[0.99]"
+                                    >
+                                        <div className="min-w-0">
+                                            <h3 className="text-sm font-black text-slate-900 leading-tight truncate">{t.name}</h3>
+                                            <p className="text-[11px] text-[#0a649d] font-bold mt-0.5">{t.role}</p>
+                                            {t.phone && <p className="text-[10px] text-slate-400 font-semibold mt-1">{t.phone}</p>}
                                         </div>
-
-                                        {/* Allocate Task Dropdown */}
-                                        <div className="mt-4 pt-3.5 border-t border-slate-100 flex flex-col gap-2">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Allocate Job Task</span>
-                                                {t.allocatedTask && (
-                                                    <button
-                                                        onClick={() => handleClearAllocation(t.id)}
-                                                        className="text-[9px] font-bold text-red-500 hover:text-red-750 active:scale-95 transition"
-                                                    >
-                                                        Clear Task
-                                                    </button>
-                                                )}
-                                            </div>
-
-                                            {!t.allocatedTask ? (
-                                                <select
-                                                    value=""
-                                                    onChange={(e) => handleAllocateTask(t.id, e.target.value)}
-                                                    className="w-full h-9.5 px-3 border border-slate-200 rounded-xl text-xs outline-none bg-white font-semibold text-slate-700 cursor-pointer focus:border-[#0a649d]"
-                                                >
-                                                    <option value="" disabled>-- Select Task to Assign --</option>
-                                                    {allocatableTasks.map((task, idx) => (
-                                                        <option key={idx} value={task}>{task}</option>
-                                                    ))}
-                                                </select>
-                                            ) : (
-                                                <div className="flex items-center gap-2.5 p-2.5 bg-sky-50 border border-sky-100 rounded-xl">
-                                                    <div className="h-6.5 w-6.5 rounded-lg bg-[#0a649d] text-white flex items-center justify-center shrink-0">
-                                                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                                                    </div>
-                                                    <div className="min-w-0 flex-1">
-                                                        <p className="text-[9px] font-bold text-slate-400 uppercase leading-none">Assigned Job</p>
-                                                        <p className="text-xs font-extrabold text-[#0a649d] truncate mt-0.5">{t.allocatedTask}</p>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {activeTicketsForWorker.length > 0 && (
-                                            <div className="mt-4 rounded-2xl border border-sky-100 bg-sky-50/70 p-3">
-                                                <p className="text-[9px] font-black uppercase tracking-wider text-[#0a649d]">Live Assigned Tickets</p>
-                                                <div className="mt-2 space-y-2">
-                                                    {activeTicketsForWorker.slice(0, 2).map(ticket => (
-                                                        <button
-                                                            key={ticket.id}
-                                                            onClick={() => openComplaintDetails(ticket)}
-                                                            className="w-full rounded-xl bg-white px-3 py-2 text-left shadow-sm ring-1 ring-sky-100"
-                                                        >
-                                                            <div className="flex items-center justify-between gap-2">
-                                                                <span className="truncate text-[10px] font-black text-slate-900">{ticket.complaintNo}</span>
-                                                                <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[8px] font-black text-sky-700">{ticket.status}</span>
-                                                            </div>
-                                                            <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">{ticket.customerName || "Customer"} - {ticket.complaintType || "Ticket"}</p>
-                                                        </button>
-                                                    ))}
-                                                    {activeTicketsForWorker.length > 2 && (
-                                                        <p className="text-[9px] font-bold text-slate-400">+{activeTicketsForWorker.length - 2} more assigned tickets</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center gap-3">
-                                            <a
-                                                href={`tel:${t.phone || "+919999999999"}`}
-                                                className="flex-1 h-9 rounded-xl bg-[#0a649d] hover:bg-[#085282] text-white flex items-center justify-center gap-1.5 active:scale-95 transition text-[10px] sm:text-xs font-black shadow-sm"
-                                            >
-                                                <PhoneIcon className="h-3.5 w-3.5" />
-                                                <span>Call Now</span>
-                                            </a>
-                                            <select
-                                                value={t.status}
-                                                onChange={(e) => toggleTechnicianStatus(t.id)}
-                                                className="flex-1 h-9 px-2 border border-slate-200 rounded-xl text-[10px] sm:text-xs outline-none bg-white font-bold text-slate-700 cursor-pointer focus:border-[#0a649d] text-center"
-                                            >
-                                                <option value="Available">Available</option>
-                                                <option value="On Duty">On Duty</option>
-                                                <option value="Busy">Busy</option>
-                                                <option value="Offline">Offline</option>
-                                            </select>
-                                        </div>
+                                        <span className="shrink-0 pl-3 text-[10px] font-bold text-[#0a649d]">Assignments →</span>
+                                    </button>
+                                ))}
+                                {technicians.length === 0 && (
+                                    <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 text-center">
+                                        <p className="text-sm font-extrabold text-slate-700">No technicians on record</p>
                                     </div>
-                                    );
-                                })}
+                                )}
                             </div>
                         </div>
                     )}
@@ -1976,6 +1858,52 @@ function AdmindashboardShell({ user }) {
                                             <h1 className="text-xl font-black tracking-tight text-slate-900">Warranty</h1>
                                             <p className="text-[10px] text-slate-500 mt-0.5">Handed over within the last year, not yet on AMC.</p>
                                         </div>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                                                <BellIcon className="h-5 w-5 text-amber-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-black text-amber-900">
+                                                    {warrantyExpiringLoading ? "Checking who's expiring…" : `${warrantyExpiringCandidates.length} expiring within 30 days`}
+                                                </p>
+                                                <p className="text-[11px] font-semibold text-amber-700 mt-0.5">
+                                                    Cross-checked against the source sheet — already-renewed AMC customers are skipped.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {warrantyExpiringCandidates.length > 0 && (
+                                            <div className="mt-3 space-y-1.5 max-h-40 overflow-y-auto">
+                                                {warrantyExpiringCandidates.map((c) => (
+                                                    <div key={c.id} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-[11px]">
+                                                        <span className="font-bold text-slate-800 truncate">{c.customerName}</span>
+                                                        <span className="text-slate-400 font-semibold shrink-0 pl-2">
+                                                            {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        <button
+                                            type="button"
+                                            disabled={sendingWarrantyLetters || warrantyExpiringCandidates.length === 0}
+                                            onClick={sendWarrantyExpiryLettersNow}
+                                            className={`mt-3 h-10 w-full flex items-center justify-center gap-2 rounded-xl text-xs font-black text-white disabled:opacity-50 active:scale-95 transition ${warrantySendResult?.sent ? "bg-emerald-600" : "bg-amber-600"}`}
+                                        >
+                                            {sendingWarrantyLetters && <span className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-white/40 border-t-white animate-spin" />}
+                                            {sendingWarrantyLetters
+                                                ? "Sending…"
+                                                : warrantySendResult?.sent
+                                                ? `Sent ${warrantySendResult.sent} letter${warrantySendResult.sent === 1 ? "" : "s"} ✓`
+                                                : "Send Warranty Expiry Letters"}
+                                        </button>
+                                        {warrantySendResult?.error && (
+                                            <p className="mt-2 text-[11px] font-bold text-red-700">{warrantySendResult.error}</p>
+                                        )}
                                     </div>
 
                                     <AdminCustomersTable
@@ -2660,6 +2588,108 @@ function AdmindashboardShell({ user }) {
                 </div>
 
             </div>
+
+            {/* MODAL: TECHNICIAN ASSIGNMENTS */}
+            {technicianDetail && (
+                <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="flex max-h-[86vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
+                        <div className="flex items-center justify-between bg-[#0a649d] px-5 py-4 text-white shrink-0">
+                            <div className="min-w-0">
+                                <h2 className="truncate text-base font-bold">{technicianDetail.name}</h2>
+                                <p className="text-[10px] font-bold uppercase tracking-wider text-white/75">{technicianDetail.role}</p>
+                            </div>
+                            <button
+                                onClick={closeTechnicianDetail}
+                                className="h-8 w-8 shrink-0 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition"
+                            >
+                                <CloseIcon className="h-5 w-5" />
+                            </button>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                            {technicianDetailData.loading ? (
+                                <div className="flex items-center justify-center py-10 text-sm font-bold text-slate-400">Loading assignments…</div>
+                            ) : technicianDetailData.error ? (
+                                <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-center text-xs font-bold text-red-700">
+                                    {technicianDetailData.error}
+                                </div>
+                            ) : (
+                                <>
+                                    <section>
+                                        <h3 className="mb-2 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                            Service Tickets & Breakdowns ({technicianDetailData.complaints.length})
+                                        </h3>
+                                        {technicianDetailData.complaints.length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs font-semibold text-slate-400">
+                                                No tickets assigned to this technician.
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {technicianDetailData.complaints.map((c) => (
+                                                    <button
+                                                        key={c.id}
+                                                        type="button"
+                                                        onClick={() => { closeTechnicianDetail(); openComplaintDetails(c); }}
+                                                        className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm"
+                                                    >
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="truncate text-[11px] font-black text-slate-900">{c.complaintNo}</span>
+                                                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${complaintStatusClass(c.status)}`}>{c.status}</span>
+                                                        </div>
+                                                        <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">
+                                                            {c.customerName || "Customer"} · {c.complaintType ? c.complaintType.replaceAll("_", " ") : "Ticket"}
+                                                        </p>
+                                                        {c.createdAt && (
+                                                            <p className="mt-0.5 text-[9px] font-bold text-slate-400">{formatDeviceDate(c.createdAt)}</p>
+                                                        )}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </section>
+
+                                    <section>
+                                        <h3 className="mb-2 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                            Service Visits ({technicianDetailData.visits.length})
+                                        </h3>
+                                        {technicianDetailData.visits.length === 0 ? (
+                                            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center text-xs font-semibold text-slate-400">
+                                                No logged service visits for this technician.
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {technicianDetailData.visits.map((v) => (
+                                                    <div key={v.id} className="rounded-2xl border border-slate-200 bg-white p-3">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="truncate text-[11px] font-black text-slate-900">{v.customer_name || v.customer_code || "Customer"}</span>
+                                                            <span className="shrink-0 text-[9px] font-bold text-slate-400">{formatDeviceDate(v.service_date)}</span>
+                                                        </div>
+                                                        <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">
+                                                            {v.service_type || "Service"}{v.city_snapshot ? ` · ${v.city_snapshot}` : ""}
+                                                        </p>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </section>
+                                </>
+                            )}
+                        </div>
+
+                        {technicianDetail.phone && (
+                            <div className="border-t border-slate-200 bg-white p-4 shrink-0">
+                                <a
+                                    href={`tel:${technicianDetail.phone}`}
+                                    className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl bg-[#0a649d] text-xs font-black text-white active:scale-95 transition"
+                                >
+                                    <PhoneIcon className="h-4 w-4" />
+                                    Call {technicianDetail.name.split(/\s+/)[0]}
+                                </a>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* MODAL: ONBOARD USER (SUPERADMIN ONLY) */}
             {showOnboardModal && user?.role === "superadmin" && (

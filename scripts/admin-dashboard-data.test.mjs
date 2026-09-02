@@ -38,7 +38,6 @@ assert.deepEqual(
     openComplaints: 0,
     pendingInstallations: 0,
     upcomingMaintenance: 68,
-    availTechnicians: 1,
     totalTechnicians: 1,
   }
 );

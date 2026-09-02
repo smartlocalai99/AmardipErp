@@ -284,9 +284,9 @@ export default function DashboardKpiGrid({
           />
 
           <KpiCard
-            title={"Technician\nStatus"}
-            value={`${kpiCounts?.availTechnicians ?? 0}/${kpiCounts?.totalTechnicians ?? 0}`}
-            body="Available / Total"
+            title="Technicians"
+            value={kpiCounts?.totalTechnicians ?? 0}
+            body="Field crew on record"
             icon={<TechniciansIcon className="h-4 w-4" />}
             accent="bg-emerald-50 text-emerald-600"
             onClick={() => setActiveTab("technicians")}
