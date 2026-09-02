@@ -23,6 +23,8 @@ export default async function handler(req, res) {
         customerName: c.customer_name,
         expiryDate: c.expiry_date,
         mobileNo: c.mobile_no,
+        sentAt: c.sent_at,
+        amcAmount: c.amc_amount,
       })),
     });
   } catch (error) {

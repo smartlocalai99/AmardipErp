@@ -859,7 +859,10 @@ function AdmindashboardShell({ user }) {
             });
             const data = await res.json();
             if (data.success) {
-                setWarrantyExpiringCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
+                // Stays in the list — marked as sent — instead of disappearing.
+                setWarrantyExpiringCandidates((prev) => prev.map((c) =>
+                    c.id === candidate.id ? { ...c, sentAt: new Date().toISOString(), amcAmount } : c
+                ));
             } else {
                 setWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: data.message || "Failed to send" } }));
             }
@@ -1874,10 +1877,12 @@ function AdmindashboardShell({ user }) {
                                             </div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-black text-amber-900">
-                                                    {warrantyExpiringLoading ? "Checking who's expiring…" : `${warrantyExpiringCandidates.length} expiring within 30 days`}
+                                                    {warrantyExpiringLoading
+                                                        ? "Checking who's expiring…"
+                                                        : `${warrantyExpiringCandidates.filter((c) => !c.sentAt).length} of ${warrantyExpiringCandidates.length} expiring within 30 days still need a letter`}
                                                 </p>
                                                 <p className="text-[11px] font-semibold text-amber-700 mt-0.5">
-                                                    Enter the AMC amount for a customer and send — they won&apos;t show here again once sent.
+                                                    Enter the AMC amount for a customer and send — they stay listed here as sent.
                                                 </p>
                                             </div>
                                         </div>
@@ -1892,28 +1897,39 @@ function AdmindashboardShell({ user }) {
                                                                 Expires {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                                                             </span>
                                                         </div>
-                                                        <div className="mt-2 flex items-center gap-2">
-                                                            <div className="relative flex-1">
-                                                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">Rs.</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="1"
-                                                                    inputMode="numeric"
-                                                                    placeholder="AMC amount"
-                                                                    value={warrantyAmounts[c.id] || ""}
-                                                                    onChange={(e) => setWarrantyAmounts((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                                                                    className="h-9 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-xs font-bold outline-none focus:border-[#0a649d]"
-                                                                />
+                                                        {c.sentAt ? (
+                                                            <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                                                                <span className="text-[10px] font-black text-emerald-700">
+                                                                    ✓ Warning Sent{c.amcAmount ? ` · Rs. ${Number(c.amcAmount).toLocaleString("en-IN")}` : ""}
+                                                                </span>
+                                                                <span className="text-[9px] font-bold text-emerald-600 shrink-0">
+                                                                    {new Date(c.sentAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                                                </span>
                                                             </div>
-                                                            <button
-                                                                type="button"
-                                                                disabled={sendingWarrantyCustomerId === c.id}
-                                                                onClick={() => sendWarrantyExpiryLetterFor(c)}
-                                                                className="h-9 shrink-0 rounded-xl bg-amber-600 px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
-                                                            >
-                                                                {sendingWarrantyCustomerId === c.id ? "Sending…" : "Send Warning Letter"}
-                                                            </button>
-                                                        </div>
+                                                        ) : (
+                                                            <div className="mt-2 flex items-center gap-2">
+                                                                <div className="relative flex-1">
+                                                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">Rs.</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="1"
+                                                                        inputMode="numeric"
+                                                                        placeholder="AMC amount"
+                                                                        value={warrantyAmounts[c.id] || ""}
+                                                                        onChange={(e) => setWarrantyAmounts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                                                                        className="h-9 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-xs font-bold outline-none focus:border-[#0a649d]"
+                                                                    />
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={sendingWarrantyCustomerId === c.id}
+                                                                    onClick={() => sendWarrantyExpiryLetterFor(c)}
+                                                                    className="h-9 shrink-0 rounded-xl bg-amber-600 px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                                                >
+                                                                    {sendingWarrantyCustomerId === c.id ? "Sending…" : "Send Warning Letter"}
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                         {warrantySendFeedback[c.id]?.error && (
                                                             <p className="mt-1.5 text-[10px] font-bold text-red-700">{warrantySendFeedback[c.id].error}</p>
                                                         )}
