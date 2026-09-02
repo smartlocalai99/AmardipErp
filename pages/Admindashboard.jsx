@@ -508,8 +508,9 @@ function AdmindashboardShell({ user }) {
     const [notifySentBucket, setNotifySentBucket] = useState(null);
     const [warrantyExpiringCandidates, setWarrantyExpiringCandidates] = useState([]);
     const [warrantyExpiringLoading, setWarrantyExpiringLoading] = useState(false);
-    const [sendingWarrantyLetters, setSendingWarrantyLetters] = useState(false);
-    const [warrantySendResult, setWarrantySendResult] = useState(null);
+    const [warrantyAmounts, setWarrantyAmounts] = useState({});
+    const [sendingWarrantyCustomerId, setSendingWarrantyCustomerId] = useState(null);
+    const [warrantySendFeedback, setWarrantySendFeedback] = useState({});
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -833,21 +834,35 @@ function AdmindashboardShell({ user }) {
 
     // Cross-checks the source sheet before sending, so a customer who has
     // already renewed into AMC there isn't sent a stale expiry letter (see
-    // lib/warrantyExpiry.js). The same check + send runs automatically every
-    // night via the Vercel cron; this button just runs it on demand.
-    async function sendWarrantyExpiryLettersNow() {
-        if (sendingWarrantyLetters) return;
-        setSendingWarrantyLetters(true);
-        setWarrantySendResult(null);
+    // lib/warrantyExpiry.js). Sending is per-customer and manual only — the
+    // admin enters the AMC amount for this one customer and sends; there is
+    // no automated/scheduled send.
+    async function sendWarrantyExpiryLetterFor(candidate) {
+        if (sendingWarrantyCustomerId) return;
+        const amcAmount = warrantyAmounts[candidate.id];
+        if (!amcAmount || Number(amcAmount) <= 0) {
+            setWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: "Enter an AMC amount first." } }));
+            return;
+        }
+
+        setSendingWarrantyCustomerId(candidate.id);
+        setWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: null }));
         try {
-            const res = await fetch("/api/elevator-customers/send-warranty-expiry", { method: "POST" });
+            const res = await fetch("/api/elevator-customers/send-warranty-expiry", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ customerId: candidate.id, amcAmount }),
+            });
             const data = await res.json();
-            setWarrantySendResult(data.success ? data : { error: data.message || "Failed to send" });
-            if (data.success) await fetchWarrantyExpiringCandidates();
+            if (data.success) {
+                setWarrantyExpiringCandidates((prev) => prev.filter((c) => c.id !== candidate.id));
+            } else {
+                setWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: data.message || "Failed to send" } }));
+            }
         } catch {
-            setWarrantySendResult({ error: "Failed to send warranty expiry letters" });
+            setWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: "Failed to send warranty expiry letter" } }));
         } finally {
-            setSendingWarrantyLetters(false);
+            setSendingWarrantyCustomerId(null);
         }
     }
 
@@ -1870,39 +1885,49 @@ function AdmindashboardShell({ user }) {
                                                     {warrantyExpiringLoading ? "Checking who's expiring…" : `${warrantyExpiringCandidates.length} expiring within 30 days`}
                                                 </p>
                                                 <p className="text-[11px] font-semibold text-amber-700 mt-0.5">
-                                                    Cross-checked against the source sheet — already-renewed AMC customers are skipped.
+                                                    Enter the AMC amount for a customer and send — they won&apos;t show here again once sent.
                                                 </p>
                                             </div>
                                         </div>
 
                                         {warrantyExpiringCandidates.length > 0 && (
-                                            <div className="mt-3 space-y-1.5 max-h-40 overflow-y-auto">
+                                            <div className="mt-3 space-y-2">
                                                 {warrantyExpiringCandidates.map((c) => (
-                                                    <div key={c.id} className="flex items-center justify-between rounded-xl bg-white px-3 py-2 text-[11px]">
-                                                        <span className="font-bold text-slate-800 truncate">{c.customerName}</span>
-                                                        <span className="text-slate-400 font-semibold shrink-0 pl-2">
-                                                            {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                                                        </span>
+                                                    <div key={c.id} className="rounded-2xl bg-white p-3">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-xs font-black text-slate-800 truncate">{c.customerName}</span>
+                                                            <span className="text-[10px] text-slate-400 font-semibold shrink-0 pl-2">
+                                                                Expires {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                                            </span>
+                                                        </div>
+                                                        <div className="mt-2 flex items-center gap-2">
+                                                            <div className="relative flex-1">
+                                                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">Rs.</span>
+                                                                <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    inputMode="numeric"
+                                                                    placeholder="AMC amount"
+                                                                    value={warrantyAmounts[c.id] || ""}
+                                                                    onChange={(e) => setWarrantyAmounts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                                                                    className="h-9 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-xs font-bold outline-none focus:border-[#0a649d]"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                disabled={sendingWarrantyCustomerId === c.id}
+                                                                onClick={() => sendWarrantyExpiryLetterFor(c)}
+                                                                className="h-9 shrink-0 rounded-xl bg-amber-600 px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                                            >
+                                                                {sendingWarrantyCustomerId === c.id ? "Sending…" : "Send Warning Letter"}
+                                                            </button>
+                                                        </div>
+                                                        {warrantySendFeedback[c.id]?.error && (
+                                                            <p className="mt-1.5 text-[10px] font-bold text-red-700">{warrantySendFeedback[c.id].error}</p>
+                                                        )}
                                                     </div>
                                                 ))}
                                             </div>
-                                        )}
-
-                                        <button
-                                            type="button"
-                                            disabled={sendingWarrantyLetters || warrantyExpiringCandidates.length === 0}
-                                            onClick={sendWarrantyExpiryLettersNow}
-                                            className={`mt-3 h-10 w-full flex items-center justify-center gap-2 rounded-xl text-xs font-black text-white disabled:opacity-50 active:scale-95 transition ${warrantySendResult?.sent ? "bg-emerald-600" : "bg-amber-600"}`}
-                                        >
-                                            {sendingWarrantyLetters && <span className="h-3.5 w-3.5 shrink-0 rounded-full border-2 border-white/40 border-t-white animate-spin" />}
-                                            {sendingWarrantyLetters
-                                                ? "Sending…"
-                                                : warrantySendResult?.sent
-                                                ? `Sent ${warrantySendResult.sent} letter${warrantySendResult.sent === 1 ? "" : "s"} ✓`
-                                                : "Send Warranty Expiry Letters"}
-                                        </button>
-                                        {warrantySendResult?.error && (
-                                            <p className="mt-2 text-[11px] font-bold text-red-700">{warrantySendResult.error}</p>
                                         )}
                                     </div>
 

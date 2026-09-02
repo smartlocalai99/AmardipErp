@@ -9,10 +9,6 @@
     {
       "path": "/api/service-history/sync",
       "schedule": "15 1 * * *"
-    },
-    {
-      "path": "/api/elevator-customers/send-warranty-expiry",
-      "schedule": "0 3 * * *"
     }
   ]
 }

@@ -19,16 +19,16 @@ test("endpoint returns the PDF once a warranty notice exists for that customer",
     getUserFromRequest: async () => ({ id: 44, role: "customer" }),
     query: async (_sql, params) => ({ rows: params[0] === 44 && params[1] === "lift-1" ? [{
       id: "lift-1", customer_code: "LIFT-1", customer_name: "Linked Customer",
-      address: "Main Road", city: "Kadapa", hoc_date: "2025-08-29",
+      address: "Main Road", city: "Kadapa", hoc_date: "2025-08-29", amc_amount: "12000",
     }] : [] }),
-    generatePdf: (letter) => Buffer.from(`PDF:${letter.customerName}:${letter.expiryDate}`),
+    generatePdf: (letter) => Buffer.from(`PDF:${letter.customerName}:${letter.expiryDate}:${letter.amcAmount}`),
   });
   const res = responseRecorder();
   await handler({ method: "GET", query: { customerId: "lift-1" } }, res);
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["Content-Type"], "application/pdf");
-  assert.match(res.body.toString(), /Linked Customer:29\/08\/2026/);
+  assert.match(res.body.toString(), /Linked Customer:29\/08\/2026:12000/);
 });
 
 test("endpoint 404s when no warranty notice has been sent yet (join excludes the row)", async () => {
