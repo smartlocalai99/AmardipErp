@@ -24,6 +24,21 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
 import Swal from "sweetalert2";
 
+// Matches the technician's 11-point checklist keys in pages/Techniciandashboard.jsx.
+const ADMIN_CHECKLIST_LABELS = [
+    { key: "ard", label: "ARD Condition" },
+    { key: "motor", label: "Motor Condition" },
+    { key: "gearOil", label: "Gear Oil Condition" },
+    { key: "brake", label: "Brake Condition" },
+    { key: "rope", label: "Rope Condition" },
+    { key: "railClips", label: "Rail Clips Condition" },
+    { key: "limitSwitch", label: "Limit Switch Condition" },
+    { key: "gateLocks", label: "Gate Locks" },
+    { key: "rcr", label: "RCR Condition" },
+    { key: "sensors", label: "Sensors" },
+    { key: "osg", label: "OSG Condition" },
+];
+
 async function confirmDialog(message, title = "Are you sure?") {
     const result = await Swal.fire({
         icon: "warning",
@@ -520,6 +535,8 @@ function AdmindashboardShell({ user }) {
     const [serviceSearch, setServiceSearch] = useState("");
     const [upcomingServiceRows, setUpcomingServiceRows] = useState([]);
     const [upcomingServiceLoading, setUpcomingServiceLoading] = useState(false);
+    const [upcomingServiceSummary, setUpcomingServiceSummary] = useState({ unassigned: 0, assigned: 0, completed: 0 });
+    const [serviceStatusFilter, setServiceStatusFilter] = useState("ALL");
     const [amcStats, setAmcStats] = useState(null);
     const [amcStatsLoading, setAmcStatsLoading] = useState(false);
     const [amcFilterMode, setAmcFilterMode] = useState("amc");
@@ -752,7 +769,10 @@ function AdmindashboardShell({ user }) {
             if (search.trim()) params.set("search", search.trim());
             const res = await fetch(`/api/service-schedules/upcoming?${params.toString()}`, { cache: "no-store" });
             const data = await res.json();
-            if (data.success) setUpcomingServiceRows(data.rows || []);
+            if (data.success) {
+                setUpcomingServiceRows(data.rows || []);
+                setUpcomingServiceSummary(data.summary || { unassigned: 0, assigned: 0, completed: 0 });
+            }
         } catch {}
         finally { setUpcomingServiceLoading(false); }
     }
@@ -788,15 +808,6 @@ function AdmindashboardShell({ user }) {
                 }
             } catch {}
         }
-    }
-
-    async function markScheduleDoneAndRefresh(id) {
-        await fetch(`/api/service-schedules/${id}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ status: "COMPLETED" }),
-        });
-        fetchUpcomingServiceRows(serviceSearch);
     }
 
     async function deleteScheduleAndRefresh(id) {
@@ -1287,8 +1298,12 @@ function AdmindashboardShell({ user }) {
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to schedule");
 
             // Reload from DB — the server already pushed a notification to
-            // every assigned technician when it dispatched the job.
-            await fetchServiceSchedules();
+            // every assigned technician when it dispatched the job. Both
+            // lists need refreshing: fetchServiceSchedules feeds "All
+            // Services", fetchUpcomingServiceRows feeds "Services This
+            // Month" (the default view), which otherwise keeps showing the
+            // customer as "TO BE SCHEDULED" until the next manual reload.
+            await Promise.all([fetchServiceSchedules(), fetchUpcomingServiceRows(serviceSearch)]);
         } catch {}
 
         setNewSchedule({
@@ -1303,38 +1318,16 @@ function AdmindashboardShell({ user }) {
         setShowScheduleModal(false);
     }
 
-    function handleCompleteSchedule(id) {
-        let completedLoc = "";
-        setSchedules(prev =>
-            prev.map(sch => {
-                if (sch.id === id) {
-                    completedLoc = sch.location;
-                    const updated = { ...sch, status: "Completed" };
-                    if (selectedSchedule && selectedSchedule.id === id) {
-                        setSelectedSchedule(updated);
-                    }
-                    return updated;
-                }
-                return sch;
-            })
-        );
-
-        // Update KPIs
-        setKpiCounts(k => ({
-            ...k,
-            todayService: Math.max(0, k.todayService - 1),
-            upcomingMaintenance: Math.max(0, k.upcomingMaintenance - 1)
-        }));
-
-        // Add notification
-        if (completedLoc) {
-            const newNotif = {
-                id: notifications.length ? Math.max(...notifications.map(n => n.id)) + 1 : 1,
-                category: "Service Completed",
-                message: `Maintenance checklist completed for ${completedLoc}`,
-                time: "Just now"
-            };
-            setNotifications(prev => [newNotif, ...prev]);
+    async function openScheduleDetail(id) {
+        if (!id) return;
+        setSelectedSchedule({ loading: true });
+        try {
+            const res = await fetch(`/api/service-schedules/${id}`, { cache: "no-store" });
+            const data = await res.json();
+            if (data.success) setSelectedSchedule(data.schedule);
+            else setSelectedSchedule(null);
+        } catch {
+            setSelectedSchedule(null);
         }
     }
 
@@ -1621,16 +1614,45 @@ function AdmindashboardShell({ user }) {
                                 </div>
                             </div>
 
+                            {serviceViewMode === "month" && (
+                                <div className="flex gap-2 overflow-x-auto">
+                                    {[
+                                        ["ALL", "All", upcomingServiceSummary.unassigned + upcomingServiceSummary.assigned + upcomingServiceSummary.completed],
+                                        ["UNASSIGNED", "Unassigned", upcomingServiceSummary.unassigned],
+                                        ["ASSIGNED", "Assigned", upcomingServiceSummary.assigned],
+                                        ["COMPLETED", "Completed", upcomingServiceSummary.completed],
+                                    ].map(([value, label, count]) => (
+                                        <button
+                                            key={value}
+                                            onClick={() => setServiceStatusFilter(value)}
+                                            className={`shrink-0 rounded-xl px-3 py-1.5 text-[10px] font-black transition ${serviceStatusFilter === value ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-500"}`}
+                                        >
+                                            {label} ({count})
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+
                             {/* Service schedules */}
                             {serviceViewMode === "month" ? (
                                 <div className="space-y-3">
                                     {upcomingServiceLoading ? (
                                         <p className="text-center text-xs text-slate-400 py-6">Loading…</p>
-                                    ) : upcomingServiceRows.length === 0 ? (
-                                        <div className="text-center py-10">
-                                            <p className="text-sm font-bold text-slate-400">No services due this month</p>
-                                        </div>
-                                    ) : upcomingServiceRows.map((row) => {
+                                    ) : (() => {
+                                        const filteredRows = upcomingServiceRows.filter((row) => {
+                                            if (serviceStatusFilter === "UNASSIGNED") return row.rowType === "TO_BE_SCHEDULED";
+                                            if (serviceStatusFilter === "COMPLETED") return row.rowType === "SCHEDULED" && row.scheduleStatus === "COMPLETED";
+                                            if (serviceStatusFilter === "ASSIGNED") return row.rowType === "SCHEDULED" && row.scheduleStatus !== "COMPLETED";
+                                            return true;
+                                        });
+                                        if (filteredRows.length === 0) {
+                                            return (
+                                                <div className="text-center py-10">
+                                                    <p className="text-sm font-bold text-slate-400">No services due this month</p>
+                                                </div>
+                                            );
+                                        }
+                                        return filteredRows.map((row) => {
                                         const key = `${row.rowType}-${row.scheduleId || row.customerId}`;
                                         if (row.rowType === "TO_BE_SCHEDULED") {
                                             return (
@@ -1668,7 +1690,11 @@ function AdmindashboardShell({ user }) {
                                         };
 
                                         return (
-                                            <div key={key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                            <div
+                                                key={key}
+                                                onClick={() => openScheduleDetail(row.scheduleId)}
+                                                className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer active:scale-[0.99] transition"
+                                            >
                                                 <div className="flex justify-between items-start gap-3">
                                                     <div className="min-w-0">
                                                         <h3 className="text-sm font-extrabold text-slate-900 truncate">{row.customerName || "—"}</h3>
@@ -1688,16 +1714,8 @@ function AdmindashboardShell({ user }) {
                                                             : "Date TBD"}
                                                     </span>
                                                     <div className="flex items-center gap-2">
-                                                        {row.scheduleStatus !== "COMPLETED" && row.scheduleStatus !== "MISSED" && (
-                                                            <button
-                                                                onClick={() => markScheduleDoneAndRefresh(row.scheduleId)}
-                                                                className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
-                                                            >
-                                                                Mark Done
-                                                            </button>
-                                                        )}
                                                         <button
-                                                            onClick={() => deleteScheduleAndRefresh(row.scheduleId)}
+                                                            onClick={(e) => { e.stopPropagation(); deleteScheduleAndRefresh(row.scheduleId); }}
                                                             className="h-7 w-7 flex items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 transition cursor-pointer"
                                                             title="Delete"
                                                         >
@@ -1709,7 +1727,8 @@ function AdmindashboardShell({ user }) {
                                                 </div>
                                             </div>
                                         );
-                                    })}
+                                        });
+                                    })()}
                                 </div>
                             ) : (
                             <div className="space-y-6">
@@ -1768,7 +1787,8 @@ function AdmindashboardShell({ user }) {
                                                 {grouped[date].map(sch => (
                                                     <div
                                                         key={sch.id}
-                                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between"
+                                                        onClick={() => openScheduleDetail(sch.id)}
+                                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between cursor-pointer active:scale-[0.99] transition"
                                                     >
                                                         <div className="flex justify-between items-start">
                                                             <div className="min-w-0">
@@ -1789,22 +1809,6 @@ function AdmindashboardShell({ user }) {
                                                                     : "Date TBD"}
                                                             </span>
                                                             <div className="flex items-center gap-2">
-                                                                {sch.status !== "COMPLETED" && sch.status !== "CANCELLED" && (
-                                                                    <button
-                                                                        onClick={async (e) => {
-                                                                            e.stopPropagation();
-                                                                            await fetch(`/api/service-schedules/${sch.id}`, {
-                                                                                method: "PATCH",
-                                                                                headers: { "Content-Type": "application/json" },
-                                                                                body: JSON.stringify({ status: "COMPLETED" }),
-                                                                            });
-                                                                            fetchServiceSchedules();
-                                                                        }}
-                                                                        className="text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-100 px-3 py-1 rounded-lg font-bold transition cursor-pointer"
-                                                                    >
-                                                                        Mark Done
-                                                                    </button>
-                                                                )}
                                                                 <button
                                                                     onClick={async (e) => {
                                                                         e.stopPropagation();
@@ -3329,7 +3333,9 @@ function AdmindashboardShell({ user }) {
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>
                                 <h2 className="text-base font-bold">Service Details</h2>
-                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">Schedule #{selectedSchedule.id}</p>
+                                {!selectedSchedule.loading && (
+                                    <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedSchedule.customerCode || `Schedule #${selectedSchedule.id}`}</p>
+                                )}
                             </div>
                             <button
                                 onClick={() => setSelectedSchedule(null)}
@@ -3339,96 +3345,115 @@ function AdmindashboardShell({ user }) {
                             </button>
                         </div>
 
+                        {selectedSchedule.loading ? (
+                            <p className="p-8 text-center text-xs text-slate-400">Loading…</p>
+                        ) : (
                         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-                            {/* Detail items */}
                             <div>
-                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Location / Site</span>
-                                <p className="text-sm font-extrabold text-slate-800">{selectedSchedule.location}</p>
+                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
+                                <p className="text-sm font-extrabold text-slate-800">{selectedSchedule.customerName || "—"}</p>
+                                {selectedSchedule.address && <p className="text-[10px] text-slate-400 mt-0.5">{selectedSchedule.address}{selectedSchedule.city ? `, ${selectedSchedule.city}` : ""}</p>}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Technician</span>
-                                    <p className="text-xs font-bold text-slate-700">{selectedSchedule.technician}</p>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Technicians</span>
+                                    <p className="text-xs font-bold text-slate-700">{selectedSchedule.assignees?.length ? selectedSchedule.assignees.map((a) => a.name).join(" & ") : "Unassigned"}</p>
                                 </div>
                                 <div>
                                     <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Status</span>
-                                    <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded ${selectedSchedule.status === "Overdue" ? "bg-red-100 text-red-800" :
-                                        selectedSchedule.status === "Upcoming" ? "bg-amber-100 text-amber-800" :
-                                            selectedSchedule.status === "Completed" ? "bg-emerald-100 text-emerald-800" :
+                                    <span className={`inline-block text-[9px] font-bold px-2 py-0.5 rounded ${selectedSchedule.status === "COMPLETED" ? "bg-emerald-100 text-emerald-800" :
+                                        selectedSchedule.status === "MISSED" ? "bg-red-100 text-red-800" :
+                                            selectedSchedule.status === "ASSIGNED" ? "bg-sky-100 text-sky-800" :
                                                 "bg-blue-100 text-blue-800"
                                     }`}>
-                                        {selectedSchedule.status}
+                                        {selectedSchedule.status?.replace("_", " ")}
                                     </span>
                                 </div>
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div>
-                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Due Date</span>
-                                    <p className="text-xs font-bold text-slate-650">{selectedSchedule.nextService}</p>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Scheduled Date</span>
+                                    <p className="text-xs font-bold text-slate-650">{selectedSchedule.scheduledDate ? new Date(selectedSchedule.scheduledDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Date TBD"}</p>
                                 </div>
                                 <div>
-                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Last Serviced</span>
-                                    <p className="text-xs font-bold text-slate-650">{selectedSchedule.lastService}</p>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Mobile</span>
+                                    <p className="text-xs font-bold text-slate-650">{selectedSchedule.mobileNo || "—"}</p>
                                 </div>
                             </div>
 
-                            <hr className="border-slate-100" />
+                            {selectedSchedule.notes && (
+                                <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Notes</span>
+                                    <p className="text-xs font-semibold text-slate-600 mt-0.5">{selectedSchedule.notes}</p>
+                                </div>
+                            )}
 
-                            {/* Checklist Progress */}
-                            <div>
-                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Checklist Progress</span>
-                                <div className="space-y-2 bg-slate-50 border border-slate-100 rounded-2xl p-3.5">
-                                    <div className="flex items-center justify-between text-xs font-bold text-slate-700 mb-1.5 pb-1.5 border-b border-slate-200/60">
-                                        <span>Checklist Tasks</span>
-                                        <span className={selectedSchedule.status === "Completed" ? "text-emerald-600" : "text-slate-500"}>
-                                            {selectedSchedule.status === "Completed" ? "8 / 8 Complete" : "0 / 8 Complete"}
-                                        </span>
+                            {selectedSchedule.jobCompletion ? (
+                                <>
+                                    <hr className="border-slate-100" />
+                                    <div>
+                                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Lift Inspection Checklist</span>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            {ADMIN_CHECKLIST_LABELS.filter((item) => selectedSchedule.jobCompletion.checklist?.[item.key]).map((item) => {
+                                                const value = selectedSchedule.jobCompletion.checklist[item.key];
+                                                const tone = value === "NORMAL" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
+                                                    value === "ABNORMAL" ? "bg-red-50 border-red-100 text-red-700" :
+                                                        "bg-amber-50 border-amber-100 text-amber-700";
+                                                return (
+                                                    <div key={item.key} className={`rounded-xl border p-2 ${tone}`}>
+                                                        <p className="text-[9px] font-bold uppercase tracking-wide opacity-80">{item.label}</p>
+                                                        <p className="text-[11px] font-black mt-0.5">{value}</p>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                    <div className="space-y-1.5 text-[11px] font-semibold text-slate-600">
-                                        {[
-                                            "Main Traction Motor & Gearbox Check",
-                                            "Brake Clearance & Lining Inspection",
-                                            "Hoistway & Pit Safety Switches Check",
-                                            "Steel Wire Ropes Tension & Wear",
-                                            "Automatic Cabin Door Slider & Alignment",
-                                            "Controller Panel & Diagnostics Run",
-                                            "Emergency Car Alarm & Intercom Test",
-                                            "Leveling & Cabin Lighting Check"
-                                        ].map((item, idx) => (
-                                            <div key={idx} className="flex items-center gap-2">
-                                                {selectedSchedule.status === "Completed" ? (
-                                                    <svg className="h-3.5 w-3.5 text-emerald-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="3"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                ) : (
-                                                    <div className="h-3.5 w-3.5 border-2 border-slate-300 rounded-full shrink-0"></div>
-                                                )}
-                                                <span className={selectedSchedule.status === "Completed" ? "line-through text-slate-400" : ""}>{item}</span>
+
+                                    <hr className="border-slate-100" />
+                                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
+                                        <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                        <div>
+                                            <span className="block text-[9px] font-semibold text-slate-400 uppercase">Problem Identified</span>
+                                            <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.problemIdentified || "N/A"}</p>
+                                        </div>
+                                        <div>
+                                            <span className="block text-[9px] font-semibold text-slate-400 uppercase">Action Taken</span>
+                                            <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.workPerformed || "N/A"}</p>
+                                        </div>
+                                        {selectedSchedule.jobCompletion.sparePartsUsed && (
+                                            <div>
+                                                <span className="block text-[9px] font-semibold text-slate-400 uppercase">Spare Parts Replaced</span>
+                                                <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.sparePartsUsed}</p>
                                             </div>
-                                        ))}
+                                        )}
+                                        <div>
+                                            <span className="block text-[9px] font-semibold text-slate-400 uppercase">Customer Representative</span>
+                                            <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.customerRepName || "N/A"}</p>
+                                        </div>
+                                        {Number.isFinite(Number(selectedSchedule.jobCompletion.gpsLatitude)) && (
+                                            <div>
+                                                <span className="block text-[9px] font-semibold text-slate-400 uppercase">Technician Check-in Location</span>
+                                                <a
+                                                    href={`https://www.google.com/maps/search/?api=1&query=${selectedSchedule.jobCompletion.gpsLatitude},${selectedSchedule.jobCompletion.gpsLongitude}`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="font-extrabold text-[#0a649d] underline"
+                                                >
+                                                    {Number(selectedSchedule.jobCompletion.gpsLatitude).toFixed(5)}, {Number(selectedSchedule.jobCompletion.gpsLongitude).toFixed(5)}
+                                                </a>
+                                            </div>
+                                        )}
                                     </div>
-
-                                    {/* GPS Geofence details */}
-                                    <div className="mt-3.5 pt-2.5 border-t border-slate-200/60 flex items-center justify-between text-[10px] font-bold">
-                                        <span className="text-slate-400 uppercase tracking-wider">GPS Geofence</span>
-                                        <span className={selectedSchedule.status === "Completed" ? "text-emerald-600" : "text-amber-600"}>
-                                            {selectedSchedule.status === "Completed" ? "Verified Check-In" : "Pending Check-In"}
-                                        </span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <hr className="border-slate-100" />
-
-                            {/* Service Images */}
-                            <div>
-                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Service Evidence Images</span>
+                                </>
+                            ) : (
                                 <div className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/50 p-4 text-center">
                                     <p className="text-xs text-slate-400 font-semibold leading-relaxed">
-                                        No service evidence has been uploaded for this record.
+                                        No job completion report yet — the technician has not closed this job out.
                                     </p>
                                 </div>
-                            </div>
+                            )}
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
                                 <button
@@ -3438,19 +3463,9 @@ function AdmindashboardShell({ user }) {
                                 >
                                     Close
                                 </button>
-                                {selectedSchedule.status !== "Completed" && (
-                                    <button
-                                        type="button"
-                                        onClick={() => {
-                                            handleCompleteSchedule(selectedSchedule.id);
-                                        }}
-                                        className="h-10 px-4.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold transition cursor-pointer"
-                                    >
-                                        Mark Completed
-                                    </button>
-                                )}
                             </div>
                         </div>
+                        )}
                     </div>
                 </div>
             )}

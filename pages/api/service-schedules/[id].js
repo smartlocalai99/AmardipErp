@@ -1,6 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
+import { getScheduleAssignees } from "@/lib/assignees";
+import { getJobCompletionsForMany } from "@/lib/complaints";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const ALLOWED_STATUSES = ["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
@@ -14,6 +16,46 @@ export default async function handler(req, res) {
 
   const id = Number.parseInt(req.query.id, 10);
   if (!id || Number.isNaN(id)) return res.status(400).json({ success: false, message: "Invalid id" });
+
+  if (req.method === "GET") {
+    const scheduleResult = await query(
+      `SELECT s.*, c.customer_name, c.customer_code, c.city, c.address, c.mobile_no
+         FROM service_schedules s
+         JOIN elevator_service_customers c ON c.id = s.customer_id
+        WHERE s.id = $1`,
+      [id]
+    );
+    if (!scheduleResult.rowCount) return res.status(404).json({ success: false, message: "Not found" });
+    const row = scheduleResult.rows[0];
+
+    const assignees = await getScheduleAssignees(id);
+
+    // Everything the technician actually recorded in the field — checklist,
+    // GPS, work report — lives on technician_job_completions keyed by the
+    // complaint this schedule dispatched, not on the schedule itself.
+    let jobCompletion = null;
+    if (row.linked_complaint_id) {
+      const completions = await getJobCompletionsForMany([row.linked_complaint_id]);
+      jobCompletion = completions.get(row.linked_complaint_id) || null;
+    }
+
+    return res.status(200).json({
+      success: true,
+      schedule: {
+        id: row.id,
+        customerName: row.customer_name,
+        customerCode: row.customer_code,
+        city: row.city,
+        address: row.address,
+        mobileNo: row.mobile_no,
+        status: row.status,
+        scheduledDate: row.scheduled_date,
+        notes: row.notes,
+        assignees,
+        jobCompletion,
+      },
+    });
+  }
 
   if (req.method === "PATCH") {
     const { status } = req.body || {};

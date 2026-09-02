@@ -128,7 +128,7 @@ export default async function handler(req, res) {
         JOIN elevator_service_customers c ON c.id = s.customer_id
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
         WHERE s.schedule_month = date_trunc('month', CURRENT_DATE)::date
-          AND s.status IN ('SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'MISSED')
+          AND s.status IN ('SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'MISSED', 'COMPLETED')
       ),
       to_be_scheduled_rows AS (
         SELECT
@@ -194,6 +194,8 @@ export default async function handler(req, res) {
       SELECT
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED')::int AS scheduled,
         COUNT(*) FILTER (WHERE row_type = 'TO_BE_SCHEDULED')::int AS to_be_scheduled,
+        COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND schedule_status != 'COMPLETED')::int AS assigned,
+        COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND schedule_status = 'COMPLETED')::int AS completed,
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND scheduled_date = CURRENT_DATE)::int AS today,
         COUNT(*)::int AS total
       FROM filtered_rows
@@ -250,6 +252,9 @@ export default async function handler(req, res) {
       summary: {
         scheduled: summaryResult.rows[0]?.scheduled || 0,
         toBeScheduled: summaryResult.rows[0]?.to_be_scheduled || 0,
+        unassigned: summaryResult.rows[0]?.to_be_scheduled || 0,
+        assigned: summaryResult.rows[0]?.assigned || 0,
+        completed: summaryResult.rows[0]?.completed || 0,
         today: summaryResult.rows[0]?.today || 0,
         total,
       },

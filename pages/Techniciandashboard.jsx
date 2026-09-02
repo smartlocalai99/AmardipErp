@@ -136,15 +136,6 @@ function ScanIcon({ className = "h-5 w-5" }) {
     );
 }
 
-function CameraIcon({ className = "h-5 w-5" }) {
-    return (
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-            <circle cx="12" cy="13" r="4" strokeWidth="2.5" />
-        </svg>
-    );
-}
-
 function LogoutIcon({ className = "h-5 w-5" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}>
@@ -186,14 +177,6 @@ export default function Techniciandashboard({ user }) {
     const [showJobPassModal, setShowJobPassModal] = useState(false);
     const [jobPassLoading, setJobPassLoading] = useState(false);
     const [jobPassImage, setJobPassImage] = useState(null);
-
-    // Photo evidence slots states (stores URL data or filenames)
-    const [photoSlots, setPhotoSlots] = useState({
-        before: null,
-        during: null,
-        after: null,
-        parts: null
-    });
 
     const [jobs, setJobs] = useState([]);
     const [jobsError, setJobsError] = useState("");
@@ -297,6 +280,7 @@ export default function Techniciandashboard({ user }) {
     const openJobDetails = (job) => {
         acknowledgeTicketNotification(job?.dbId);
         setActiveJob(job);
+        setSigCustomerName(job?.customerName || "");
         setActiveTab("jobs");
     };
 
@@ -460,18 +444,6 @@ export default function Techniciandashboard({ user }) {
         }));
 
         setActiveJob(prev => ({ ...prev, checklist: updatedChecklist }));
-    };
-
-    // Photo uploads handling
-    const handlePhotoSelection = (e, slot) => {
-        if (e.target.files && e.target.files[0]) {
-            const fileUrl = URL.createObjectURL(e.target.files[0]);
-            setPhotoSlots(prev => ({ ...prev, [slot]: fileUrl }));
-        }
-    };
-
-    const simulatePhotoUpload = (slot) => {
-        setPhotoSlots(prev => ({ ...prev, [slot]: "MOCK_WORK_IMAGE_OK" }));
     };
 
     // Drawing Canvas events
@@ -640,7 +612,6 @@ export default function Techniciandashboard({ user }) {
         }));
 
         // Reset workspace states
-        setPhotoSlots({ before: null, during: null, after: null, parts: null });
         setSigCustomerName("");
         setSigConsentChecked(false);
         setSignatureCaptured(false);
@@ -1377,82 +1348,6 @@ export default function Techniciandashboard({ user }) {
                                                         </div>
                                                     );
                                                 })}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* SECTION 4: PHOTO EVIDENCE (ONLY IF ARRIVED) */}
-                                    {activeJob.gpsCheckedIn && (
-                                        <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
-                                            <div className="border-b border-slate-100 pb-2">
-                                                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d]">Optional Job Photos</h3>
-                                                <p className="mt-1 text-[10px] font-semibold text-slate-400">Photos help office review, but completion requires location, work notes, and client sign.</p>
-                                            </div>
-                                            
-                                            <div className="grid grid-cols-2 gap-3 text-center">
-                                                {/* Before */}
-                                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-3 flex flex-col items-center justify-between min-h-28 relative">
-                                                    {photoSlots.before ? (
-                                                        <div className="w-full h-full flex flex-col items-center justify-center">
-                                                            <div className="h-10 w-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold mb-1">✓</div>
-                                                            <span className="text-[10px] text-slate-500 font-extrabold">Before Photo</span>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <CameraIcon className="text-slate-300 mt-1" />
-                                                            <span className="text-[10px] text-slate-400 font-bold block my-1.5 leading-tight">Before Repair</span>
-                                                            <button onClick={() => simulatePhotoUpload("before")} className="text-[9px] font-black text-[#0a649d] hover:underline bg-transparent border-0 cursor-pointer">Simulate Capture</button>
-                                                        </>
-                                                    )}
-                                                </div>
-
-                                                {/* During */}
-                                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-3 flex flex-col items-center justify-between min-h-28 relative">
-                                                    {photoSlots.during ? (
-                                                        <div className="w-full h-full flex flex-col items-center justify-center">
-                                                            <div className="h-10 w-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold mb-1">✓</div>
-                                                            <span className="text-[10px] text-slate-500 font-extrabold">During Photo</span>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <CameraIcon className="text-slate-300 mt-1" />
-                                                            <span className="text-[10px] text-slate-400 font-bold block my-1.5 leading-tight">Work Progress</span>
-                                                            <button onClick={() => simulatePhotoUpload("during")} className="text-[9px] font-black text-[#0a649d] hover:underline bg-transparent border-0 cursor-pointer">Simulate Capture</button>
-                                                        </>
-                                                    )}
-                                                </div>
-
-                                                {/* After */}
-                                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-3 flex flex-col items-center justify-between min-h-28 relative">
-                                                    {photoSlots.after ? (
-                                                        <div className="w-full h-full flex flex-col items-center justify-center">
-                                                            <div className="h-10 w-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold mb-1">✓</div>
-                                                            <span className="text-[10px] text-slate-500 font-extrabold">After Photo</span>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <CameraIcon className="text-slate-300 mt-1" />
-                                                            <span className="text-[10px] text-slate-400 font-bold block my-1.5 leading-tight">After Testing</span>
-                                                            <button onClick={() => simulatePhotoUpload("after")} className="text-[9px] font-black text-[#0a649d] hover:underline bg-transparent border-0 cursor-pointer">Simulate Capture</button>
-                                                        </>
-                                                    )}
-                                                </div>
-
-                                                {/* Spare Parts */}
-                                                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/50 p-3 flex flex-col items-center justify-between min-h-28 relative">
-                                                    {photoSlots.parts ? (
-                                                        <div className="w-full h-full flex flex-col items-center justify-center">
-                                                            <div className="h-10 w-10 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs font-bold mb-1">✓</div>
-                                                            <span className="text-[10px] text-slate-500 font-extrabold">Spares Replaced</span>
-                                                        </div>
-                                                    ) : (
-                                                        <>
-                                                            <CameraIcon className="text-slate-300 mt-1" />
-                                                            <span className="text-[10px] text-slate-400 font-bold block my-1.5 leading-tight">Spare Parts Installed</span>
-                                                            <button onClick={() => simulatePhotoUpload("parts")} className="text-[9px] font-black text-[#0a649d] hover:underline bg-transparent border-0 cursor-pointer">Simulate Capture</button>
-                                                        </>
-                                                    )}
-                                                </div>
                                             </div>
                                         </div>
                                     )}

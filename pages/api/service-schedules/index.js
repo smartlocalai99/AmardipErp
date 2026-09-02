@@ -242,11 +242,19 @@ export default async function handler(req, res) {
           assignmentNotes: cleanNotes || null,
         });
 
+        // assignedTechnicianName above came from the request body (which
+        // the admin UI never sends when dispatching via the multi-assignee
+        // picker) — backfill it here from the actual dispatched assignees so
+        // every reader of this single-column field (the Service tab list
+        // included) shows who's really on the job instead of "Unassigned".
+        const assigneeNames = (dispatchedJob.assignees || []).map((a) => a.name).filter(Boolean).join(" & ");
+
         await query(
-          `UPDATE service_schedules SET linked_complaint_id = $1 WHERE id = $2`,
-          [dispatchedJob.id, schedule.id]
+          `UPDATE service_schedules SET linked_complaint_id = $1, assigned_technician_name = NULLIF($2, '') WHERE id = $3`,
+          [dispatchedJob.id, assigneeNames, schedule.id]
         );
         schedule.linked_complaint_id = dispatchedJob.id;
+        schedule.assigned_technician_name = assigneeNames || null;
         await setScheduleAssignees(schedule.id, technicianUserIds);
         schedule.assignees = dispatchedJob.assignees;
       }
