@@ -40,7 +40,7 @@ export default async function handler(req, res) {
     }
 
     const page = cleanNumber(req.query.page, 1, 1, 999999);
-    const pageSize = cleanNumber(req.query.pageSize, 25, 10, 100);
+    const pageSize = cleanNumber(req.query.pageSize, 25, 10, 500);
     const offset = (page - 1) * pageSize;
     const search = String(req.query.search || "").trim();
     const status = String(req.query.status || "").trim();

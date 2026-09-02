@@ -9,6 +9,7 @@ import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
 import WorkerMultiPicker from "@/components/admin/WorkerMultiPicker";
+import CustomerSearchSelect from "@/components/admin/CustomerSearchSelect";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import { subscribeToPush } from "@/lib/pushClient";
 import {
@@ -795,7 +796,7 @@ function AdmindashboardShell({ user }) {
         setShowScheduleModal(true);
         if (scheduleCustomers.length === 0) {
             try {
-                const r = await fetch("/api/elevator-customers?pageSize=100");
+                const r = await fetch("/api/elevator-customers?pageSize=500");
                 const d = await r.json();
                 if (d.customers) {
                     setScheduleCustomers((current) => {
@@ -1574,7 +1575,7 @@ function AdmindashboardShell({ user }) {
                         setShowScheduleModal(true);
                         fetchUsers();
                         try {
-                            const r = await fetch("/api/elevator-customers?pageSize=100");
+                            const r = await fetch("/api/elevator-customers?pageSize=500");
                             const d = await r.json();
                             if (d.customers) setScheduleCustomers(d.customers);
                         } catch {}
@@ -2975,20 +2976,15 @@ function AdmindashboardShell({ user }) {
                                         {newSchedule.customerName || "Selected customer"}
                                     </div>
                                 ) : (
-                                    <select
-                                        required
-                                        value={newSchedule.customerId}
-                                        onChange={(e) => {
-                                            const sel = scheduleCustomers.find(c => String(c.id) === e.target.value);
-                                            setNewSchedule({ ...newSchedule, customerId: e.target.value, customerName: sel?.customer_name || sel?.customerName || "" });
-                                        }}
-                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
-                                    >
-                                        <option value="">Select customer…</option>
-                                        {scheduleCustomers.map(c => (
-                                            <option key={c.id} value={c.id}>{c.customer_name || c.customerName} — {c.city || ""}</option>
-                                        ))}
-                                    </select>
+                                    <CustomerSearchSelect
+                                        customers={scheduleCustomers}
+                                        selectedId={newSchedule.customerId}
+                                        onSelect={(customer) => setNewSchedule({
+                                            ...newSchedule,
+                                            customerId: customer ? String(customer.id) : "",
+                                            customerName: customer ? (customer.customer_name || customer.customerName || "") : "",
+                                        })}
+                                    />
                                 )}
                             </div>
 
