@@ -26,6 +26,14 @@ export default async function handler(req, res) {
     }
 
     try {
+      // The Breakdowns list defaults to real customer-raised tickets —
+      // SERVICE_REQUEST rows are the admin's own monthly AMC/warranty
+      // dispatches and belong only in the Service tab. Callers that
+      // genuinely need both (e.g. a technician's full assignment history)
+      // opt back in with includeServiceRequests=true or an explicit
+      // complaintType=SERVICE_REQUEST filter.
+      const includeServiceRequests = req.query.includeServiceRequests === "true" || req.query.complaintType === "SERVICE_REQUEST";
+
       const result = await listComplaints({
         actor,
         page: req.query.page,
@@ -35,6 +43,7 @@ export default async function handler(req, res) {
           status: req.query.status,
           priority: req.query.priority,
           complaintType: req.query.complaintType,
+          excludeComplaintType: includeServiceRequests ? undefined : "SERVICE_REQUEST",
           assignedTechnicianUserId: req.query.assignedTechnicianUserId,
         },
       });

@@ -571,53 +571,53 @@ export default function Techniciandashboard({ user }) {
             return;
         }
 
-        setSubmittingJob(true);
-
-        // Persist to DB — a network/DB failure must not block the field worker from completing the job
-        if (activeJob.dbId) {
-            try {
-                await fetch("/api/worker/complete-job", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        jobDbId: activeJob.dbId,
-                        problemIdentified: activeJob.workReport.problem,
-                        workPerformed: activeJob.workReport.workPerformed,
-                        sparePartsUsed: activeJob.workReport.sparePartsUsed,
-                        statusResolution: activeJob.workReport.status,
-                        gpsCheckedIn: activeJob.gpsCheckedIn,
-                        gpsLatitude: activeJob.gpsCoords?.latitude ?? null,
-                        gpsLongitude: activeJob.gpsCoords?.longitude ?? null,
-                        gpsAccuracyMeters: activeJob.gpsCoords?.accuracy ?? null,
-                        checklistData: activeJob.checklist,
-                        customerRepName: sigCustomerName,
-                        voiceLanguage: voiceLanguage !== "auto" ? voiceLanguage : null,
-                        voiceOriginalTranscript: voiceTranscript || null,
-                        voiceEnglishTranslation: voiceEnglishNote || null,
-                        voiceProcessingStatus: voiceTranscript ? "DONE" : null,
-                    }),
-                });
-            } catch (err) {
-                console.warn("complete-job save error (non-blocking):", err.message);
-            }
+        if (!activeJob.dbId) {
+            Swal.fire({ icon: "error", title: "Cannot save", text: "This job has no server record — please reopen it from the job list and try again.", confirmButtonColor: "#0a649d" });
+            return;
         }
 
-        // Mark Completed locally
-        const timeDone = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-        setJobs(prev => prev.map(j => {
-            if (j.id === activeJob.id) {
-                return {
-                    ...j,
-                    status: "Completed",
-                    completeTime: `Today, ${timeDone}`,
-                    signature: {
-                        customerName: sigCustomerName,
-                        img: "MOCK_SIGNATURE_OK"
-                    }
-                };
-            }
-            return j;
-        }));
+        setSubmittingJob(true);
+
+        // Persist to DB. Unlike a push notification, this write is not
+        // optional — if it fails, the job must NOT be shown as completed,
+        // otherwise the local UI silently drifts from the real status and
+        // the job never shows in history because the server never saw it.
+        let saved = false;
+        try {
+            const res = await fetch("/api/worker/complete-job", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    jobDbId: activeJob.dbId,
+                    problemIdentified: activeJob.workReport.problem,
+                    workPerformed: activeJob.workReport.workPerformed,
+                    sparePartsUsed: activeJob.workReport.sparePartsUsed,
+                    statusResolution: activeJob.workReport.status,
+                    gpsCheckedIn: activeJob.gpsCheckedIn,
+                    gpsLatitude: activeJob.gpsCoords?.latitude ?? null,
+                    gpsLongitude: activeJob.gpsCoords?.longitude ?? null,
+                    gpsAccuracyMeters: activeJob.gpsCoords?.accuracy ?? null,
+                    checklistData: activeJob.checklist,
+                    customerRepName: sigCustomerName,
+                    voiceLanguage: voiceLanguage !== "auto" ? voiceLanguage : null,
+                    voiceOriginalTranscript: voiceTranscript || null,
+                    voiceEnglishTranslation: voiceEnglishNote || null,
+                    voiceProcessingStatus: voiceTranscript ? "DONE" : null,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to save the job completion.");
+            saved = true;
+        } catch (err) {
+            setSubmittingJob(false);
+            Swal.fire({ icon: "error", title: "Could not complete job", text: err.message || "Something went wrong saving this job — please try again.", confirmButtonColor: "#0a649d" });
+            return;
+        }
+
+        if (!saved) {
+            setSubmittingJob(false);
+            return;
+        }
 
         // Reset workspace states
         setSigCustomerName("");
@@ -635,6 +635,10 @@ export default function Techniciandashboard({ user }) {
 
         setActiveJob(null);
         setActiveTab("dashboard");
+
+        // Refetch from the server rather than mutating local state, so the
+        // job's status/history reflects what's actually persisted.
+        fetchAssignedComplaints();
     };
 
     // Voice note recording using the browser's built-in Web Speech API (free, no API key).

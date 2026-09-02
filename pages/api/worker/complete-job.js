@@ -241,12 +241,18 @@ export default async function handler(req, res) {
       await query("ROLLBACK");
       throw err;
     }
+    // Service-schedule jobs live only in the Service tab now (Breakdowns
+    // excludes SERVICE_REQUEST rows), so route the notification wherever
+    // the job actually shows up instead of a tab that will never contain it.
+    const adminTab = linkedSchedule ? "service" : "complaints";
+    const customerTab = linkedSchedule ? "service" : "complaints";
+
     await safeSendPush(
       { roles: ["superadmin", "admin", "manager", "front_office"] },
       {
         title: "Worker completed job",
         body: `${complaint.complaint_no || "Ticket"} completed by ${actor.name || actor.username}.`,
-        data: { url: "/Admindashboard?tab=complaints", complaintId: jobDbId },
+        data: { url: `/Admindashboard?tab=${adminTab}`, complaintId: jobDbId },
       }
     );
     if (complaint.customer_user_id) {
@@ -265,7 +271,7 @@ export default async function handler(req, res) {
         {
           title: "Service job completed",
           body: message,
-          data: { url: "/Customerdashboard?tab=complaints", complaintId: jobDbId },
+          data: { url: `/Customerdashboard?tab=${customerTab}`, complaintId: jobDbId },
         }
       );
     }

@@ -492,7 +492,7 @@ function AdmindashboardShell({ user }) {
 
         try {
             const [complaintsRes, visitsRes] = await Promise.all([
-                fetch(`/api/complaints?assignedTechnicianUserId=${technician.id}&pageSize=100`, { cache: "no-store" }),
+                fetch(`/api/complaints?assignedTechnicianUserId=${technician.id}&pageSize=100&includeServiceRequests=true`, { cache: "no-store" }),
                 fetch(`/api/elevator-service-visits?technician=${encodeURIComponent(technician.name)}&pageSize=100`, { cache: "no-store" }),
             ]);
             const complaintsData = await complaintsRes.json();
