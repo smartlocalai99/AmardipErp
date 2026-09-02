@@ -193,7 +193,7 @@ function CustomerDetailsSheet({ customer, onClose }) {
   );
 }
 
-export default function AdminCustomersTable({ user, embedded = false, returnTo = "/admin/customers" }) {
+export default function AdminCustomersTable({ user, embedded = false, returnTo = "/admin/customers", bucket = "" }) {
   const router = useRouter();
   const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
   const [customers, setCustomers] = useState([]);
@@ -245,6 +245,10 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
           params.set("search", search);
         }
 
+        if (bucket) {
+          params.set("bucket", bucket);
+        }
+
         const response = await fetch(`/api/elevator-customers?${params.toString()}`, {
           signal: controller.signal,
           cache: "no-store",
@@ -268,7 +272,7 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
     fetchCustomers();
 
     return () => controller.abort();
-  }, [page, pageSize, search, userCacheKey]);
+  }, [page, pageSize, search, bucket, userCacheKey]);
 
   function openCustomer(customer) {
     if (!customer?.id) return;
@@ -305,7 +309,7 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
           <div className="flex flex-col gap-3">
             <div>
               <h2 className="text-base font-black text-slate-900">
-                All Elevator Customers
+                {bucket === "warranty" ? "Customers in Warranty" : "All Elevator Customers"}
               </h2>
               {loading && !pagination ? (
                 <CountSkeleton />

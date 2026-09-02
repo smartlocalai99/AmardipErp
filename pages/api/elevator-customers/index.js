@@ -1,5 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { CUSTOMER_DUE_DATE_SQL } from "@/lib/customerDates";
+import { CUSTOMER_DUE_DATE_SQL, IN_WARRANTY_SQL } from "@/lib/customerDates";
 import { query } from "@/lib/db";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
@@ -47,6 +47,9 @@ export default async function handler(req, res) {
     const validDueFilters = new Set(["this_month", "next_month", "expired"]);
     const dueFilterRaw = String(req.query.dueFilter || "").trim().toLowerCase();
     const dueFilter = validDueFilters.has(dueFilterRaw) ? dueFilterRaw : "";
+    const validBuckets = new Set(["warranty"]);
+    const bucketRaw = String(req.query.bucket || "").trim().toLowerCase();
+    const bucket = validBuckets.has(bucketRaw) ? bucketRaw : "";
 
     const params = [];
     const whereParts = [];
@@ -106,6 +109,12 @@ export default async function handler(req, res) {
       whereParts.push(`UPPER(TRIM(COALESCE(customer_status, ''))) IN ('AMC', 'EMC', 'WARRANTY')`);
     }
 
+    // Computed live from HOC date + 1 year (not the status text alone), so a
+    // stale "WARRANTY" label past its year doesn't keep showing up here.
+    if (bucket === "warranty") {
+      whereParts.push(IN_WARRANTY_SQL);
+    }
+
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
 
     // Dates are free-text from import (some invalid, e.g. 31/11/2026), so use
@@ -140,7 +149,7 @@ export default async function handler(req, res) {
     // urgent contracts first: expiring this month, then next month, then
     // already-expired, then active.
     const urgencyStatuses = new Set(["AMC", "EMC", "WARRANTY"]);
-    const useUrgencyOrder = urgencyStatuses.has(status.toUpperCase()) || Boolean(dueFilter);
+    const useUrgencyOrder = urgencyStatuses.has(status.toUpperCase()) || Boolean(dueFilter) || Boolean(bucket);
 
     const orderBySql = useUrgencyOrder
       ? `

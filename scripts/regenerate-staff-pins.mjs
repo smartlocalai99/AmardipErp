@@ -12,12 +12,12 @@ const ADMIN_PIN = "1234";
 
 const USERNAMES = {
   storekeeper: ["k_chiranjeevi", "iqbal"],
-  admin: ["g_amarnath_reddy", "a_v_dileep_reddy"],
+  admin: ["amarnath", "dileep"],
   worker: [
-    "ranjith_singh", "s_chandra_sekhar", "kranti", "s_mahaboob_basha",
-    "m_chandra_sekhar_yadav", "k_vishnu_charan", "praveen", "sekhar",
+    "ranjith", "schandra", "kranti", "mahaboob",
+    "mchandra", "charan", "praveen", "sekhar",
     "sameer", "afreen", "suresh", "nagaraju", "dhanush", "bhaskar",
-    "vasu", "partha_saradhi",
+    "vasu", "saradhi",
   ],
 };
 

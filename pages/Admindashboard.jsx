@@ -1963,6 +1963,28 @@ function AdmindashboardShell({ user }) {
                                         returnTo="/Admindashboard?tab=more&subtab=customers"
                                     />
                                 </div>
+                            ) : moreSubTab === "warranty" ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openTab("dashboard")}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Warranty</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Handed over within the last year, not yet on AMC.</p>
+                                        </div>
+                                    </div>
+
+                                    <AdminCustomersTable
+                                        user={user}
+                                        embedded
+                                        bucket="warranty"
+                                        returnTo="/Admindashboard?tab=more&subtab=warranty"
+                                    />
+                                </div>
                             ) : moreSubTab === "amc" ? (
                                 <div className="space-y-4">
                                     <div className="flex items-center gap-3">

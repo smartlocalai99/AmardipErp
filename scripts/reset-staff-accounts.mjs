@@ -17,17 +17,17 @@ const STORE_USERS = [
 ];
 
 const ADMIN_USERS = [
-  { name: "G AMARNATH REDDY", phone: "9063857857" },
-  { name: "A V DILEEP REDDY", phone: "9553233700" },
+  { name: "G AMARNATH REDDY", phone: "9063857857", username: "amarnath" },
+  { name: "A V DILEEP REDDY", phone: "9553233700", username: "dileep" },
 ];
 
 const WORKER_USERS = [
-  { name: "RANJITH SINGH", phone: "8341181411" },
-  { name: "S CHANDRA SEKHAR", phone: "7095080999" },
+  { name: "RANJITH SINGH", phone: "8341181411", username: "ranjith" },
+  { name: "S CHANDRA SEKHAR", phone: "7095080999", username: "schandra" },
   { name: "KRANTI", phone: "9052175410" },
-  { name: "S MAHABOOB BASHA", phone: "9392879753" },
-  { name: "M CHANDRA SEKHAR YADAV", phone: "6300374661" },
-  { name: "K VISHNU CHARAN", phone: "8074147571" },
+  { name: "S MAHABOOB BASHA", phone: "9392879753", username: "mahaboob" },
+  { name: "M CHANDRA SEKHAR YADAV", phone: "6300374661", username: "mchandra" },
+  { name: "K VISHNU CHARAN", phone: "8074147571", username: "charan" },
   { name: "PRAVEEN", phone: "8125709458" },
   { name: "SEKHAR", phone: "9133546656" },
   { name: "SAMEER", phone: "9676364429" },
@@ -37,7 +37,7 @@ const WORKER_USERS = [
   { name: "DHANUSH", phone: "9440235673" },
   { name: "BHASKAR", phone: "9398021087" },
   { name: "VASU", phone: "7780286365" },
-  { name: "PARTHA SARADHI", phone: null },
+  { name: "PARTHA SARADHI", phone: null, username: "saradhi" },
 ];
 
 export function slugUsername(name) {
@@ -54,9 +54,9 @@ function randomPin() {
 
 export function buildPlan() {
   return [
-    ...STORE_USERS.map((person) => ({ ...person, role: "storekeeper", username: slugUsername(person.name), pin: randomPin() })),
-    ...ADMIN_USERS.map((person) => ({ ...person, role: "admin", username: slugUsername(person.name), pin: ADMIN_PIN })),
-    ...WORKER_USERS.map((person) => ({ ...person, role: "worker", username: slugUsername(person.name), pin: randomPin() })),
+    ...STORE_USERS.map((person) => ({ ...person, role: "storekeeper", username: person.username || slugUsername(person.name), pin: randomPin() })),
+    ...ADMIN_USERS.map((person) => ({ ...person, role: "admin", username: person.username || slugUsername(person.name), pin: ADMIN_PIN })),
+    ...WORKER_USERS.map((person) => ({ ...person, role: "worker", username: person.username || slugUsername(person.name), pin: randomPin() })),
   ];
 }
 

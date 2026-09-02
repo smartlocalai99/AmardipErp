@@ -195,7 +195,7 @@ export default function DashboardKpiGrid({
   const router = useRouter();
   const totalCustomers = customerStats?.totalCustomers ?? kpiCounts?.totalCustomers ?? 0;
   const activeAmc = customerStats?.activeAmc ?? kpiCounts?.activeAMC ?? 0;
-  const totalServiceVisits = serviceStats?.totalServiceVisits ?? 0;
+  const warrantyCount = customerStats?.warrantyCount ?? 0;
   const scheduledUpcomingServices = serviceStats?.scheduledUpcomingServices ?? 0;
   const toBeScheduledServices = serviceStats?.toBeScheduledServices ?? 0;
   const upcomingServicesTotal =
@@ -205,7 +205,7 @@ export default function DashboardKpiGrid({
 
   function openCustomersTable() { setMoreSubTab?.("customers"); }
   function openAmcTable() { setMoreSubTab?.("amc"); }
-  function openServiceVisits() { setMoreSubTab?.("serviceVisits"); }
+  function openWarrantyTable() { setMoreSubTab?.("warranty"); }
   function openUpcomingServices() { setActiveTab?.("service"); }
   function openReports() { setMoreSubTab?.("reports"); }
   function openQuotations() { router.push("/admin/quotations"); }
@@ -270,17 +270,17 @@ export default function DashboardKpiGrid({
           />
 
           <KpiCard
-            title={"Total\nServices"}
-            value={totalServiceVisits}
-            body="Completed history"
+            title="Warranty"
+            value={warrantyCount}
+            body="Within 1 year of handover"
             icon={
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3zM9.5 12l1.75 1.75L15 10" />
               </svg>
             }
             accent="bg-amber-50 text-amber-600"
-            onClick={openServiceVisits}
-            enabled={isLive("serviceVisits")}
+            onClick={openWarrantyTable}
+            enabled={isLive("customers")}
           />
 
           <KpiCard
