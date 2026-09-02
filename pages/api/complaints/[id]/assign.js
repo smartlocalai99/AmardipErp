@@ -3,6 +3,7 @@ import { createAuditLog } from "@/lib/auditLog";
 import { assignComplaintToWorker, getComplaintById } from "@/lib/complaints";
 import { safeSendPush } from "@/lib/pushNotifications";
 import { createMaterialRequests, normalizeAllocatedItems } from "@/lib/materialRequests";
+import { createCustomerNotification } from "@/lib/customerNotifications";
 import { query } from "@/lib/db";
 
 const ALLOWED_ROLES = new Set(["superadmin", "admin", "manager", "front_office"]);
@@ -80,5 +81,26 @@ export default async function handler(req, res) {
       data: { url: "/Techniciandashboard?tab=jobs", complaintId: complaint.id },
     }
   );
+
+  if (complaint.customerUserId) {
+    const technicianNames = (complaint.assignees || []).map((a) => a.name).join(" & ") || complaint.assignedTechnicianName;
+    const message = `${complaint.complaintNo} has been assigned to ${technicianNames || "a technician"} and is on its way.`;
+    await createCustomerNotification({
+      userId: complaint.customerUserId,
+      category: "Ticket assigned",
+      message,
+      data: { type: "TICKET_ASSIGNED", complaintId: complaint.id },
+    }).catch((error) => console.error("Failed to persist ticket-assigned notification:", error));
+
+    await safeSendPush(
+      { userIds: [complaint.customerUserId] },
+      {
+        title: "Technician assigned",
+        body: message,
+        data: { url: "/Customerdashboard?tab=complaints", complaintId: complaint.id },
+      }
+    );
+  }
+
   return res.status(200).json({ success: true, complaint });
 }

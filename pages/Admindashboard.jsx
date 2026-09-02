@@ -22,6 +22,20 @@ import { browserSupportsPasskeys, startPasskeyRegistration } from "@/lib/passkey
 import { useRouter } from "next/router";
 import { useState, useEffect, useMemo, useRef } from "react";
 import Image from "next/image";
+import Swal from "sweetalert2";
+
+async function confirmDialog(message, title = "Are you sure?") {
+    const result = await Swal.fire({
+        icon: "warning",
+        title,
+        text: message,
+        showCancelButton: true,
+        confirmButtonText: "Yes",
+        cancelButtonText: "Cancel",
+        confirmButtonColor: "#0a649d",
+    });
+    return result.isConfirmed;
+}
 
 export async function getServerSideProps(context) {
     const user = await getUserFromRequest(context.req);
@@ -521,8 +535,10 @@ function AdmindashboardShell({ user }) {
     const [newSchedule, setNewSchedule] = useState({
         customerId: "",
         customerName: "",
+        customerLocked: false,
         scheduledDate: "",
-        technicianIds: [],
+        technicianIdSenior: "",
+        technicianIdJunior: "",
         notes: "",
     });
 
@@ -746,9 +762,10 @@ function AdmindashboardShell({ user }) {
         setNewSchedule({
             customerId: row.customerId,
             customerName: row.customerName,
+            customerLocked: true,
             scheduledDate: "",
-            technician: "",
-            technicianId: "",
+            technicianIdSenior: "",
+            technicianIdJunior: "",
             notes: "",
         });
         setScheduleCustomers((current) => {
@@ -783,7 +800,7 @@ function AdmindashboardShell({ user }) {
     }
 
     async function deleteScheduleAndRefresh(id) {
-        if (!confirm("Remove this schedule?")) return;
+        if (!(await confirmDialog("Remove this schedule?"))) return;
         await fetch(`/api/service-schedules/${id}`, { method: "DELETE" });
         fetchUpcomingServiceRows(serviceSearch);
     }
@@ -957,7 +974,7 @@ function AdmindashboardShell({ user }) {
 
     async function cancelSelectedComplaint() {
         if (!selectedComplaint) return;
-        if (!window.confirm("Cancel this ticket? This cannot be undone.")) return;
+        if (!(await confirmDialog("Cancel this ticket? This cannot be undone."))) return;
         setComplaintError("");
         try {
             const res = await fetch(`/api/complaints/${selectedComplaint.id}`, {
@@ -1247,6 +1264,13 @@ function AdmindashboardShell({ user }) {
         e.preventDefault();
         if (!newSchedule.customerId) return;
 
+        // Senior Technician is the primary/first assignee; Junior Technician
+        // (optional) is the second — maps onto technician_1/technician_2 once
+        // the job is completed.
+        const assignedTechnicianUserIds = [newSchedule.technicianIdSenior, newSchedule.technicianIdJunior]
+            .filter(Boolean)
+            .map(Number);
+
         try {
             const res = await fetch("/api/service-schedules", {
                 method: "POST",
@@ -1254,7 +1278,7 @@ function AdmindashboardShell({ user }) {
                 body: JSON.stringify({
                     customerId: newSchedule.customerId,
                     scheduledDate: newSchedule.scheduledDate || null,
-                    assignedTechnicianUserIds: newSchedule.technicianIds,
+                    assignedTechnicianUserIds,
                     priority: "NORMAL",
                     notes: newSchedule.notes || null,
                 }),
@@ -1267,7 +1291,15 @@ function AdmindashboardShell({ user }) {
             await fetchServiceSchedules();
         } catch {}
 
-        setNewSchedule({ customerId: "", customerName: "", scheduledDate: "", technicianIds: [], notes: "" });
+        setNewSchedule({
+            customerId: "",
+            customerName: "",
+            customerLocked: false,
+            scheduledDate: "",
+            technicianIdSenior: "",
+            technicianIdJunior: "",
+            notes: "",
+        });
         setShowScheduleModal(false);
     }
 
@@ -1532,6 +1564,15 @@ function AdmindashboardShell({ user }) {
                                 </div>
                                 <button
                                     onClick={async () => {
+                        setNewSchedule({
+                            customerId: "",
+                            customerName: "",
+                            customerLocked: false,
+                            scheduledDate: "",
+                            technicianIdSenior: "",
+                            technicianIdJunior: "",
+                            notes: "",
+                        });
                         setShowScheduleModal(true);
                         fetchUsers();
                         try {
@@ -1762,7 +1803,7 @@ function AdmindashboardShell({ user }) {
                                                                 <button
                                                                     onClick={async (e) => {
                                                                         e.stopPropagation();
-                                                                        if (!confirm("Remove this schedule?")) return;
+                                                                        if (!(await confirmDialog("Remove this schedule?"))) return;
                                                                         await fetch(`/api/service-schedules/${sch.id}`, { method: "DELETE" });
                                                                         fetchServiceSchedules();
                                                                     }}
@@ -2920,20 +2961,26 @@ function AdmindashboardShell({ user }) {
                         <form onSubmit={handleAddSchedule} className="p-5 space-y-4">
                             <div>
                                 <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Customer / Site</label>
-                                <select
-                                    required
-                                    value={newSchedule.customerId}
-                                    onChange={(e) => {
-                                        const sel = scheduleCustomers.find(c => String(c.id) === e.target.value);
-                                        setNewSchedule({ ...newSchedule, customerId: e.target.value, customerName: sel?.customer_name || sel?.customerName || "" });
-                                    }}
-                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
-                                >
-                                    <option value="">Select customer…</option>
-                                    {scheduleCustomers.map(c => (
-                                        <option key={c.id} value={c.id}>{c.customer_name || c.customerName} — {c.city || ""}</option>
-                                    ))}
-                                </select>
+                                {newSchedule.customerLocked ? (
+                                    <div className="h-10.5 w-full px-3 rounded-xl border border-slate-200 bg-slate-50 text-base font-semibold text-slate-700 flex items-center">
+                                        {newSchedule.customerName || "Selected customer"}
+                                    </div>
+                                ) : (
+                                    <select
+                                        required
+                                        value={newSchedule.customerId}
+                                        onChange={(e) => {
+                                            const sel = scheduleCustomers.find(c => String(c.id) === e.target.value);
+                                            setNewSchedule({ ...newSchedule, customerId: e.target.value, customerName: sel?.customer_name || sel?.customerName || "" });
+                                        }}
+                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
+                                    >
+                                        <option value="">Select customer…</option>
+                                        {scheduleCustomers.map(c => (
+                                            <option key={c.id} value={c.id}>{c.customer_name || c.customerName} — {c.city || ""}</option>
+                                        ))}
+                                    </select>
+                                )}
                             </div>
 
                             <div>
@@ -2947,17 +2994,42 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Technicians</label>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Senior Technician</label>
                                 {usersLoading ? (
                                     <p className="text-xs font-semibold text-slate-400">Loading…</p>
                                 ) : technicians.length === 0 ? (
                                     <p className="text-xs font-semibold text-slate-400">No technicians found</p>
                                 ) : (
-                                    <WorkerMultiPicker
-                                        workers={technicians}
-                                        selectedIds={newSchedule.technicianIds}
-                                        onChange={(ids) => setNewSchedule({ ...newSchedule, technicianIds: ids })}
-                                    />
+                                    <select
+                                        value={newSchedule.technicianIdSenior}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, technicianIdSenior: e.target.value })}
+                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
+                                    >
+                                        <option value="">Select senior technician…</option>
+                                        {technicians.map(t => (
+                                            <option key={t.id} value={t.id}>{t.name || t.username}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Junior Technician (optional)</label>
+                                {usersLoading ? (
+                                    <p className="text-xs font-semibold text-slate-400">Loading…</p>
+                                ) : technicians.length === 0 ? (
+                                    <p className="text-xs font-semibold text-slate-400">No technicians found</p>
+                                ) : (
+                                    <select
+                                        value={newSchedule.technicianIdJunior}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, technicianIdJunior: e.target.value })}
+                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
+                                    >
+                                        <option value="">Select junior technician…</option>
+                                        {technicians.filter(t => String(t.id) !== String(newSchedule.technicianIdSenior)).map(t => (
+                                            <option key={t.id} value={t.id}>{t.name || t.username}</option>
+                                        ))}
+                                    </select>
                                 )}
                             </div>
 

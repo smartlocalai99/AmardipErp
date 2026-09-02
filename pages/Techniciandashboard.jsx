@@ -7,6 +7,25 @@ import Image from "next/image";
 import QRCode from "qrcode";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
+import Swal from "sweetalert2";
+
+// The 11-item lift inspection checklist a technician fills in on-site,
+// matching CHECK POINTS.pdf exactly. Keys match the elevator_service_visits
+// condition columns (camelCased) so the server can write them straight
+// through — see pages/api/worker/complete-job.js.
+const CHECKLIST_ITEMS = [
+    { key: "ard", label: "ARD Condition", options: ["NORMAL", "ABNORMAL", "NOT FIXING"] },
+    { key: "motor", label: "Motor Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "gearOil", label: "Gear Oil Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "brake", label: "Brake Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "rope", label: "Rope Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "railClips", label: "Rail Clips Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "limitSwitch", label: "Limit Switch Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "gateLocks", label: "Gate Locks", options: ["NORMAL", "ABNORMAL"] },
+    { key: "rcr", label: "RCR Condition", options: ["NORMAL", "ABNORMAL"] },
+    { key: "sensors", label: "Sensors", options: ["NORMAL", "ABNORMAL"] },
+    { key: "osg", label: "OSG Condition", options: ["NORMAL", "ABNORMAL", "NOT FIXING"] },
+];
 
 const PRIMARY_COLOR = "#0a649d";
 
@@ -155,6 +174,8 @@ export default function Techniciandashboard({ user }) {
     const [selfieCaptured, setSelfieCaptured] = useState(false);
     const [selfieUrl, setSelfieUrl] = useState("");
     const [checkingIn, setCheckingIn] = useState(false);
+    const [gpsCoords, setGpsCoords] = useState(null); // { latitude, longitude, accuracy }
+    const [gpsError, setGpsError] = useState("");
 
     // QR scanner simulator states
     const [showQrScanner, setShowQrScanner] = useState(false);
@@ -213,7 +234,7 @@ export default function Techniciandashboard({ user }) {
             assignedTime: c.assignedAt ? new Date(c.assignedAt).toLocaleString("en-IN") : "Assigned",
             assignedBy: c.assignedByUsername || "Office/Admin",
             status: ["RESOLVED", "CLOSED"].includes(c.status) ? "Completed" : c.status?.replaceAll("_", " ") || "ASSIGNED",
-            checklist: { power: false, door: false, controller: false, motor: false, safety: false, emergency: false, brake: false, testing: false },
+            checklist: Object.fromEntries(CHECKLIST_ITEMS.map((item) => [item.key, null])),
             workReport: { problem: "", workPerformed: "", sparePartsUsed: "", remarks: "", status: "Completed" },
             gpsCheckedIn: false,
             checkInTime: null,
@@ -284,10 +305,41 @@ export default function Techniciandashboard({ user }) {
         updateJobStatus(job.id, "En Route");
     };
 
-    // GPS Arrival Verification
+    // GPS Arrival Verification — reads the device's real coordinates via the
+    // browser Geolocation API (no fake/simulated location).
     const triggerGPSCheckIn = async () => {
         setCheckingIn(true);
-        await new Promise(r => setTimeout(r, 1200));
+        setGpsError("");
+
+        if (!navigator.geolocation) {
+            setGpsError("This device/browser doesn't support location. Check-in requires GPS.");
+            setCheckingIn(false);
+            return;
+        }
+
+        try {
+            const position = await new Promise((resolve, reject) => {
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    timeout: 15000,
+                    maximumAge: 0,
+                });
+            });
+            setGpsCoords({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude,
+                accuracy: position.coords.accuracy,
+            });
+        } catch (err) {
+            setGpsError(
+                err.code === 1
+                    ? "Location permission denied. Enable location access for this site and try again."
+                    : "Couldn't get a GPS fix. Move to an open area and try again."
+            );
+            setCheckingIn(false);
+            return;
+        }
+
         setSelfieCaptured(true);
         setSelfieUrl("LOCATION_CAPTURED");
         setCameraActive(false);
@@ -339,6 +391,7 @@ export default function Techniciandashboard({ user }) {
                     gpsCheckedIn: true,
                     checkInTime: timeNow,
                     selfieUrl: selfieUrl || "LOCATION_CAPTURED",
+                    gpsCoords,
                     status: "Arrived"
                 };
             }
@@ -349,13 +402,22 @@ export default function Techniciandashboard({ user }) {
             gpsCheckedIn: true,
             checkInTime: timeNow,
             selfieUrl: selfieUrl || "LOCATION_CAPTURED",
+            gpsCoords,
             status: "Arrived"
         }));
-        
+
         // Reset states
         setSelfieCaptured(false);
         setSelfieUrl("");
-        alert("Location check-in successful! GPS matching 12.9716° N, 77.5946° E verified. You can now perform the work checklist.");
+        const coordsLabel = gpsCoords
+            ? `${gpsCoords.latitude.toFixed(5)}°, ${gpsCoords.longitude.toFixed(5)}° (±${Math.round(gpsCoords.accuracy)}m)`
+            : "location unavailable";
+        Swal.fire({
+            icon: "success",
+            title: "Location check-in successful!",
+            text: `Captured ${coordsLabel}. You can now perform the work checklist.`,
+            confirmButtonColor: "#0a649d",
+        });
     };
 
     // QR scan simulation
@@ -374,22 +436,22 @@ export default function Techniciandashboard({ user }) {
                 const matchJob = jobs.find(j => j.liftId === scannedLiftId);
                 if (matchJob) {
                     openJobDetails(matchJob);
-                    alert(`Lift verified! Opening job Workspace for ${scannedLiftId}`);
+                    Swal.fire({ icon: "success", title: "Lift verified", text: `Opening job workspace for ${scannedLiftId}`, timer: 1600, showConfirmButton: false });
                 } else {
-                    alert(`QR Scan result: ${scannedLiftId}. No active service assigned for this unit.`);
+                    Swal.fire({ icon: "info", title: "No active job", text: `${scannedLiftId} has no active service assigned right now.`, confirmButtonColor: "#0a649d" });
                 }
             }, 600);
         }, 1000);
     };
 
     // Checklist toggles
-    const handleChecklistToggle = (itemKey) => {
+    const handleChecklistSelect = (itemKey, value) => {
         if (!activeJob) return;
         const updatedChecklist = {
             ...activeJob.checklist,
-            [itemKey]: !activeJob.checklist[itemKey]
+            [itemKey]: value
         };
-        
+
         setJobs(prev => prev.map(j => {
             if (j.id === activeJob.id) {
                 return { ...j, checklist: updatedChecklist };
@@ -507,25 +569,25 @@ export default function Techniciandashboard({ user }) {
         // Checklist validation
         const pendingItems = Object.entries(activeJob.checklist).filter(([_, val]) => !val);
         if (pendingItems.length > 0) {
-            alert("VALIDATION ERROR: You must complete all 8 checklist checkpoints before closing!");
+            Swal.fire({ icon: "warning", title: "Checklist incomplete", text: `You must complete all ${CHECKLIST_ITEMS.length} checklist checkpoints before closing.`, confirmButtonColor: "#0a649d" });
             return;
         }
 
         // GPS Check-in validation
         if (!activeJob.gpsCheckedIn) {
-            alert("VALIDATION ERROR: Please complete the GPS location check-in first!");
+            Swal.fire({ icon: "warning", title: "Location required", text: "Please complete the GPS location check-in first.", confirmButtonColor: "#0a649d" });
             return;
         }
 
         // Report Text check
         if (!activeJob.workReport.problem.trim() || !activeJob.workReport.workPerformed.trim()) {
-            alert("VALIDATION ERROR: Please write details in Problem Identified and Work Performed fields!");
+            Swal.fire({ icon: "warning", title: "Missing details", text: "Please write details in Problem Identified and Work Performed fields.", confirmButtonColor: "#0a649d" });
             return;
         }
 
         // Customer Signature checks
         if (!signatureCaptured || !sigCustomerName.trim() || !sigConsentChecked) {
-            alert("VALIDATION ERROR: Customer signature drawing, Name, and consent validation check are mandatory!");
+            Swal.fire({ icon: "warning", title: "Signature required", text: "Customer signature drawing, name, and consent are mandatory.", confirmButtonColor: "#0a649d" });
             return;
         }
 
@@ -544,6 +606,9 @@ export default function Techniciandashboard({ user }) {
                         sparePartsUsed: activeJob.workReport.sparePartsUsed,
                         statusResolution: activeJob.workReport.status,
                         gpsCheckedIn: activeJob.gpsCheckedIn,
+                        gpsLatitude: activeJob.gpsCoords?.latitude ?? null,
+                        gpsLongitude: activeJob.gpsCoords?.longitude ?? null,
+                        gpsAccuracyMeters: activeJob.gpsCoords?.accuracy ?? null,
                         checklistData: activeJob.checklist,
                         customerRepName: sigCustomerName,
                         voiceLanguage: voiceLanguage !== "auto" ? voiceLanguage : null,
@@ -582,7 +647,12 @@ export default function Techniciandashboard({ user }) {
         resetVoiceNote();
         setSubmittingJob(false);
 
-        alert(`JOB COMPLETED SUCCESSFULLY!\n- Ticket ${activeJob.id} has been resolved.\n- Admin Portal notification dispatched.\n- Automated Service PDF report sent to customer.`);
+        Swal.fire({
+            icon: "success",
+            title: "Job completed",
+            html: `Ticket <strong>${activeJob.id}</strong> has been resolved.<br/>The office and the customer have both been notified.`,
+            confirmButtonColor: "#0a649d",
+        });
 
         setActiveJob(null);
         setActiveTab("dashboard");
@@ -717,14 +787,14 @@ export default function Techniciandashboard({ user }) {
             const res = await fetch(`/api/worker/job-qr?complaintId=${job.dbId}`);
             const data = await res.json();
             if (!data.success) {
-                alert(data.message || "Failed to generate store pass.");
+                Swal.fire({ icon: "error", title: "Couldn't generate pass", text: data.message || "Failed to generate store pass.", confirmButtonColor: "#0a649d" });
                 setShowJobPassModal(false);
                 return;
             }
             const dataUrl = await QRCode.toDataURL(data.token, { width: 320, margin: 2 });
             setJobPassImage(dataUrl);
         } catch (err) {
-            alert("Failed to generate store pass.");
+            Swal.fire({ icon: "error", title: "Couldn't generate pass", text: "Failed to generate store pass.", confirmButtonColor: "#0a649d" });
             setShowJobPassModal(false);
         } finally {
             setJobPassLoading(false);
@@ -931,7 +1001,7 @@ export default function Techniciandashboard({ user }) {
                                             if (activeJ) {
                                                 openJobDetails(activeJ);
                                             } else {
-                                                alert("No active incomplete jobs to work on.");
+                                                Swal.fire({ icon: "info", title: "All caught up", text: "No active incomplete jobs to work on.", confirmButtonColor: "#0a649d" });
                                             }
                                         }}
                                         className="h-14.5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center gap-3.5 px-4 active:scale-95 transition text-left cursor-pointer"
@@ -1134,13 +1204,15 @@ export default function Techniciandashboard({ user }) {
                                                 <PhoneIcon className="h-4.5 w-4.5 text-slate-400" />
                                                 Call Customer
                                             </a>
-                                            <button 
-                                                onClick={() => alert("Launching integrated routing...\nDestination: " + activeJob.address)}
-                                                className="h-10 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl flex items-center justify-center gap-2 text-xs font-extrabold transition active:scale-95 cursor-pointer"
+                                            <a
+                                                href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(activeJob.address || activeJob.buildingName || "")}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="h-10 border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl flex items-center justify-center gap-2 text-xs font-extrabold transition active:scale-95"
                                             >
                                                 <MapIcon className="h-4.5 w-4.5 text-slate-400" />
                                                 Open Maps
-                                            </button>
+                                            </a>
                                         </div>
                                     </div>
 
@@ -1166,20 +1238,25 @@ export default function Techniciandashboard({ user }) {
                                         {!activeJob.gpsCheckedIn ? (
                                             <div className="space-y-4">
                                                 {!cameraActive ? (
-                                                    <button
-                                                        onClick={triggerGPSCheckIn}
-                                                        disabled={checkingIn || activeJob.status === "Assigned"}
-                                                        className="h-12 w-full bg-[#0a649d] text-white hover:bg-[#085282] disabled:opacity-40 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition active:scale-98 shadow-sm cursor-pointer"
-                                                    >
-                                                        {checkingIn ? (
-                                                            <span>VERIFYING SATELLITE LOC...</span>
-                                                        ) : (
-                                                            <>
-                                                                <svg className="h-4.5 w-4.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><circle cx="12" cy="12" r="3" /></svg>
-                                                                <span>Capture GPS Location</span>
-                                                            </>
+                                                    <>
+                                                        <button
+                                                            onClick={triggerGPSCheckIn}
+                                                            disabled={checkingIn || activeJob.status === "Assigned"}
+                                                            className="h-12 w-full bg-[#0a649d] text-white hover:bg-[#085282] disabled:opacity-40 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition active:scale-98 shadow-sm cursor-pointer"
+                                                        >
+                                                            {checkingIn ? (
+                                                                <span>VERIFYING SATELLITE LOC...</span>
+                                                            ) : (
+                                                                <>
+                                                                    <svg className="h-4.5 w-4.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><circle cx="12" cy="12" r="3" /></svg>
+                                                                    <span>Capture GPS Location</span>
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                        {gpsError && (
+                                                            <p className="text-[10px] font-bold text-red-600 text-center">{gpsError}</p>
                                                         )}
-                                                    </button>
+                                                    </>
                                                 ) : (
                                                     <div className="space-y-4 text-center">
                                                         <div className="relative h-48 w-full rounded-2xl bg-black overflow-hidden border border-slate-200">
@@ -1249,7 +1326,12 @@ export default function Techniciandashboard({ user }) {
                                                 <hr className="border-emerald-100/50" />
                                                 <div className="space-y-1 pl-0.5">
                                                     <p><strong className="text-emerald-950">Arrival Timestamp:</strong> {activeJob.checkInTime}</p>
-                                                    <p><strong className="text-emerald-950">Location:</strong> GPS Matched (12.9716° N, 77.5946° E)</p>
+                                                    <p>
+                                                        <strong className="text-emerald-950">Location:</strong>{" "}
+                                                        {activeJob.gpsCoords
+                                                            ? `${activeJob.gpsCoords.latitude.toFixed(5)}°, ${activeJob.gpsCoords.longitude.toFixed(5)}° (±${Math.round(activeJob.gpsCoords.accuracy)}m)`
+                                                            : "Not captured"}
+                                                    </p>
                                                     <p><strong className="text-emerald-950">Verification:</strong> Location captured and saved in service ledger</p>
                                                 </div>
                                             </div>
@@ -1260,85 +1342,41 @@ export default function Techniciandashboard({ user }) {
                                     {activeJob.gpsCheckedIn && (
                                         <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4 animate-in slide-in-from-bottom-3">
                                             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-                                                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d]">8-Point Service Checklist</h3>
+                                                <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d]">Lift Inspection Checklist</h3>
                                                 <span className="text-[10px] font-black text-slate-400">
-                                                    {Object.values(activeJob.checklist).filter(Boolean).length}/8 DONE
+                                                    {Object.values(activeJob.checklist).filter(Boolean).length}/{CHECKLIST_ITEMS.length} DONE
                                                 </span>
                                             </div>
 
-                                            <div className="space-y-2 text-xs font-semibold text-slate-700">
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.power} 
-                                                        onChange={() => handleChecklistToggle("power")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Power Supply & Voltages Checked</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.door} 
-                                                        onChange={() => handleChecklistToggle("door")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Door Drive & Sliders Operated</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.controller} 
-                                                        onChange={() => handleChecklistToggle("controller")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Microprocessor Controller Checked</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.motor} 
-                                                        onChange={() => handleChecklistToggle("motor")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Traction Motor & Gearbox Inspected</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.safety} 
-                                                        onChange={() => handleChecklistToggle("safety")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Safety Devices & Governor Inspected</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.emergency} 
-                                                        onChange={() => handleChecklistToggle("emergency")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Emergency Alarm & Battery Backup Verified</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.brake} 
-                                                        onChange={() => handleChecklistToggle("brake")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Electromagnetic Brake System Checked</span>
-                                                </label>
-                                                <label className="flex items-center gap-3 p-2.5 rounded-xl border border-slate-100 hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={activeJob.checklist.testing} 
-                                                        onChange={() => handleChecklistToggle("testing")}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d]" 
-                                                    />
-                                                    <span>Final Load Testing & Leveling Completed</span>
-                                                </label>
+                                            <div className="space-y-2.5">
+                                                {CHECKLIST_ITEMS.map((item) => {
+                                                    const value = activeJob.checklist[item.key];
+                                                    return (
+                                                        <div key={item.key} className="rounded-xl border border-slate-100 p-2.5">
+                                                            <span className="block text-xs font-semibold text-slate-700 mb-1.5">{item.label}</span>
+                                                            <div className={`grid gap-1.5 ${item.options.length === 3 ? "grid-cols-3" : "grid-cols-2"}`}>
+                                                                {item.options.map((option) => {
+                                                                    const selected = value === option;
+                                                                    const tone = option === "NORMAL"
+                                                                        ? (selected ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700")
+                                                                        : option === "ABNORMAL"
+                                                                        ? (selected ? "bg-red-600 text-white" : "bg-red-50 text-red-700")
+                                                                        : (selected ? "bg-amber-600 text-white" : "bg-amber-50 text-amber-700");
+                                                                    return (
+                                                                        <button
+                                                                            key={option}
+                                                                            type="button"
+                                                                            onClick={() => handleChecklistSelect(item.key, option)}
+                                                                            className={`h-8 rounded-lg text-[9.5px] font-black uppercase tracking-wide transition active:scale-95 ${tone}`}
+                                                                        >
+                                                                            {option}
+                                                                        </button>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
                                             </div>
                                         </div>
                                     )}

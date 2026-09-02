@@ -6,6 +6,7 @@ import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import CustomerDocumentsPanel from "@/components/customer/CustomerDocumentsPanel";
+import Swal from "sweetalert2";
 
 const AMARDIP_SUPPORT_PHONE = "+918562359223";
 
@@ -173,7 +174,40 @@ function formatNotificationTime(isoString) {
     return new Date(isoString).toLocaleDateString("en-IN", { day: "numeric", month: "short" });
 }
 
+// Matches the technician's 11-point checklist keys in pages/Techniciandashboard.jsx.
+const CHECKLIST_LABELS = [
+    { key: "ard", label: "ARD Condition" },
+    { key: "motor", label: "Motor Condition" },
+    { key: "gearOil", label: "Gear Oil Condition" },
+    { key: "brake", label: "Brake Condition" },
+    { key: "rope", label: "Rope Condition" },
+    { key: "railClips", label: "Rail Clips Condition" },
+    { key: "limitSwitch", label: "Limit Switch Condition" },
+    { key: "gateLocks", label: "Gate Locks" },
+    { key: "rcr", label: "RCR Condition" },
+    { key: "sensors", label: "Sensors" },
+    { key: "osg", label: "OSG Condition" },
+];
+
+// Matches the technician_2 (junior)/technician_1 (senior) + condition columns
+// written by pages/api/worker/complete-job.js onto elevator_service_visits.
+const VISIT_CONDITION_FIELDS = [
+    { column: "ard_condition", label: "ARD Condition" },
+    { column: "motor_condition", label: "Motor Condition" },
+    { column: "gear_oil_condition", label: "Gear Oil Condition" },
+    { column: "brake_condition", label: "Brake Condition" },
+    { column: "rope_condition", label: "Rope Condition" },
+    { column: "rail_clips_condition", label: "Rail Clips Condition" },
+    { column: "limit_switch_condition", label: "Limit Switch Condition" },
+    { column: "gate_locks_condition", label: "Gate Locks" },
+    { column: "rcr_condition", label: "RCR Condition" },
+    { column: "sensors_condition", label: "Sensors" },
+    { column: "osg_condition", label: "OSG Condition" },
+];
+
 function mapComplaintForCustomer(complaint) {
+    const jc = complaint.jobCompletion || null;
+    const hasGps = jc && Number.isFinite(Number(jc.gpsLatitude)) && Number.isFinite(Number(jc.gpsLongitude));
     return {
         id: complaint.complaintNo,
         dbId: complaint.id,
@@ -182,11 +216,15 @@ function mapComplaintForCustomer(complaint) {
         category: complaint.complaintType?.replaceAll("_", " ") || "SERVICE REQUEST",
         description: complaint.description,
         status: complaint.status?.replaceAll("_", " ") || "UNASSIGNED",
+        isCompleted: ["RESOLVED", "CLOSED"].includes(complaint.status),
         emergency: complaint.priority === "EMERGENCY",
-        assignedTech: complaint.assignedTechnicianName || "",
+        assignedTech: (complaint.assignees || []).map((a) => a.name).filter(Boolean).join(" & ") || complaint.assignedTechnicianName || "",
         techPhone: "",
         eta: "",
         timeline: [`Raised - ${complaint.createdAt ? formatGroupDate(complaint.createdAt.slice(0, 10)) : "Just now"}`],
+        checklist: jc?.checklist || null,
+        gps: hasGps ? { lat: Number(jc.gpsLatitude), lng: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null,
+        workReport: jc ? { problem: jc.problemIdentified, workPerformed: jc.workPerformed, sparePartsUsed: jc.sparePartsUsed } : null,
     };
 }
 
@@ -323,6 +361,7 @@ export default function Customerdashboard({
 
     // Active Complaint Tracking Modal state
     const [selectedTrackComplaint, setSelectedTrackComplaint] = useState(null);
+    const [expandedVisitId, setExpandedVisitId] = useState(null);
 
     // Raise Complaint Form State
     const [formLift, setFormLift] = useState(lifts[0]?.customerId || "");
@@ -546,7 +585,7 @@ export default function Customerdashboard({
         };
         setNotifications(prev => [newNotif, ...prev]);
 
-        alert(`EMERGENCY TICKET ${data.complaint.complaintNo} CREATED. Technician dispatching has been fast-tracked!`);
+        Swal.fire({ icon: "success", title: "Emergency ticket created", text: `${data.complaint.complaintNo} — technician dispatching has been fast-tracked.` });
         await fetchCustomerComplaints();
         setActiveTab("complaints");
         setComplaintSubTab("logs");
@@ -874,8 +913,8 @@ export default function Customerdashboard({
                                                     </div>
                                                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{c.category} • {c.liftId}</p>
                                                 </div>
-                                                <span className={`text-[10px] font-black px-3 py-1 rounded-xl border ${c.status === "Completed" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                    c.status === "In Progress" ? "bg-blue-50 border-blue-100 text-blue-700" :
+                                                <span className={`text-[10px] font-black px-3 py-1 rounded-xl border ${c.isCompleted ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
+                                                    c.status === "IN PROGRESS" ? "bg-blue-50 border-blue-100 text-blue-700" :
                                                         "bg-amber-50 border-amber-100 text-amber-700"
                                                     }`}>
                                                     {c.status}
@@ -1080,8 +1119,14 @@ export default function Customerdashboard({
                                         <div className="space-y-2.5">
                                             {serviceVisits.map((visit) => {
                                                 const technicians = [visit.technician_1, visit.technician_2].filter(Boolean).join(" & ");
+                                                const conditionItems = VISIT_CONDITION_FIELDS.filter((item) => visit[item.column]);
+                                                const expanded = expandedVisitId === visit.id;
                                                 return (
-                                                    <article key={visit.id} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                    <article
+                                                        key={visit.id}
+                                                        onClick={() => conditionItems.length > 0 && setExpandedVisitId(expanded ? null : visit.id)}
+                                                        className={`rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ${conditionItems.length > 0 ? "cursor-pointer active:scale-[0.99] transition" : ""}`}
+                                                    >
                                                         <div className="flex items-start gap-3">
                                                             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#0a649d]">
                                                                 <ServiceIcon className="h-5 w-5" />
@@ -1099,6 +1144,27 @@ export default function Customerdashboard({
                                                                 <p className="mt-3 text-xs font-black text-[#0a649d]">{formatPortalDate(visit.service_date)}</p>
                                                                 {technicians && <p className="mt-1 text-[10px] font-semibold text-slate-500">Technician: {technicians}</p>}
                                                                 {visit.remarks && <p className="mt-2 text-[10px] font-medium leading-relaxed text-slate-500">{visit.remarks}</p>}
+                                                                {conditionItems.length > 0 && (
+                                                                    <p className="mt-2 text-[10px] font-bold text-[#0a649d]">
+                                                                        {expanded ? "Hide inspection checklist ▲" : "View inspection checklist ▼"}
+                                                                    </p>
+                                                                )}
+                                                                {expanded && conditionItems.length > 0 && (
+                                                                    <div className="mt-3 grid grid-cols-2 gap-2">
+                                                                        {conditionItems.map((item) => {
+                                                                            const value = visit[item.column];
+                                                                            const tone = value === "NORMAL" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
+                                                                                value === "ABNORMAL" ? "bg-red-50 border-red-100 text-red-700" :
+                                                                                    "bg-amber-50 border-amber-100 text-amber-700";
+                                                                            return (
+                                                                                <div key={item.column} className={`rounded-xl border p-2 ${tone}`}>
+                                                                                    <p className="text-[9px] font-bold uppercase tracking-wide opacity-80">{item.label}</p>
+                                                                                    <p className="text-[11px] font-black mt-0.5">{value}</p>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </article>
@@ -1268,11 +1334,11 @@ export default function Customerdashboard({
                                                 <span className="text-xs text-slate-700 font-semibold">{step}</span>
                                             </div>
                                         ))}
-                                        {selectedTrackComplaint.status !== "Completed" && (
+                                        {!selectedTrackComplaint.isCompleted && (
                                             <div className="flex gap-3">
                                                 <div className="h-3 w-3 rounded-full bg-slate-300 border-2 border-white shadow-sm mt-1 shrink-0 z-10 animate-pulse"></div>
                                                 <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">
-                                                    {selectedTrackComplaint.status === "In Progress" ? "Repair Work In Progress..." : "Assigning Technician..."}
+                                                    {selectedTrackComplaint.status === "IN PROGRESS" ? "Repair Work In Progress..." : "Assigning Technician..."}
                                                 </span>
                                             </div>
                                         )}
@@ -1361,31 +1427,42 @@ export default function Customerdashboard({
                                     </>
                                 )}
 
-                                {/* Active Job Checklist Progress */}
+                                {/* Lift Inspection Checklist (technician's 11-point findings) */}
                                 {selectedTrackComplaint.checklist && (
                                     <>
                                         <hr className="border-slate-100" />
                                         <div>
-                                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Inspection Checklist Progress</span>
-                                            <p className="text-xs font-bold text-slate-800">
-                                                {Object.values(selectedTrackComplaint.checklist).filter(Boolean).length}/8 Checkpoints Completed
-                                            </p>
+                                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Lift Inspection Checklist</span>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                {CHECKLIST_LABELS.filter((item) => selectedTrackComplaint.checklist[item.key]).map((item) => {
+                                                    const value = selectedTrackComplaint.checklist[item.key];
+                                                    const tone = value === "NORMAL" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
+                                                        value === "ABNORMAL" ? "bg-red-50 border-red-100 text-red-700" :
+                                                            "bg-amber-50 border-amber-100 text-amber-700";
+                                                    return (
+                                                        <div key={item.key} className={`rounded-xl border p-2 ${tone}`}>
+                                                            <p className="text-[9px] font-bold uppercase tracking-wide opacity-80">{item.label}</p>
+                                                            <p className="text-[11px] font-black mt-0.5">{value}</p>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
                                         </div>
                                     </>
                                 )}
 
                                 {/* Resolution Details */}
-                                {selectedTrackComplaint.status === "Completed" && selectedTrackComplaint.workReport && (
+                                {selectedTrackComplaint.isCompleted && selectedTrackComplaint.workReport && (
                                     <>
                                         <hr className="border-slate-100" />
                                         <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
                                             <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
-                                            
+
                                             <div>
                                                 <span className="block text-[9px] font-semibold text-slate-400 uppercase">Problem Identified</span>
                                                 <p className="font-extrabold text-slate-800">{selectedTrackComplaint.workReport.problem || "N/A"}</p>
                                             </div>
-                                            
+
                                             <div>
                                                 <span className="block text-[9px] font-semibold text-slate-400 uppercase">Action Taken</span>
                                                 <p className="font-extrabold text-slate-800">{selectedTrackComplaint.workReport.workPerformed || "N/A"}</p>
@@ -1398,10 +1475,17 @@ export default function Customerdashboard({
                                                 </div>
                                             )}
 
-                                            {selectedTrackComplaint.signature && (
-                                                <div className="pt-1 flex items-center gap-1.5 text-[10px] text-emerald-700 font-extrabold">
-                                                    <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                                    <span>Verified & Signed by customer</span>
+                                            {selectedTrackComplaint.gps && (
+                                                <div>
+                                                    <span className="block text-[9px] font-semibold text-slate-400 uppercase">Technician Check-in Location</span>
+                                                    <a
+                                                        href={`https://www.google.com/maps/search/?api=1&query=${selectedTrackComplaint.gps.lat},${selectedTrackComplaint.gps.lng}`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="font-extrabold text-[#0a649d] underline"
+                                                    >
+                                                        {selectedTrackComplaint.gps.lat.toFixed(5)}, {selectedTrackComplaint.gps.lng.toFixed(5)}
+                                                    </a>
                                                 </div>
                                             )}
                                         </div>

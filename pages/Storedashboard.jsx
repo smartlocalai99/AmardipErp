@@ -5,6 +5,7 @@ import { getStaffProfile } from "@/lib/staffProfile";
 import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
+import Swal from "sweetalert2";
 
 const UNITS = ["Nos", "Meter", "Kg", "Set", "Roll", "Box", "Packet", "Litre", "Other"];
 
@@ -267,7 +268,7 @@ export default function Storedashboard({ user }) {
         });
         const data = await res.json();
         if (!data.success) {
-            alert(data.message || "Invalid or expired store pass.");
+            Swal.fire({ icon: "error", title: "Scan failed", text: data.message || "Invalid or expired store pass." });
             return;
         }
         setScanResult({
@@ -295,7 +296,7 @@ export default function Storedashboard({ user }) {
     async function confirmScanIssue() {
         const items = scanResult.editableItems.filter(it => it.quantity > 0).map(it => ({ itemId: it.itemId, quantity: it.quantity }));
         if (items.length === 0) {
-            alert("Add at least one item before confirming.");
+            Swal.fire({ icon: "warning", title: "No items selected", text: "Add at least one item before confirming." });
             return;
         }
         const res = await fetch("/api/store/issue", {
@@ -305,10 +306,14 @@ export default function Storedashboard({ user }) {
         });
         const data = await res.json();
         if (!data.success) {
-            alert(data.message || "Failed to issue materials.");
+            Swal.fire({ icon: "error", title: "Failed to issue materials", text: data.message || "Please try again." });
             return;
         }
-        alert(`Issued to ${scanResult.job.assignedTechnicianName}:\n` + data.issued.map(i => `${i.quantity} ${i.unit} x ${i.name}`).join("\n"));
+        Swal.fire({
+            icon: "success",
+            title: `Issued to ${scanResult.job.assignedTechnicianName}`,
+            html: data.issued.map(i => `${i.quantity} ${i.unit} x ${i.name}`).join("<br/>"),
+        });
         setScanResult(null);
         refreshInventory();
         refreshRequests();
@@ -324,12 +329,12 @@ export default function Storedashboard({ user }) {
             body: JSON.stringify({ name: newStock.partName, unit: newStock.unit, stockQuantity: Number(newStock.quantity) }),
         });
         const data = await res.json();
-        if (!data.success) { alert(data.message); return; }
+        if (!data.success) { Swal.fire({ icon: "error", title: "Failed to save stock", text: data.message }); return; }
         setShowAddStockModal(false);
+        Swal.fire({ icon: "success", title: "Stock saved", text: `${newStock.quantity} ${newStock.unit} of ${newStock.partName} added to inventory.` });
         setNewStock({ partName: "", unit: "Nos", quantity: 0 });
         refreshInventory();
         refreshTransactions();
-        alert(`Stock saved successfully!\n${newStock.quantity} ${newStock.unit} of ${newStock.partName} added to inventory.`);
     }
 
     // Update Stock modal save
@@ -342,12 +347,12 @@ export default function Storedashboard({ user }) {
             body: JSON.stringify({ newQuantity: Number(updateStockQty), notes: updateRemarks }),
         });
         const data = await res.json();
-        if (!data.success) { alert(data.message); return; }
+        if (!data.success) { Swal.fire({ icon: "error", title: "Failed to adjust stock", text: data.message }); return; }
         setShowUpdateStockModal(false);
         setSelectedInventoryItem(null);
         refreshInventory();
         refreshTransactions();
-        alert("Stock level adjusted successfully!");
+        Swal.fire({ icon: "success", title: "Stock level adjusted successfully!" });
     }
 
     // Material return form submission
@@ -361,7 +366,7 @@ export default function Storedashboard({ user }) {
             if (!res.ok || !data.success) throw new Error(data.message || "Job not found.");
             setReturnJob(data.job);
         } catch (err) {
-            alert(err.message);
+            Swal.fire({ icon: "error", title: "Job not found", text: err.message });
         } finally {
             setReturnLookupLoading(false);
         }
@@ -370,14 +375,14 @@ export default function Storedashboard({ user }) {
     async function handleReturnSubmit(e) {
         e.preventDefault();
         if (!returnJob) {
-            alert("Find the job before receiving returned items.");
+            Swal.fire({ icon: "warning", title: "No job selected", text: "Find the job before receiving returned items." });
             return;
         }
         const items = returnJob.returnableItems
             .map((item) => ({ itemId: item.itemId, quantity: Number(returnQuantities[item.itemId] || 0) }))
             .filter((item) => item.quantity > 0);
         if (!items.length) {
-            alert("Enter at least one return quantity.");
+            Swal.fire({ icon: "warning", title: "No quantities entered", text: "Enter at least one return quantity." });
             return;
         }
         const res = await fetch("/api/store/return", {
@@ -386,7 +391,7 @@ export default function Storedashboard({ user }) {
             body: JSON.stringify({ jobId: returnJob.complaintNo, items, notes: returnForm.reason }),
         });
         const data = await res.json();
-        if (!data.success) { alert(data.message); return; }
+        if (!data.success) { Swal.fire({ icon: "error", title: "Failed to record return", text: data.message }); return; }
 
         setReturnForm({ jobId: "", reason: "" });
         setReturnJob(null);
@@ -395,7 +400,7 @@ export default function Storedashboard({ user }) {
         refreshInventory();
         refreshTransactions();
         refreshReturnJobs();
-        alert(`Returned items credited to inventory for ${data.job.complaintNo}.`);
+        Swal.fire({ icon: "success", title: "Return recorded", text: `Returned items credited to inventory for ${data.job.complaintNo}.` });
     }
 
     // Dynamic metrics counts
