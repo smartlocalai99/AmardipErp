@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { getUserFromRequest } from "@/lib/auth";
-import { ensureUsersDesignationColumn } from "@/lib/usersSchema";
+import { ensureUsersDesignationColumn, ensureUserPasswordPlainColumn } from "@/lib/usersSchema";
 import bcrypt from "bcryptjs";
 
 export default async function handler(req, res) {
@@ -34,6 +34,7 @@ export default async function handler(req, res) {
 
     try {
         await ensureUsersDesignationColumn();
+        await ensureUserPasswordPlainColumn();
 
         // Check if username already exists
         const checkUser = await query("SELECT id FROM users WHERE username = $1", [username.trim().toLowerCase()]);
@@ -46,11 +47,12 @@ export default async function handler(req, res) {
 
         // Insert new user
         await query(
-            `INSERT INTO users (username, password_hash, name, role, phone, designation)
-             VALUES ($1, $2, $3, $4, $5, $6)`,
+            `INSERT INTO users (username, password_hash, password_plain, name, role, phone, designation)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
             [
                 username.trim().toLowerCase(),
                 passwordHash,
+                password,
                 name.trim(),
                 role,
                 phone ? phone.trim() : null,

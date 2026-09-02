@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { getUserFromRequest } from "@/lib/auth";
-import { ensureUsersDesignationColumn, ensureUserLoginDeviceColumns } from "@/lib/usersSchema";
+import { ensureUsersDesignationColumn, ensureUserLoginDeviceColumns, ensureUserPasswordPlainColumn } from "@/lib/usersSchema";
 
 export default async function handler(req, res) {
     if (req.method !== "GET") {
@@ -17,10 +17,18 @@ export default async function handler(req, res) {
     try {
         await ensureUsersDesignationColumn();
         await ensureUserLoginDeviceColumns();
+        await ensureUserPasswordPlainColumn();
 
-        // Fetch all users (excluding password hashes) sorted by ID descending
+        // Staff directory only — customer accounts aren't shown here.
+        // password_plain is the actual login PIN/password in the clear; it's
+        // only ever included for a superadmin caller, matching the one place
+        // in the UI that displays it.
+        const columns = requester.role === "superadmin"
+            ? "id, username, name, role, phone, designation, created_at, last_login_device, last_login_at, password_plain"
+            : "id, username, name, role, phone, designation, created_at, last_login_device, last_login_at";
+
         const usersRes = await query(
-            "SELECT id, username, name, role, phone, designation, created_at, last_login_device, last_login_at FROM users ORDER BY role, id DESC"
+            `SELECT ${columns} FROM users WHERE role <> 'customer' ORDER BY role, id DESC`
         );
 
         return res.status(200).json({ success: true, users: usersRes.rows });

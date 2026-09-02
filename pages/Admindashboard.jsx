@@ -2367,23 +2367,6 @@ function AdmindashboardShell({ user }) {
                                     </div>
 
                                     <div className="rounded-3xl border border-slate-200 bg-white overflow-hidden shadow-sm">
-                                        {/* Upcoming Services Button */}
-                                        <button
-                                            onClick={() => router.push("/admin/upcoming-services")}
-                                            className="w-full px-5 py-4 border-b border-slate-100 flex items-center justify-between text-left hover:bg-slate-50 transition"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className="h-9 w-9 rounded-xl bg-sky-50 text-[#0a649d] flex items-center justify-center">
-                                                    <svg className="h-5 w-5 text-[#0a649d]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                                </div>
-                                                <div>
-                                                    <p className="text-xs font-bold text-slate-800">Upcoming Services</p>
-                                                    <p className="text-[9px] text-slate-400 mt-0.5">Plan monthly AMC, EMC, and warranty visits</p>
-                                                </div>
-                                            </div>
-                                            <ChevronRightIcon className="text-slate-400 h-4.5 w-4.5" />
-                                        </button>
-
                                         {/* Inventory Stock Button */}
                                         <button
                                             onClick={() => openMoreSubTab("inventory")}
@@ -2492,7 +2475,7 @@ function AdmindashboardShell({ user }) {
                                     {/* Database Directory List */}
                                     {user?.role === "superadmin" && (
                                         <div>
-                                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">DB Users Directory</h3>
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Staff Directory</h3>
                                             {usersLoading ? (
                                                 <div className="space-y-2">
                                                     {[1,2,3].map(i => (
@@ -2512,6 +2495,12 @@ function AdmindashboardShell({ user }) {
                                                             <div className="min-w-0">
                                                                 <p className="text-xs font-extrabold text-slate-800 truncate">{u.name}</p>
                                                                 <p className="text-[9px] text-slate-400 font-semibold mt-0.5">@{u.username} • <span className="text-[#0a649d]">{u.designation || formatUserRole(u.role)}</span></p>
+                                                                <p className="text-[9px] font-bold mt-0.5">
+                                                                    <span className="text-slate-400">Login: </span>
+                                                                    {u.password_plain
+                                                                        ? <span className="font-mono tracking-wider text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">{u.password_plain}</span>
+                                                                        : <span className="text-slate-400 italic">not recorded — reset to set one</span>}
+                                                                </p>
                                                                 {(u.role === "storekeeper" || u.role === "worker") && (
                                                                     <p className="text-[9px] text-slate-400 font-semibold mt-0.5">
                                                                         {u.last_login_device

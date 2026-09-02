@@ -1,5 +1,6 @@
 import { query } from "@/lib/db";
 import { getUserFromRequest } from "@/lib/auth";
+import { ensureUserPasswordPlainColumn } from "@/lib/usersSchema";
 import bcrypt from "bcryptjs";
 
 export default async function handler(req, res) {
@@ -38,11 +39,13 @@ export default async function handler(req, res) {
             return res.status(400).json({ success: false, message: "Password must be at least 4 characters long." });
         }
 
+        await ensureUserPasswordPlainColumn();
+
         // Hash the new password
         const passwordHash = await bcrypt.hash(newPassword, 10);
 
         // Update the password in the database
-        await query("UPDATE users SET password_hash = $1 WHERE id = $2", [passwordHash, userId]);
+        await query("UPDATE users SET password_hash = $1, password_plain = $2 WHERE id = $3", [passwordHash, newPassword, userId]);
 
         return res.status(200).json({
             success: true,
