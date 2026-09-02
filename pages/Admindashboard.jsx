@@ -703,7 +703,9 @@ function AdmindashboardShell({ user }) {
                 pageSize: "50",
             });
             if (searchQuery.trim()) params.set("search", searchQuery.trim());
-            if (statusFilter !== "all") params.set("status", statusFilter);
+            if (statusFilter === "EMERGENCY") params.set("priority", "EMERGENCY");
+            else if (statusFilter === "COMPLETED") params.set("status", "RESOLVED");
+            else if (statusFilter !== "all") params.set("status", statusFilter);
 
             const [listRes, statsRes] = await Promise.all([
                 fetch(`/api/complaints?${params.toString()}`),
@@ -1464,35 +1466,14 @@ function AdmindashboardShell({ user }) {
                                 </button>
                             </div>
 
-                            <div className="space-y-3">
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        placeholder="Search breakdowns..."
-                                        value={searchQuery}
-                                        onChange={(e) => setSearchQuery(e.target.value)}
-                                        className="amardip-search-field w-full"
-                                    />
-                                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                        <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                    </div>
-                                </div>
-
-                                <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
-                                    {[
-                                        ["UNASSIGNED", "New"],
-                                        ["ASSIGNED", "Assigned"],
-                                        ["all", "All"],
-                                    ].map(([status, label]) => (
-                                        <button
-                                            key={status}
-                                            onClick={() => setStatusFilter(status)}
-                                            className={`amardip-filter-chip shrink-0 ${statusFilter === status ? "bg-[#0a649d] text-white shadow-sm" : "border border-slate-200 bg-white text-slate-600"}`}
-                                        >
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    placeholder="Search breakdowns..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="amardip-search-field w-full"
+                                />
                             </div>
 
                             {complaintError && (
@@ -1501,14 +1482,19 @@ function AdmindashboardShell({ user }) {
 
                             <div className="grid grid-cols-3 gap-2">
                                 {[
-                                    ["Open", complaintStats?.openComplaints || 0],
-                                    ["Unassigned", complaintStats?.unassignedComplaints || 0],
-                                    ["Emergency", complaintStats?.emergencyComplaints || 0],
-                                ].map(([label, value]) => (
-                                    <div key={label} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
-                                        <p className="text-lg font-black text-slate-900">{value}</p>
-                                        <p className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</p>
-                                    </div>
+                                    ["UNASSIGNED", "New", complaintStats?.unassignedComplaints || 0],
+                                    ["EMERGENCY", "Emergency", complaintStats?.emergencyComplaints || 0],
+                                    ["COMPLETED", "Completed", complaintStats?.resolvedComplaints || 0],
+                                ].map(([status, label, value]) => (
+                                    <button
+                                        key={status}
+                                        type="button"
+                                        onClick={() => setStatusFilter(statusFilter === status ? "all" : status)}
+                                        className={`rounded-2xl border p-3 shadow-sm text-left transition ${statusFilter === status ? "border-[#0a649d] bg-[#0a649d] text-white" : "border-slate-200 bg-white"}`}
+                                    >
+                                        <p className={`text-lg font-black ${statusFilter === status ? "text-white" : "text-slate-900"}`}>{value}</p>
+                                        <p className={`text-[9px] font-bold uppercase tracking-wide ${statusFilter === status ? "text-white/70" : "text-slate-400"}`}>{label}</p>
+                                    </button>
                                 ))}
                             </div>
 
@@ -1595,9 +1581,6 @@ function AdmindashboardShell({ user }) {
                                         onChange={(e) => setServiceSearch(e.target.value)}
                                         className="amardip-search-field w-full"
                                     />
-                                    <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                        <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                    </div>
                                 </div>
                                 <div className="flex gap-2 overflow-x-auto rounded-2xl bg-slate-200/50 p-1.5">
                                     {[
@@ -2116,9 +2099,6 @@ function AdmindashboardShell({ user }) {
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                             className="amardip-search-field w-full"
                                         />
-                                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                        </div>
                                     </div>
 
                                     {/* Inventory list */}
@@ -2179,9 +2159,6 @@ function AdmindashboardShell({ user }) {
                                             onChange={(e) => setSearchQuery(e.target.value)}
                                             className="amardip-search-field w-full"
                                         />
-                                        <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                                            <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                                        </div>
                                     </div>
 
                                     {/* Staff list */}
@@ -3209,6 +3186,47 @@ function AdmindashboardShell({ user }) {
                                     {selectedComplaint.description || "No description provided."}
                                 </p>
                             </div>
+
+                            {selectedComplaint.assignees?.length > 0 && (
+                                <div>
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assigned To</span>
+                                    <p className="text-xs font-bold text-slate-700 mt-0.5">{selectedComplaint.assignees.map((a) => a.name).join(" & ")}</p>
+                                </div>
+                            )}
+
+                            {selectedComplaint.jobCompletion && (
+                                <>
+                                    <hr className="border-slate-100" />
+                                    <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
+                                        <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                        <div>
+                                            <span className="block text-[9px] font-semibold text-slate-400 uppercase">Details / Comments</span>
+                                            <p className="font-extrabold text-slate-800">{selectedComplaint.jobCompletion.workPerformed || selectedComplaint.jobCompletion.problemIdentified || "N/A"}</p>
+                                        </div>
+                                        <div>
+                                            <span className="block text-[9px] font-semibold text-slate-400 uppercase">Status</span>
+                                            <p className="font-extrabold text-slate-800">{selectedComplaint.jobCompletion.statusResolution || "N/A"}</p>
+                                        </div>
+                                        <div>
+                                            <span className="block text-[9px] font-semibold text-slate-400 uppercase">Customer Representative</span>
+                                            <p className="font-extrabold text-slate-800">{selectedComplaint.jobCompletion.customerRepName || "N/A"}</p>
+                                        </div>
+                                        {Number.isFinite(Number(selectedComplaint.jobCompletion.gpsLatitude)) && (
+                                            <div>
+                                                <span className="block text-[9px] font-semibold text-slate-400 uppercase">Technician Check-in Location</span>
+                                                <a
+                                                    href={`https://www.google.com/maps/search/?api=1&query=${selectedComplaint.jobCompletion.gpsLatitude},${selectedComplaint.jobCompletion.gpsLongitude}`}
+                                                    target="_blank"
+                                                    rel="noreferrer"
+                                                    className="font-extrabold text-[#0a649d] underline"
+                                                >
+                                                    {Number(selectedComplaint.jobCompletion.gpsLatitude).toFixed(5)}, {Number(selectedComplaint.jobCompletion.gpsLongitude).toFixed(5)}
+                                                </a>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
 
                             <hr className="border-slate-100" />
 

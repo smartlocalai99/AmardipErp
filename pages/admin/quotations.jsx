@@ -600,8 +600,24 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpen
 
       const pdf = new JsPDF({ unit: "pt", format: "a4" });
       const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
       const imageHeight = (canvas.height * pageWidth) / canvas.width;
-      pdf.addImage(imageData, "PNG", 0, 0, pageWidth, imageHeight);
+
+      // The quotation document is almost always taller than one A4 page —
+      // draw the same full-height image on each page at a progressively
+      // negative y-offset so every page reveals the next slice, instead of
+      // the whole thing being drawn once and everything past the first
+      // page's height silently clipped off.
+      let heightLeft = imageHeight;
+      let position = 0;
+      pdf.addImage(imageData, "PNG", 0, position, pageWidth, imageHeight);
+      heightLeft -= pageHeight;
+      while (heightLeft > 0) {
+        position -= pageHeight;
+        pdf.addPage();
+        pdf.addImage(imageData, "PNG", 0, position, pageWidth, imageHeight);
+        heightLeft -= pageHeight;
+      }
 
       const blob = pdf.output("blob");
       const file = new File([blob], `${quotation.quotationNo}.pdf`, { type: "application/pdf" });
