@@ -529,21 +529,9 @@ function AdmindashboardShell({ user }) {
     // Interactive directories
     const [inquiries, setInquiries] = useState([]);
 
-    const [schedules, setSchedules] = useState([]);
-    const [schedulesLoading, setSchedulesLoading] = useState(false);
     const [scheduleCustomers, setScheduleCustomers] = useState([]);
     const [serviceViewMode, setServiceViewMode] = useState("month");
     const [serviceSearch, setServiceSearch] = useState("");
-    // "All Services" browses by month/year — defaults to last month since
-    // the current month is already covered by the "Services This Month" side.
-    const [historyMonthDate] = useState(() => {
-        const d = new Date();
-        d.setDate(1);
-        d.setMonth(d.getMonth() - 1);
-        return d;
-    });
-    const [historyMonth, setHistoryMonth] = useState(() => historyMonthDate.getMonth());
-    const [historyYear, setHistoryYear] = useState(() => historyMonthDate.getFullYear());
     const [upcomingServiceRows, setUpcomingServiceRows] = useState([]);
     const [upcomingServiceLoading, setUpcomingServiceLoading] = useState(false);
     const [upcomingServiceSummary, setUpcomingServiceSummary] = useState({ unassigned: 0, assigned: 0, completed: 0 });
@@ -761,16 +749,6 @@ function AdmindashboardShell({ user }) {
         return () => clearTimeout(timer);
     }, [activeTab, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    async function fetchServiceSchedules() {
-        setSchedulesLoading(true);
-        try {
-            const res = await fetch("/api/service-schedules?pageSize=100", { cache: "no-store" });
-            const data = await res.json();
-            if (data.success) setSchedules(data.schedules || []);
-        } catch {}
-        finally { setSchedulesLoading(false); }
-    }
-
     // "This Month" pill: the unified view of every AMC/EMC/Warranty customer's
     // monthly service — both already-scheduled visits and customers still
     // waiting to be scheduled — so admin can assign a worker to either kind
@@ -913,12 +891,6 @@ function AdmindashboardShell({ user }) {
             setSendingWarrantyCustomerId(null);
         }
     }
-
-    useEffect(() => {
-        if (activeTab !== "service" || serviceViewMode !== "all") return;
-        const timer = setTimeout(() => fetchServiceSchedules(), 0);
-        return () => clearTimeout(timer);
-    }, [activeTab, serviceViewMode]);
 
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "month") return;
@@ -1311,12 +1283,10 @@ function AdmindashboardShell({ user }) {
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to schedule");
 
             // Reload from DB — the server already pushed a notification to
-            // every assigned technician when it dispatched the job. Both
-            // lists need refreshing: fetchServiceSchedules feeds "All
-            // Services", fetchUpcomingServiceRows feeds "Services This
-            // Month" (the default view), which otherwise keeps showing the
+            // every assigned technician when it dispatched the job. Otherwise
+            // "Services This Month" (the default view) keeps showing the
             // customer as "TO BE SCHEDULED" until the next manual reload.
-            await Promise.all([fetchServiceSchedules(), fetchUpcomingServiceRows(serviceSearch)]);
+            await fetchUpcomingServiceRows(serviceSearch);
         } catch {}
 
         setNewSchedule({
@@ -1343,6 +1313,10 @@ function AdmindashboardShell({ user }) {
             setSelectedSchedule(null);
         }
     }
+
+    // Full staff directory with plaintext logins — superadmin, plus the
+    // specific named admins who asked to see it (amarnath, dileep, kethan).
+    const canViewStaffCredentials = user?.role === "superadmin" || ["amarnath", "dileep", "kethan"].includes(user?.username);
 
     const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
 
@@ -1583,15 +1557,17 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             <div className="space-y-3">
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        placeholder="Search services..."
-                                        value={serviceSearch}
-                                        onChange={(e) => setServiceSearch(e.target.value)}
-                                        className="amardip-search-field w-full"
-                                    />
-                                </div>
+                                {serviceViewMode === "month" && (
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            placeholder="Search services..."
+                                            value={serviceSearch}
+                                            onChange={(e) => setServiceSearch(e.target.value)}
+                                            className="amardip-search-field w-full"
+                                        />
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/50 p-1.5">
                                     {[
                                         ["month", "This Month"],
@@ -1625,29 +1601,6 @@ function AdmindashboardShell({ user }) {
                                             <p className={`text-[9px] font-bold uppercase tracking-wide ${serviceStatusFilter === value ? "text-white/70" : "text-slate-400"}`}>{label}</p>
                                         </button>
                                     ))}
-                                </div>
-                            )}
-
-                            {serviceViewMode === "all" && (
-                                <div className="grid grid-cols-2 gap-2">
-                                    <select
-                                        value={historyMonth}
-                                        onChange={(e) => setHistoryMonth(Number(e.target.value))}
-                                        className="h-10.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-[#0a649d]"
-                                    >
-                                        {Array.from({ length: 12 }, (_, i) => (
-                                            <option key={i} value={i}>{new Date(2000, i, 1).toLocaleDateString("en-IN", { month: "long" })}</option>
-                                        ))}
-                                    </select>
-                                    <select
-                                        value={historyYear}
-                                        onChange={(e) => setHistoryYear(Number(e.target.value))}
-                                        className="h-10.5 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 outline-none focus:border-[#0a649d]"
-                                    >
-                                        {Array.from({ length: 6 }, (_, i) => historyMonthDate.getFullYear() + 1 - i).map((year) => (
-                                            <option key={year} value={year}>{year}</option>
-                                        ))}
-                                    </select>
                                 </div>
                             )}
 
@@ -1749,112 +1702,7 @@ function AdmindashboardShell({ user }) {
                                     })()}
                                 </div>
                             ) : (
-                            <div className="space-y-6">
-                                {schedulesLoading ? (
-                                    <p className="text-center text-xs text-slate-400 py-6">Loading…</p>
-                                ) : (() => {
-                                    const searchText = serviceSearch.trim().toLowerCase();
-                                    const monthSchedules = schedules.filter((item) => {
-                                        if (!item.schedule_month) return false;
-                                        const d = new Date(item.schedule_month);
-                                        return d.getUTCMonth() === historyMonth && d.getUTCFullYear() === historyYear;
-                                    });
-                                    const visibleSchedules = searchText
-                                        ? monthSchedules.filter((item) =>
-                                            [item.customer_name, item.city, item.assigned_technician_name]
-                                                .filter(Boolean)
-                                                .some((value) => String(value).toLowerCase().includes(searchText))
-                                        )
-                                        : monthSchedules;
-                                    const grouped = visibleSchedules.reduce((groups, item) => {
-                                        const date = item.scheduled_date
-                                            ? item.scheduled_date.split("T")[0]
-                                            : "Unscheduled";
-                                        if (!groups[date]) groups[date] = [];
-                                        groups[date].push(item);
-                                        return groups;
-                                    }, {});
-
-                                    const sortedDates = Object.keys(grouped).sort((a, b) => {
-                                        if (a === "Unscheduled") return 1;
-                                        if (b === "Unscheduled") return -1;
-                                        return new Date(a) - new Date(b);
-                                    });
-
-                                    if (sortedDates.length === 0) {
-                                        return (
-                                            <div className="text-center py-10">
-                                                <p className="text-sm font-bold text-slate-400">No services scheduled</p>
-                                                <p className="text-xs text-slate-300 mt-1">Tap + to schedule a visit</p>
-                                            </div>
-                                        );
-                                    }
-
-                                    const statusBadge = (s) => {
-                                        if (s === "COMPLETED") return "bg-emerald-100 text-emerald-800";
-                                        if (s === "IN_PROGRESS") return "bg-amber-100 text-amber-800";
-                                        if (s === "CANCELLED") return "bg-red-100 text-red-800";
-                                        if (s === "ASSIGNED") return "bg-sky-100 text-sky-800";
-                                        return "bg-blue-100 text-blue-800";
-                                    };
-
-                                    return sortedDates.map(date => (
-                                        <div key={date} className="space-y-2">
-                                            <div className="flex items-center gap-2 px-1">
-                                                <span className="h-1.5 w-1.5 rounded-full bg-[#0a649d]"></span>
-                                                <h4 className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                                                    {date === "Unscheduled" ? "Date TBD" : formatGroupDate(date)}
-                                                </h4>
-                                            </div>
-                                            <div className="space-y-3">
-                                                {grouped[date].map(sch => (
-                                                    <div
-                                                        key={sch.id}
-                                                        onClick={() => openScheduleDetail(sch.id)}
-                                                        className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col justify-between cursor-pointer active:scale-[0.99] transition"
-                                                    >
-                                                        <div className="flex justify-between items-start">
-                                                            <div className="min-w-0">
-                                                                <h3 className="text-sm font-extrabold text-slate-900 truncate">{sch.customer_name || "—"}</h3>
-                                                                <p className="text-[10px] text-slate-400 mt-0.5">
-                                                                    Engineer: <span className="font-semibold text-slate-600">{sch.assignees?.length ? sch.assignees.map((a) => a.name).join(", ") : "Unassigned"}</span>
-                                                                </p>
-                                                                {sch.city && <p className="text-[10px] text-slate-400">{sch.city}</p>}
-                                                            </div>
-                                                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded shrink-0 ${statusBadge(sch.status)}`}>
-                                                                {sch.status?.replace("_", " ")}
-                                                            </span>
-                                                        </div>
-                                                        <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                                                            <span className="text-slate-400 font-semibold">
-                                                                {sch.scheduled_date
-                                                                    ? new Date(sch.scheduled_date).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
-                                                                    : "Date TBD"}
-                                                            </span>
-                                                            <div className="flex items-center gap-2">
-                                                                <button
-                                                                    onClick={async (e) => {
-                                                                        e.stopPropagation();
-                                                                        if (!(await confirmDialog("Remove this schedule?"))) return;
-                                                                        await fetch(`/api/service-schedules/${sch.id}`, { method: "DELETE" });
-                                                                        fetchServiceSchedules();
-                                                                    }}
-                                                                    className="h-7 w-7 flex items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 transition cursor-pointer"
-                                                                    title="Delete"
-                                                                >
-                                                                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                                    </svg>
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ));
-                                })()}
-                            </div>
+                                <ServiceVisitsTable user={user} embedded />
                             )}
                         </div>
                     )}
@@ -2186,7 +2034,7 @@ function AdmindashboardShell({ user }) {
                                         <div>
                                             <h1 className="text-xl font-black tracking-tight text-slate-900">Staff Directory</h1>
                                             <p className="text-[10px] text-slate-500 mt-0.5">
-                                                {user?.role === "superadmin" ? "Every staff account and login, including workers and storekeepers." : "Operations team and office contact list."}
+                                                {canViewStaffCredentials ? "Every staff account and login, including workers and storekeepers." : "Operations team and office contact list."}
                                             </p>
                                         </div>
                                     </div>
@@ -2202,7 +2050,7 @@ function AdmindashboardShell({ user }) {
                                         />
                                     </div>
 
-                                    {user?.role === "superadmin" ? (
+                                    {canViewStaffCredentials ? (
                                         usersLoading ? (
                                             <div className="space-y-2">
                                                 {[1, 2, 3].map(i => (
@@ -2252,13 +2100,15 @@ function AdmindashboardShell({ user }) {
                                                                         <PhoneIcon className="h-3.5 w-3.5" />
                                                                     </a>
                                                                 )}
-                                                                <button
-                                                                    onClick={() => { setSelectedResetUser(u); setShowResetModal(true); }}
-                                                                    className="h-8.5 w-8.5 rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100 text-slate-500 flex items-center justify-center active:scale-95 transition"
-                                                                    title="Reset Password"
-                                                                >
-                                                                    <KeyIcon className="h-3.5 w-3.5" />
-                                                                </button>
+                                                                {user?.role === "superadmin" && (
+                                                                    <button
+                                                                        onClick={() => { setSelectedResetUser(u); setShowResetModal(true); }}
+                                                                        className="h-8.5 w-8.5 rounded-lg bg-slate-50 border border-slate-100 hover:bg-slate-100 text-slate-500 flex items-center justify-center active:scale-95 transition"
+                                                                        title="Reset Password"
+                                                                    >
+                                                                        <KeyIcon className="h-3.5 w-3.5" />
+                                                                    </button>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     ))}
@@ -3262,6 +3112,13 @@ function AdmindashboardShell({ user }) {
                                             <span className="block text-[9px] font-semibold text-slate-400 uppercase">Customer Representative</span>
                                             <p className="font-extrabold text-slate-800">{selectedComplaint.jobCompletion.customerRepName || "N/A"}</p>
                                         </div>
+                                        {selectedComplaint.jobCompletion.signatureImage && (
+                                            <div>
+                                                <span className="block text-[9px] font-semibold text-slate-400 uppercase">Customer Signature</span>
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={selectedComplaint.jobCompletion.signatureImage} alt="Customer signature" className="h-20 rounded-lg border border-emerald-100 bg-white mt-1" />
+                                            </div>
+                                        )}
                                         {Number.isFinite(Number(selectedComplaint.jobCompletion.gpsLatitude)) && (
                                             <div>
                                                 <span className="block text-[9px] font-semibold text-slate-400 uppercase">Technician Check-in Location</span>
@@ -3271,7 +3128,7 @@ function AdmindashboardShell({ user }) {
                                                     rel="noreferrer"
                                                     className="font-extrabold text-[#0a649d] underline"
                                                 >
-                                                    {Number(selectedComplaint.jobCompletion.gpsLatitude).toFixed(5)}, {Number(selectedComplaint.jobCompletion.gpsLongitude).toFixed(5)}
+                                                    {selectedComplaint.jobCompletion.gpsAddress || "View on map"}
                                                 </a>
                                             </div>
                                         )}
@@ -3503,6 +3360,13 @@ function AdmindashboardShell({ user }) {
                                             <span className="block text-[9px] font-semibold text-slate-400 uppercase">Customer Representative</span>
                                             <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.customerRepName || "N/A"}</p>
                                         </div>
+                                        {selectedSchedule.jobCompletion.signatureImage && (
+                                            <div>
+                                                <span className="block text-[9px] font-semibold text-slate-400 uppercase">Customer Signature</span>
+                                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                <img src={selectedSchedule.jobCompletion.signatureImage} alt="Customer signature" className="h-20 rounded-lg border border-emerald-100 bg-white mt-1" />
+                                            </div>
+                                        )}
                                         {Number.isFinite(Number(selectedSchedule.jobCompletion.gpsLatitude)) && (
                                             <div>
                                                 <span className="block text-[9px] font-semibold text-slate-400 uppercase">Technician Check-in Location</span>
@@ -3512,7 +3376,7 @@ function AdmindashboardShell({ user }) {
                                                     rel="noreferrer"
                                                     className="font-extrabold text-[#0a649d] underline"
                                                 >
-                                                    {Number(selectedSchedule.jobCompletion.gpsLatitude).toFixed(5)}, {Number(selectedSchedule.jobCompletion.gpsLongitude).toFixed(5)}
+                                                    {selectedSchedule.jobCompletion.gpsAddress || "View on map"}
                                                 </a>
                                             </div>
                                         )}

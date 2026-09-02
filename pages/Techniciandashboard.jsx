@@ -246,7 +246,8 @@ export default function Techniciandashboard({ user }) {
             gpsCheckedIn: Boolean(jc),
             checkInTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
             gpsCoords: hasGps ? { latitude: Number(jc.gpsLatitude), longitude: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null,
-            signature: jc?.customerRepName ? { customerName: jc.customerRepName } : null,
+            signature: jc?.customerRepName ? { customerName: jc.customerRepName, image: jc.signatureImage || null } : null,
+            gpsAddress: jc?.gpsAddress || null,
             completeTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
         };
     }
@@ -547,6 +548,7 @@ export default function Techniciandashboard({ user }) {
                     gpsAccuracyMeters: activeJob.gpsCoords?.accuracy ?? null,
                     checklistData: activeJob.isService ? activeJob.checklist : {},
                     customerRepName: sigCustomerName,
+                    signatureImage: canvasRef.current ? canvasRef.current.toDataURL("image/png") : null,
                     voiceLanguage: voiceLanguage !== "auto" ? voiceLanguage : null,
                     voiceOriginalTranscript: voiceTranscript || null,
                     voiceEnglishTranslation: voiceEnglishNote || null,
@@ -1217,9 +1219,11 @@ export default function Techniciandashboard({ user }) {
                                                     <p><strong className="text-emerald-950">Arrival Timestamp:</strong> {activeJob.checkInTime}</p>
                                                     <p>
                                                         <strong className="text-emerald-950">Location:</strong>{" "}
-                                                        {activeJob.gpsCoords
-                                                            ? `${activeJob.gpsCoords.latitude.toFixed(5)}°, ${activeJob.gpsCoords.longitude.toFixed(5)}° (±${Math.round(activeJob.gpsCoords.accuracy)}m)`
-                                                            : "Not captured"}
+                                                        {activeJob.gpsAddress
+                                                            ? activeJob.gpsAddress
+                                                            : activeJob.gpsCoords
+                                                                ? "Captured — address will show once saved"
+                                                                : "Not captured"}
                                                     </p>
                                                     <p><strong className="text-emerald-950">Verification:</strong> Location captured and saved in service ledger</p>
                                                 </div>
@@ -1511,6 +1515,9 @@ export default function Techniciandashboard({ user }) {
                                             <p className="text-xs font-semibold text-slate-600">
                                                 Signed by <span className="font-black text-slate-800">{activeJob.signature?.customerName || sigCustomerName || "—"}</span>
                                             </p>
+                                            {activeJob.signature?.image && (
+                                                <img src={activeJob.signature.image} alt="Customer signature" className="h-24 rounded-xl border border-slate-100 bg-slate-50" />
+                                            )}
                                         </div>
                                     )}
 

@@ -219,12 +219,14 @@ function mapComplaintForCustomer(complaint) {
         isCompleted: ["RESOLVED", "CLOSED"].includes(complaint.status),
         emergency: complaint.priority === "EMERGENCY",
         assignedTech: (complaint.assignees || []).map((a) => a.name).filter(Boolean).join(" & ") || complaint.assignedTechnicianName || "",
-        techPhone: "",
+        techPhone: complaint.assignees?.[0]?.phone || "",
         eta: "",
         timeline: [`Raised - ${complaint.createdAt ? formatGroupDate(complaint.createdAt.slice(0, 10)) : "Just now"}`],
         checklist: jc?.checklist || null,
-        gps: hasGps ? { lat: Number(jc.gpsLatitude), lng: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null,
+        gps: hasGps ? { lat: Number(jc.gpsLatitude), lng: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters, address: jc.gpsAddress || null } : null,
         workReport: jc ? { problem: jc.problemIdentified, workPerformed: jc.workPerformed, sparePartsUsed: jc.sparePartsUsed } : null,
+        signatureImage: jc?.signatureImage || null,
+        customerRepName: jc?.customerRepName || null,
     };
 }
 
@@ -1359,12 +1361,14 @@ export default function Customerdashboard({
                                                     {selectedTrackComplaint.eta && <span className="text-[10px] text-emerald-600 font-bold">ETA: {selectedTrackComplaint.eta}</span>}
                                                 </div>
                                             </div>
-                                            <a
-                                                href={`tel:${selectedTrackComplaint.techPhone}`}
-                                                className="h-8.5 w-8.5 rounded-full bg-[#0a649d] text-white flex items-center justify-center hover:bg-[#085282] transition active:scale-95 shadow-sm"
-                                            >
-                                                <PhoneIcon className="h-4.5 w-4.5" />
-                                            </a>
+                                            {selectedTrackComplaint.techPhone && (
+                                                <a
+                                                    href={`tel:${selectedTrackComplaint.techPhone}`}
+                                                    className="h-8.5 w-8.5 rounded-full bg-[#0a649d] text-white flex items-center justify-center hover:bg-[#085282] transition active:scale-95 shadow-sm"
+                                                >
+                                                    <PhoneIcon className="h-4.5 w-4.5" />
+                                                </a>
+                                            )}
                                         </div>
                                     </>
                                 )}
@@ -1475,6 +1479,14 @@ export default function Customerdashboard({
                                                 </div>
                                             )}
 
+                                            {selectedTrackComplaint.signatureImage && (
+                                                <div>
+                                                    <span className="block text-[9px] font-semibold text-slate-400 uppercase">Signed By {selectedTrackComplaint.customerRepName || ""}</span>
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img src={selectedTrackComplaint.signatureImage} alt="Customer signature" className="h-20 rounded-lg border border-emerald-100 bg-white mt-1" />
+                                                </div>
+                                            )}
+
                                             {selectedTrackComplaint.gps && (
                                                 <div>
                                                     <span className="block text-[9px] font-semibold text-slate-400 uppercase">Technician Check-in Location</span>
@@ -1484,7 +1496,7 @@ export default function Customerdashboard({
                                                         rel="noreferrer"
                                                         className="font-extrabold text-[#0a649d] underline"
                                                     >
-                                                        {selectedTrackComplaint.gps.lat.toFixed(5)}, {selectedTrackComplaint.gps.lng.toFixed(5)}
+                                                        {selectedTrackComplaint.gps.address || "View on map"}
                                                     </a>
                                                 </div>
                                             )}

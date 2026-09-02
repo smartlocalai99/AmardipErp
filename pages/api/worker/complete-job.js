@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { safeSendPush } from "@/lib/pushNotifications";
 import { createCustomerNotification } from "@/lib/customerNotifications";
 import { getComplaintAssignees } from "@/lib/assignees";
+import { reverseGeocode } from "@/lib/reverseGeocode";
 
 let tableReady = false;
 
@@ -61,6 +62,15 @@ async function ensureJobCompletionsTable() {
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_longitude DOUBLE PRECISION;
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_accuracy_meters DOUBLE PRECISION;
   `);
+  // gps_address is the reverse-geocoded, human-readable location — computed
+  // once here at completion time so every viewer (worker/admin/customer)
+  // sees an address instead of raw coordinates. signature_image is the
+  // customer's actual drawn signature (PNG data URL) — previously only a
+  // confirmation checkbox and typed name were ever saved, never the drawing.
+  await query(`
+    ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_address TEXT;
+    ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS signature_image TEXT;
+  `);
   // elevator_service_visits has a UNIQUE(source_sheet, source_row_no) index
   // from the spreadsheet-sync import. Every app-completed job used to insert
   // the literal pair ('App - Technician Completion', 0), so the very first
@@ -93,6 +103,7 @@ export default async function handler(req, res) {
     gpsAccuracyMeters,
     checklistData,
     customerRepName,
+    signatureImage,
     voiceLanguage,
     voiceOriginalTranscript,
     voiceEnglishTranslation,
@@ -105,6 +116,7 @@ export default async function handler(req, res) {
 
   const latitude = Number.isFinite(Number(gpsLatitude)) ? Number(gpsLatitude) : null;
   const longitude = Number.isFinite(Number(gpsLongitude)) ? Number(gpsLongitude) : null;
+  const gpsAddress = await reverseGeocode(latitude, longitude);
   const accuracyMeters = Number.isFinite(Number(gpsAccuracyMeters)) ? Number(gpsAccuracyMeters) : null;
 
   try {
@@ -160,10 +172,10 @@ export default async function handler(req, res) {
         `INSERT INTO technician_job_completions (
           complaint_id, worker_user_id, problem_identified, work_performed,
           spare_parts_used, status_resolution, gps_checked_in, gps_latitude,
-          gps_longitude, gps_accuracy_meters, checklist_data,
-          customer_rep_name, voice_language, voice_original_transcript,
+          gps_longitude, gps_accuracy_meters, gps_address, checklist_data,
+          customer_rep_name, signature_image, voice_language, voice_original_transcript,
           voice_english_translation, voice_processing_status, voice_provider
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
         [
           jobDbId,
           actor.id,
@@ -175,8 +187,10 @@ export default async function handler(req, res) {
           latitude,
           longitude,
           accuracyMeters,
+          gpsAddress,
           JSON.stringify(checklistData || {}),
           customerRepName || null,
+          signatureImage || null,
           voiceLanguage || null,
           voiceOriginalTranscript || null,
           voiceEnglishTranslation || null,
