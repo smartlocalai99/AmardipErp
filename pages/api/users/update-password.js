@@ -20,18 +20,23 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: "User ID and new password are required." });
     }
 
-    if (newPassword.trim().length < 4) {
-        return res.status(400).json({ success: false, message: "Password must be at least 4 characters long." });
-    }
-
     try {
         // Verify user exists and is not the superadmin themselves (superadmin should change password via custom profile logic, or they can)
-        const checkUser = await query("SELECT id, username FROM users WHERE id = $1", [userId]);
+        const checkUser = await query("SELECT id, username, role FROM users WHERE id = $1", [userId]);
         if (checkUser.rowCount === 0) {
             return res.status(404).json({ success: false, message: "User not found." });
         }
 
         const user = checkUser.rows[0];
+
+        // Staff accounts sign in with a 4-digit PIN instead of a free-form
+        // password; customers keep the longer password.
+        if (user.role !== "customer" && !/^\d{4}$/.test(newPassword)) {
+            return res.status(400).json({ success: false, message: "PIN must be exactly 4 digits." });
+        }
+        if (user.role === "customer" && newPassword.trim().length < 4) {
+            return res.status(400).json({ success: false, message: "Password must be at least 4 characters long." });
+        }
 
         // Hash the new password
         const passwordHash = await bcrypt.hash(newPassword, 10);

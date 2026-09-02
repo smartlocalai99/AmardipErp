@@ -1,6 +1,6 @@
 import { query } from "@/lib/db";
 import { getUserFromRequest } from "@/lib/auth";
-import { ensureUsersDesignationColumn } from "@/lib/usersSchema";
+import { ensureUsersDesignationColumn, ensureUserLoginDeviceColumns } from "@/lib/usersSchema";
 
 export default async function handler(req, res) {
     if (req.method !== "GET") {
@@ -16,10 +16,11 @@ export default async function handler(req, res) {
 
     try {
         await ensureUsersDesignationColumn();
+        await ensureUserLoginDeviceColumns();
 
         // Fetch all users (excluding password hashes) sorted by ID descending
         const usersRes = await query(
-            "SELECT id, username, name, role, phone, designation, created_at FROM users ORDER BY role, id DESC"
+            "SELECT id, username, name, role, phone, designation, created_at, last_login_device, last_login_at FROM users ORDER BY role, id DESC"
         );
 
         return res.status(200).json({ success: true, users: usersRes.rows });

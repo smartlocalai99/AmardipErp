@@ -2562,6 +2562,13 @@ function AdmindashboardShell({ user }) {
                                                             <div className="min-w-0">
                                                                 <p className="text-xs font-extrabold text-slate-800 truncate">{u.name}</p>
                                                                 <p className="text-[9px] text-slate-400 font-semibold mt-0.5">@{u.username} • <span className="text-[#0a649d]">{u.designation || formatUserRole(u.role)}</span></p>
+                                                                {(u.role === "storekeeper" || u.role === "worker") && (
+                                                                    <p className="text-[9px] text-slate-400 font-semibold mt-0.5">
+                                                                        {u.last_login_device
+                                                                            ? `Last login: ${u.last_login_device} • ${formatDeviceDate(u.last_login_at)}`
+                                                                            : "Last login: not signed in yet"}
+                                                                    </p>
+                                                                )}
                                                             </div>
                                                             <div className="flex items-center gap-2">
                                                                 <button
@@ -2685,14 +2692,17 @@ function AdmindashboardShell({ user }) {
 
                             <div className="grid grid-cols-2 gap-3">
                                 <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Password</label>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">PIN</label>
                                     <input
                                         type="password"
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
+                                        maxLength={4}
                                         required
                                         value={newUserData.password}
-                                        onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value })}
-                                        placeholder="Password"
-                                        className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
+                                        onChange={(e) => setNewUserData({ ...newUserData, password: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                                        placeholder="4-digit PIN"
+                                        className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base tracking-[0.3em] outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
                                     />
                                 </div>
                                 <div>
@@ -2716,6 +2726,7 @@ function AdmindashboardShell({ user }) {
                                 >
                                     <option value="admin">Admin</option>
                                     <option value="manager">Manager</option>
+                                    <option value="storekeeper">Storekeeper</option>
                                     <option value="worker">Worker</option>
                                     <option value="front_office">Front Office</option>
                                     <option value="customer">Customer</option>
@@ -2777,13 +2788,22 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">New Password</label>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">
+                                    {selectedResetUser.role === "customer" ? "New Password" : "New PIN"}
+                                </label>
                                 <input
                                     type="password"
                                     required
+                                    inputMode={selectedResetUser.role === "customer" ? undefined : "numeric"}
+                                    pattern={selectedResetUser.role === "customer" ? undefined : "[0-9]*"}
+                                    maxLength={selectedResetUser.role === "customer" ? undefined : 4}
                                     value={resetPasswordValue}
-                                    onChange={(e) => setResetPasswordValue(e.target.value)}
-                                    placeholder="Enter new password"
+                                    onChange={(e) => setResetPasswordValue(
+                                        selectedResetUser.role === "customer"
+                                            ? e.target.value
+                                            : e.target.value.replace(/\D/g, "").slice(0, 4)
+                                    )}
+                                    placeholder={selectedResetUser.role === "customer" ? "Enter new password" : "4-digit PIN"}
                                     className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base outline-none focus:border-[#0a649d] focus:shadow-[0_0_0_3px_rgba(10,100,157,0.1)] transition"
                                 />
                             </div>

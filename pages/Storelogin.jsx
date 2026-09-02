@@ -294,16 +294,19 @@ export default function Storelogin() {
 
                   <div className="min-w-0 flex-1">
                     <label className="block text-[11px] font-medium leading-none text-[#9ca3af]">
-                      Password
+                      PIN
                     </label>
                     <input
                       type={showPassword ? "text" : "password"}
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
                       value={password}
-                      onChange={(event) => setPassword(event.target.value)}
-                      placeholder="Enter password"
+                      onChange={(event) => setPassword(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      placeholder="Enter 4-digit PIN"
                       autoComplete="current-password"
                       required
-                      className="mt-1 w-full bg-transparent text-[14px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
+                      className="mt-1 w-full bg-transparent text-[14px] font-medium tracking-[0.3em] text-[#111827] outline-none placeholder:text-[#c4c9d2] placeholder:tracking-normal"
                     />
                   </div>
 
@@ -311,7 +314,7 @@ export default function Storelogin() {
                     type="button"
                     onClick={() => setShowPassword((value) => !value)}
                     className="ml-2 grid h-8 w-8 shrink-0 place-items-center rounded-full text-[#111827] transition hover:bg-[#f1f5f9]"
-                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    aria-label={showPassword ? "Hide PIN" : "Show PIN"}
                   >
                     <EyeIcon visible={showPassword} />
                   </button>

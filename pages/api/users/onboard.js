@@ -21,9 +21,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ success: false, message: "All fields (username, password, name, role) are required." });
     }
 
-    const validRoles = ["admin", "manager", "worker", "customer", "front_office"];
+    const validRoles = ["admin", "manager", "worker", "customer", "front_office", "storekeeper"];
     if (!validRoles.includes(role)) {
         return res.status(400).json({ success: false, message: "Invalid role selected." });
+    }
+
+    // Staff accounts (everyone but customers) sign in with a 4-digit PIN
+    // instead of a free-form password.
+    if (role !== "customer" && !/^\d{4}$/.test(password)) {
+        return res.status(400).json({ success: false, message: "PIN must be exactly 4 digits." });
     }
 
     try {
