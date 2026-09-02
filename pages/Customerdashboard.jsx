@@ -117,18 +117,19 @@ function addOneYearUTC(date) {
     return new Date(Date.UTC(year, month, day));
 }
 
-// A "battery level" style indicator: N segments, filled left-to-right in
-// proportion to how much of the contract's total span is still remaining.
+// A "battery level" style indicator: a dense row of hairline segments,
+// stretched across the full width of its container and filled left-to-right
+// in proportion to how much of the contract's total span is still remaining.
 function ContractProgressBar({ fraction, active }) {
-    const segmentCount = 24;
+    const segmentCount = 60;
     const filled = Math.round(Math.min(1, Math.max(0, fraction)) * segmentCount);
 
     return (
-        <div className="flex items-center gap-0.75" role="img" aria-label={`${Math.round(fraction * 100)}% of contract period remaining`}>
+        <div className="flex w-full items-center gap-0.5" role="img" aria-label={`${Math.round(fraction * 100)}% of contract period remaining`}>
             {Array.from({ length: segmentCount }, (_, index) => (
                 <span
                     key={index}
-                    className={`h-3.5 w-1 rounded-full ${
+                    className={`h-3.5 min-w-0 flex-1 rounded-full ${
                         index < filled
                             ? (active ? "bg-emerald-500" : "bg-red-300")
                             : (active ? "bg-emerald-900/10" : "bg-white/25")
@@ -701,9 +702,9 @@ export default function Customerdashboard({
                                                 : `${contractEndDate ? `Expired on ${formatPortalDateObj(contractEndDate)}` : "No active contract on file"}`}
                                         </p>
                                     </div>
-                                    <div className={`h-10.5 w-10.5 shrink-0 rounded-xl bg-white border flex items-center justify-center font-black text-[11px] text-center leading-none ${amcIsActive ? "border-emerald-200 text-emerald-700" : "border-white/70 text-red-700"}`}>
+                                    <span className={`shrink-0 pl-3 font-black text-base leading-none ${amcIsActive ? "text-emerald-700" : "text-white"}`}>
                                         {contractLabel}
-                                    </div>
+                                    </span>
                                 </div>
                                 <div className="mt-4">
                                     <ContractProgressBar fraction={contractProgressFraction} active={amcIsActive} />
