@@ -1559,8 +1559,13 @@ function AdmindashboardShell({ user }) {
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <h1 className="text-2xl font-black tracking-tight text-slate-900">Maintenance & Service</h1>
-                                    <p className="text-xs text-slate-500 mt-0.5">Manage AMC visits and checkoff reports.</p>
+                                    <div className="flex items-center gap-2">
+                                        <h1 className="text-2xl font-black tracking-tight text-slate-900">Maintenance & Service</h1>
+                                        <span className="rounded-full bg-sky-50 border border-sky-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#0a649d]">
+                                            {new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-0.5">AMC and warranty customers due for service this month, sourced live from the customer sheet.</p>
                                 </div>
                                 <button
                                     onClick={async () => {

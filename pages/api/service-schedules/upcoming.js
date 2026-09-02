@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { cleanNumber, ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
+import { getServiceDueCustomerCodes } from "@/lib/customerAutomationSheet";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const SCHEDULED_STATUSES = new Set(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "MISSED"]);
@@ -58,7 +59,19 @@ export default async function handler(req, res) {
       : "all";
     const status = String(req.query.status || "all").trim().toUpperCase();
 
-    const params = [];
+    // The CUSTOMER_AUTOMATION sheet is the primary source for who's under
+    // an active AMC/warranty contract — the DB's own customer_status is
+    // hand-edited and drifts. Fails open to the DB's own AMC/EMC/WARRANTY
+    // status if the sheet is unreachable, so this list never goes empty
+    // just because of a transient Sheets API issue.
+    let serviceDueCodes = [];
+    try {
+      serviceDueCodes = await getServiceDueCustomerCodes();
+    } catch (err) {
+      console.error("Failed to fetch service-due customer codes from sheet, falling back to DB status:", err);
+    }
+
+    const params = [serviceDueCodes];
     const whereParts = [];
 
     addSearchFilter(whereParts, params, req.query.search);
@@ -143,7 +156,11 @@ export default async function handler(req, res) {
           'MONTHLY_SERVICE'::text AS service_type
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
-        WHERE UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', 'WARRANTY')
+        WHERE ${
+          serviceDueCodes.length > 0
+            ? "UPPER(TRIM(c.customer_code)) = ANY($1::text[])"
+            : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
+        }
           AND NOT EXISTS (
             SELECT 1
             FROM elevator_service_visits v
