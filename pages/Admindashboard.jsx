@@ -756,7 +756,14 @@ function AdmindashboardShell({ user }) {
     async function fetchUpcomingServiceRows(search = "") {
         setUpcomingServiceLoading(true);
         try {
-            const params = new URLSearchParams({ page: "1", pageSize: "100", mode: "all", status: "ALL" });
+            // pageSize must cover every row this month, not just a page of
+            // it — the list sorts unassigned customers first, so a small
+            // page size (previously 100, against ~180 unassigned customers)
+            // silently pushed every assigned/completed schedule off the end
+            // of the page. The Assigned/Completed pill counts (a separate
+            // unpaginated COUNT) still looked right while the actual list
+            // under them came back empty.
+            const params = new URLSearchParams({ page: "1", pageSize: "1000", mode: "all", status: "ALL" });
             if (search.trim()) params.set("search", search.trim());
             const res = await fetch(`/api/service-schedules/upcoming?${params.toString()}`, { cache: "no-store" });
             const data = await res.json();

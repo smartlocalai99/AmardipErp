@@ -52,7 +52,7 @@ export default async function handler(req, res) {
     await ensureServiceSchedulesTable();
 
     const page = cleanNumber(req.query.page, 1, 1, 999999);
-    const pageSize = cleanNumber(req.query.pageSize, 25, 10, 100);
+    const pageSize = cleanNumber(req.query.pageSize, 25, 10, 1000);
     const offset = (page - 1) * pageSize;
     const mode = VALID_MODES.has(String(req.query.mode || "all"))
       ? String(req.query.mode || "all")
