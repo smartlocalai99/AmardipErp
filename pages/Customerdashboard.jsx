@@ -91,15 +91,52 @@ function parsePortalDate(value) {
 }
 
 function formatPortalDate(value) {
-    const parsed = parsePortalDate(value);
-    if (!parsed) return "Not recorded";
+    return formatPortalDateObj(parsePortalDate(value));
+}
+
+function formatPortalDateObj(date) {
+    if (!date) return "Not recorded";
 
     return new Intl.DateTimeFormat("en-IN", {
         day: "numeric",
         month: "short",
         year: "numeric",
         timeZone: "UTC",
-    }).format(parsed);
+    }).format(date);
+}
+
+// Warranty runs exactly one year from HOC — used instead of the stored
+// amc_warranty_due field so the customer's own dashboard can't drift from
+// the same live rule the rest of the app uses.
+function addOneYearUTC(date) {
+    if (!date) return null;
+    const year = date.getUTCFullYear() + 1;
+    const month = date.getUTCMonth();
+    const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+    const day = Math.min(date.getUTCDate(), lastDay);
+    return new Date(Date.UTC(year, month, day));
+}
+
+// A "battery level" style indicator: N segments, filled left-to-right in
+// proportion to how much of the contract's total span is still remaining.
+function ContractProgressBar({ fraction, active }) {
+    const segmentCount = 24;
+    const filled = Math.round(Math.min(1, Math.max(0, fraction)) * segmentCount);
+
+    return (
+        <div className="flex items-center gap-0.75" role="img" aria-label={`${Math.round(fraction * 100)}% of contract period remaining`}>
+            {Array.from({ length: segmentCount }, (_, index) => (
+                <span
+                    key={index}
+                    className={`h-3.5 w-1 rounded-full ${
+                        index < filled
+                            ? (active ? "bg-emerald-500" : "bg-red-300")
+                            : (active ? "bg-emerald-900/10" : "bg-white/25")
+                    }`}
+                />
+            ))}
+        </div>
+    );
 }
 
 function formatGroupDate(dateStr) {
@@ -306,9 +343,6 @@ export default function Customerdashboard({
         building: primaryCustomer?.location || primaryCustomer?.customer_name || "Not available",
         address: [primaryCustomer?.address, primaryCustomer?.city].filter(Boolean).join(", ") || "Not available"
     });
-    const [passwordVal, setPasswordVal] = useState("");
-    const [profileMessage, setProfileMessage] = useState("");
-    const [profileErr, setProfileErr] = useState("");
 
     const [materialRequests, setMaterialRequests] = useState([]);
 
@@ -365,9 +399,21 @@ export default function Customerdashboard({
         return () => window.clearTimeout(initialLoad);
     }, [fetchCustomerComplaints, fetchCustomerNotifications]);
 
-    const contractEndDate = parsePortalDate(amcData.endDate);
     const contractStatus = String(amcData.status || "").trim().toUpperCase();
-    const isEligibleContractStatus = ["ACTIVE", "AMC", "EMC", "WARRANTY"].includes(contractStatus);
+    // "1M"/"2M" are short informal AMC arrangements — AMC in substance, same
+    // as the admin dashboard's warranty/AMC bucketing.
+    const CONTRACT_LABELS = { AMC: "AMC", "1M": "AMC", "2M": "AMC", EMC: "EMC", WARRANTY: "Warranty" };
+    const contractLabel = CONTRACT_LABELS[contractStatus] || "Expired";
+    const isWarrantyStatus = contractStatus === "WARRANTY";
+
+    const hocDate = parsePortalDate(primaryCustomer?.hoc_date);
+    // Warranty's end date is always computed live (HOC + 1 year), not the
+    // possibly-stale stored field; AMC/EMC keep the business-set contract
+    // dates since those aren't derivable from HOC.
+    const contractStartDate = isWarrantyStatus ? hocDate : parsePortalDate(amcData.startDate);
+    const contractEndDate = isWarrantyStatus ? addOneYearUTC(hocDate) : parsePortalDate(amcData.endDate);
+
+    const isEligibleContractStatus = Boolean(CONTRACT_LABELS[contractStatus]);
     const contractEndTime = contractEndDate ? contractEndDate.getTime() + (24 * 60 * 60 * 1000) - 1 : null;
     const contractEvaluationTime = parsePortalDate(contractEvaluationDate)?.getTime() || 0;
     const amcIsActive = isEligibleContractStatus && (contractEndTime === null || contractEndTime >= contractEvaluationTime);
@@ -375,6 +421,12 @@ export default function Customerdashboard({
     const remainingDays = amcIsActive && contractEndTime !== null
         ? Math.max(0, Math.ceil((contractEndTime - contractEvaluationTime) / (1000 * 60 * 60 * 24)))
         : 0;
+
+    const contractStartTime = contractStartDate ? contractStartDate.getTime() : null;
+    const contractTotalDays = (contractStartTime !== null && contractEndTime !== null)
+        ? Math.max(1, Math.round((contractEndTime - contractStartTime) / (1000 * 60 * 60 * 24)))
+        : 365;
+    const contractProgressFraction = amcIsActive ? Math.min(1, Math.max(0, remainingDays / contractTotalDays)) : 0;
 
     const latestServiceVisit = serviceVisits[0] || null;
     const latestVisitByCustomer = new Map();
@@ -398,30 +450,6 @@ export default function Customerdashboard({
             router.push("/Customerlogin");
         } catch (e) {
             router.push("/Customerlogin");
-        }
-    };
-
-    const handlePasswordChange = async (e) => {
-        e.preventDefault();
-        setProfileErr("");
-        setProfileMessage("");
-        if (passwordVal.trim().length < 4) {
-            setProfileErr("Password must be at least 4 characters.");
-            return;
-        }
-
-        try {
-            const response = await fetch("/api/customer/change-password", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ newPassword: passwordVal }),
-            });
-            const data = await response.json();
-            if (!response.ok || !data.success) throw new Error(data.message || "Unable to update password.");
-            setPasswordVal("");
-            setProfileMessage("Password updated successfully!");
-        } catch (error) {
-            setProfileErr(error.message || "Unable to update password.");
         }
     };
 
@@ -664,18 +692,21 @@ export default function Customerdashboard({
                                             ? "border-emerald-300 bg-white/65 text-emerald-800"
                                             : "border-white/25 bg-white/15 text-white"
                                             }`}>
-                                            {amcIsActive ? "Active AMC Contract" : "Invalid AMC Contract"}
+                                            {amcIsActive ? `Active ${contractLabel}` : `${contractLabel === "Expired" ? "Expired" : `${contractLabel} Expired`}`}
                                         </span>
                                         <h2 className="text-xl font-black mt-3 leading-tight">{amcData.number}</h2>
                                         <p className={`text-[10.5px] font-semibold mt-1 ${amcIsActive ? "text-emerald-800" : "text-white/85"}`}>
                                             {amcIsActive
-                                                ? `${contractEndDate ? `Valid until ${formatPortalDate(amcData.endDate)} (${remainingDays} days left)` : "Valid contract"}`
-                                                : `${contractEndDate ? `Invalid - expired on ${formatPortalDate(amcData.endDate)}` : "Invalid - contract inactive"}`}
+                                                ? `${contractEndDate ? `Valid until ${formatPortalDateObj(contractEndDate)} (${remainingDays} days left)` : "Valid contract"}`
+                                                : `${contractEndDate ? `Expired on ${formatPortalDateObj(contractEndDate)}` : "No active contract on file"}`}
                                         </p>
                                     </div>
-                                    <div className={`h-10.5 w-10.5 rounded-xl bg-white border flex items-center justify-center font-black text-sm ${amcIsActive ? "border-emerald-200 text-emerald-700" : "border-white/70 text-red-700"}`}>
-                                        AMC
+                                    <div className={`h-10.5 w-10.5 shrink-0 rounded-xl bg-white border flex items-center justify-center font-black text-[11px] text-center leading-none ${amcIsActive ? "border-emerald-200 text-emerald-700" : "border-white/70 text-red-700"}`}>
+                                        {contractLabel}
                                     </div>
+                                </div>
+                                <div className="mt-4">
+                                    <ContractProgressBar fraction={contractProgressFraction} active={amcIsActive} />
                                 </div>
                                 <p className={`mt-3 text-[10px] font-black uppercase tracking-widest ${amcIsActive ? "text-emerald-700/80" : "text-white/70"}`}>Tap to view contract maintenance</p>
                             </button>
@@ -693,9 +724,9 @@ export default function Customerdashboard({
                                         <p className={`text-2xl font-black mt-2 ${openComplaints > 0 ? "text-red-600" : "text-slate-900"}`}>{openComplaints}</p>
                                     </div>
                                     <div className={`rounded-3xl border p-4 shadow-sm flex flex-col justify-between h-26 select-none ${amcIsActive ? "border-emerald-200 bg-emerald-50" : "border-red-500 bg-red-600"}`}>
-                                        <span className={`text-[10px] font-bold uppercase tracking-wider leading-tight ${amcIsActive ? "text-emerald-700" : "text-white/80"}`}>Contract AMC Status</span>
+                                        <span className={`text-[10px] font-bold uppercase tracking-wider leading-tight ${amcIsActive ? "text-emerald-700" : "text-white/80"}`}>Contract Status</span>
                                         <span className={`h-fit w-fit text-[9px] font-black px-2 py-0.5 rounded mt-2 ${amcIsActive ? "bg-emerald-200 text-emerald-900" : "bg-white/20 text-white"}`}>
-                                            {amcIsActive ? "Active" : "Invalid"}
+                                            {amcIsActive ? `${contractLabel} Active` : "Expired"}
                                         </span>
                                     </div>
                                     <button type="button" onClick={() => setActiveTab("service")} className="rounded-3xl bg-white border border-slate-200/60 p-4 text-left shadow-sm flex flex-col justify-between h-26 select-none active:scale-[0.98] transition">
@@ -1139,35 +1170,6 @@ export default function Customerdashboard({
                                 </div>
                             </div>
 
-                            {/* Password change */}
-                            <form onSubmit={handlePasswordChange} className="rounded-3xl bg-white border border-slate-200 p-5 shadow-sm space-y-4">
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 pl-1">Security & Password</h3>
-
-                                {profileErr && <p className="text-[11px] font-bold text-red-600 pl-1">{profileErr}</p>}
-                                {profileMessage && <p className="text-[11px] font-bold text-emerald-600 pl-1">{profileMessage}</p>}
-
-                                <div>
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5 pl-1">Password</label>
-                                    <input
-                                        type="password"
-                                        required
-                                        minLength={4}
-                                        value={passwordVal}
-                                        onChange={(e) => setPasswordVal(e.target.value)}
-                                        placeholder="Enter a new password"
-                                        autoComplete="new-password"
-                                        className="h-10.5 w-full px-3.5 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition font-medium"
-                                    />
-                                </div>
-
-                                <button
-                                    type="submit"
-                                    className="h-11 w-full bg-[#0a649d] text-white rounded-xl font-bold text-xs tracking-wider transition hover:bg-[#085282]"
-                                >
-                                    UPDATE PASSWORD
-                                </button>
-                            </form>
-
                             {/* Support moved into Profile */}
                             <section className="space-y-3">
                                 <div className="flex items-center gap-3 px-1">
@@ -1427,7 +1429,7 @@ export default function Customerdashboard({
                                         </div>
                                         <div>
                                             <p className="text-[10px] font-black uppercase tracking-widest text-white/70">Contract Maintenance</p>
-                                            <h2 className="text-base font-black">AMC Summary</h2>
+                                            <h2 className="text-base font-black">{contractLabel} Summary</h2>
                                         </div>
                                     </div>
                                     <button onClick={() => setViewingAmc(false)} className="h-8 w-8 rounded-full bg-white/10">
@@ -1438,15 +1440,18 @@ export default function Customerdashboard({
                             <div className="space-y-4 p-5">
                                 <div className={`rounded-2xl border p-4 ${amcIsActive ? "border-emerald-200 bg-emerald-50" : "border-red-500 bg-red-600 text-white"}`}>
                                     <p className={`text-[10px] font-black uppercase tracking-widest ${amcIsActive ? "text-emerald-700" : "text-white/80"}`}>
-                                        {amcIsActive ? "Active Contract" : "Invalid Contract"}
+                                        {amcIsActive ? `Active ${contractLabel}` : `${contractLabel} Expired`}
                                     </p>
                                     <p className={`mt-1 text-xl font-black ${amcIsActive ? "text-slate-900" : "text-white"}`}>{amcData.number}</p>
                                     <p className={`mt-1 text-xs font-bold ${amcIsActive ? "text-slate-500" : "text-white/80"}`}>
-                                        {formatPortalDate(amcData.startDate)} to {formatPortalDate(amcData.endDate)}
+                                        {formatPortalDateObj(contractStartDate)} to {formatPortalDateObj(contractEndDate)}
                                     </p>
+                                    <div className="mt-3">
+                                        <ContractProgressBar fraction={contractProgressFraction} active={amcIsActive} />
+                                    </div>
                                 </div>
                                 <div className="grid grid-cols-2 gap-2 text-xs font-bold">
-                                    <p className={`rounded-2xl p-3 ${amcIsActive ? "bg-emerald-50 text-slate-700" : "bg-red-50 text-slate-700"}`}>Status<br /><span className={amcIsActive ? "text-emerald-700" : "text-red-700"}>{amcIsActive ? "Active" : "Invalid"}</span></p>
+                                    <p className={`rounded-2xl p-3 ${amcIsActive ? "bg-emerald-50 text-slate-700" : "bg-red-50 text-slate-700"}`}>Status<br /><span className={amcIsActive ? "text-emerald-700" : "text-red-700"}>{amcIsActive ? contractLabel : "Expired"}</span></p>
                                     <p className="rounded-2xl bg-slate-50 p-3">Remaining<br /><span className={amcIsActive ? "text-[#0a649d]" : "text-red-700"}>{amcIsActive ? `${remainingDays} days` : "Expired"}</span></p>
                                     <p className="rounded-2xl bg-slate-50 p-3">Lifts Covered<br /><span className="text-slate-900">{lifts.length}</span></p>
                                     <p className="rounded-2xl bg-slate-50 p-3">Last Service<br /><span className="text-slate-900">{latestServiceVisit ? formatPortalDate(latestServiceVisit.service_date) : "Not recorded"}</span></p>
