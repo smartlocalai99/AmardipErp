@@ -61,6 +61,13 @@ async function ensureJobCompletionsTable() {
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_longitude DOUBLE PRECISION;
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_accuracy_meters DOUBLE PRECISION;
   `);
+  // elevator_service_visits has a UNIQUE(source_sheet, source_row_no) index
+  // from the spreadsheet-sync import. Every app-completed job used to insert
+  // the literal pair ('App - Technician Completion', 0), so the very first
+  // completion ever succeeded and every one after it hit a duplicate-key
+  // error and silently failed to save. This sequence gives each app
+  // completion its own row number under that same source_sheet label.
+  await query(`CREATE SEQUENCE IF NOT EXISTS app_completion_row_seq START 1000000`);
   tableReady = true;
 }
 
@@ -208,7 +215,7 @@ export default async function handler(req, res) {
              ard_condition, motor_condition, gear_oil_condition, brake_condition,
              rope_condition, rail_clips_condition, limit_switch_condition,
              gate_locks_condition, rcr_condition, sensors_condition, osg_condition
-           ) VALUES ($1, 0, 'App - Technician Completion', CURRENT_DATE,
+           ) VALUES ($1, nextval('app_completion_row_seq'), 'App - Technician Completion', CURRENT_DATE,
              $2, $3, $4, $5, $6, $7, $8, $9, 'MONTHLY_SERVICE', $10, $11,
              $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
            RETURNING id`,

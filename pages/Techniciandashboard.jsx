@@ -158,12 +158,6 @@ export default function Techniciandashboard({ user }) {
     const [sigCustomerName, setSigCustomerName] = useState("");
     const [sigConsentChecked, setSigConsentChecked] = useState(false);
 
-    // Camera/Selfie verification states
-    const videoRef = useRef(null);
-    const [cameraStream, setCameraStream] = useState(null);
-    const [cameraActive, setCameraActive] = useState(false);
-    const [selfieCaptured, setSelfieCaptured] = useState(false);
-    const [selfieUrl, setSelfieUrl] = useState("");
     const [checkingIn, setCheckingIn] = useState(false);
     const [gpsCoords, setGpsCoords] = useState(null); // { latitude, longitude, accuracy }
     const [gpsError, setGpsError] = useState("");
@@ -205,6 +199,14 @@ export default function Techniciandashboard({ user }) {
         const isPrimary = Number(c.assignedTechnicianUserId) === Number(user.id);
         const seniorName = (c.assignees || []).find((a) => Number(a.id) === Number(c.assignedTechnicianUserId))?.name
             || c.assignedTechnicianName;
+        const isService = c.complaintType === "SERVICE_REQUEST";
+
+        // Reopening a job (assigned or already completed) must show what was
+        // actually saved, not a blank form — otherwise it looks empty/broken
+        // both for a fresh open and for browsing completed history.
+        const jc = c.jobCompletion || null;
+        const hasGps = jc && Number.isFinite(Number(jc.gpsLatitude)) && Number.isFinite(Number(jc.gpsLongitude));
+
         return {
             id: c.complaintNo,
             dbId: c.id,
@@ -225,13 +227,27 @@ export default function Techniciandashboard({ user }) {
             assignedTime: c.assignedAt ? new Date(c.assignedAt).toLocaleString("en-IN") : "Assigned",
             assignedBy: c.assignedByUsername || "Office/Admin",
             status: ["RESOLVED", "CLOSED"].includes(c.status) ? "Completed" : c.status?.replaceAll("_", " ") || "ASSIGNED",
-            checklist: Object.fromEntries(CHECKLIST_ITEMS.map((item) => [item.key, null])),
-            workReport: { problem: "", workPerformed: "", sparePartsUsed: "", remarks: "", status: "Completed" },
-            gpsCheckedIn: false,
-            checkInTime: null,
-            selfieUrl: "",
-            signature: null,
-            completeTime: null,
+            // Scheduled monthly service visits go through the full 11-point
+            // checklist; ad-hoc breakdown tickets skip it for a simple
+            // comments + resolved field instead.
+            isService,
+            checklist: jc?.checklist && Object.keys(jc.checklist).length
+                ? { ...Object.fromEntries(CHECKLIST_ITEMS.map((item) => [item.key, null])), ...jc.checklist }
+                : Object.fromEntries(CHECKLIST_ITEMS.map((item) => [item.key, null])),
+            workReport: {
+                problem: (isService && jc?.problemIdentified) || "",
+                workPerformed: (isService && jc?.workPerformed) || "",
+                sparePartsUsed: jc?.sparePartsUsed || "",
+                remarks: "",
+                status: jc?.statusResolution || "Completed",
+            },
+            comments: (!isService && (jc?.workPerformed || jc?.problemIdentified)) || "",
+            resolved: jc ? jc.statusResolution !== "Not Resolved" : true,
+            gpsCheckedIn: Boolean(jc),
+            checkInTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
+            gpsCoords: hasGps ? { latitude: Number(jc.gpsLatitude), longitude: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null,
+            signature: jc?.customerRepName ? { customerName: jc.customerRepName } : null,
+            completeTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
         };
     }
 
@@ -288,7 +304,7 @@ export default function Techniciandashboard({ user }) {
     const openJobDetails = (job) => {
         acknowledgeTicketNotification(job?.dbId);
         setActiveJob(job);
-        setSigCustomerName(job?.customerName || "");
+        setSigCustomerName(job?.signature?.customerName || job?.customerName || "");
         setActiveTab("jobs");
     };
 
@@ -299,6 +315,10 @@ export default function Techniciandashboard({ user }) {
 
     // GPS Arrival Verification — reads the device's real coordinates via the
     // browser Geolocation API (no fake/simulated location).
+    // One tap: browser prompts for location permission (native popup, no
+    // custom confirm screen), captures a fresh fix (maximumAge: 0, never
+    // cached), and immediately unlocks the rest of the job form — no extra
+    // "confirm arrival" step or success dialog in between.
     const triggerGPSCheckIn = async () => {
         setCheckingIn(true);
         setGpsError("");
@@ -317,99 +337,26 @@ export default function Techniciandashboard({ user }) {
                     maximumAge: 0,
                 });
             });
-            setGpsCoords({
+            const coords = {
                 latitude: position.coords.latitude,
                 longitude: position.coords.longitude,
                 accuracy: position.coords.accuracy,
-            });
+            };
+            const timeNow = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+            setGpsCoords(coords);
+            setJobs(prev => prev.map(job => job.id === activeJob.id
+                ? { ...job, gpsCheckedIn: true, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }
+                : job));
+            setActiveJob(prev => ({ ...prev, gpsCheckedIn: true, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }));
         } catch (err) {
             setGpsError(
                 err.code === 1
                     ? "Location permission denied. Enable location access for this site and try again."
                     : "Couldn't get a GPS fix. Move to an open area and try again."
             );
+        } finally {
             setCheckingIn(false);
-            return;
         }
-
-        setSelfieCaptured(true);
-        setSelfieUrl("LOCATION_CAPTURED");
-        setCameraActive(false);
-        setCheckingIn(false);
-    };
-
-    const simulateSelfieCapture = () => {
-        // Mock countdown
-        let count = 3;
-        const interval = setInterval(() => {
-            count--;
-            if (count === 0) {
-                clearInterval(interval);
-                // Captured
-                setSelfieUrl("MOCK_SELFIE_VERIFIED_OK");
-                setSelfieCaptured(true);
-                setCameraActive(false);
-            }
-        }, 600);
-    };
-
-    const captureRealSelfie = () => {
-        if (cameraStream && videoRef.current) {
-            const canvas = document.createElement("canvas");
-            canvas.width = 300;
-            canvas.height = 300;
-            const ctx = canvas.getContext("2d");
-            // Crop square
-            ctx.drawImage(videoRef.current, 10, 0, 220, 220, 0, 0, 300, 300);
-            const data = canvas.toDataURL("image/jpeg");
-            setSelfieUrl(data);
-            setSelfieCaptured(true);
-            
-            // Stop tracks
-            cameraStream.getTracks().forEach(track => track.stop());
-            setCameraStream(null);
-            setCameraActive(false);
-        } else {
-            simulateSelfieCapture();
-        }
-    };
-
-    const confirmCheckIn = () => {
-        const timeNow = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-        setJobs(prev => prev.map(job => {
-            if (job.id === activeJob.id) {
-                return {
-                    ...job,
-                    gpsCheckedIn: true,
-                    checkInTime: timeNow,
-                    selfieUrl: selfieUrl || "LOCATION_CAPTURED",
-                    gpsCoords,
-                    status: "Arrived"
-                };
-            }
-            return job;
-        }));
-        setActiveJob(prev => ({
-            ...prev,
-            gpsCheckedIn: true,
-            checkInTime: timeNow,
-            selfieUrl: selfieUrl || "LOCATION_CAPTURED",
-            gpsCoords,
-            status: "Arrived"
-        }));
-
-        // Reset states
-        setSelfieCaptured(false);
-        setSelfieUrl("");
-        const coordsLabel = gpsCoords
-            ? `${gpsCoords.latitude.toFixed(5)}°, ${gpsCoords.longitude.toFixed(5)}° (±${Math.round(gpsCoords.accuracy)}m)`
-            : "location unavailable";
-        Swal.fire({
-            icon: "success",
-            title: "Location check-in successful!",
-            text: `Captured ${coordsLabel}. You can now perform the work checklist.`,
-            confirmButtonColor: "#0a649d",
-        });
     };
 
     // QR scan simulation
@@ -546,22 +493,23 @@ export default function Techniciandashboard({ user }) {
     const handleCompleteJob = async (e) => {
         e.preventDefault();
 
-        // Checklist validation
-        const pendingItems = Object.entries(activeJob.checklist).filter(([_, val]) => !val);
-        if (pendingItems.length > 0) {
-            Swal.fire({ icon: "warning", title: "Checklist incomplete", text: `You must complete all ${CHECKLIST_ITEMS.length} checklist checkpoints before closing.`, confirmButtonColor: "#0a649d" });
-            return;
-        }
-
         // GPS Check-in validation
         if (!activeJob.gpsCheckedIn) {
             Swal.fire({ icon: "warning", title: "Location required", text: "Please complete the GPS location check-in first.", confirmButtonColor: "#0a649d" });
             return;
         }
 
-        // Report Text check
-        if (!activeJob.workReport.problem.trim() || !activeJob.workReport.workPerformed.trim()) {
-            Swal.fire({ icon: "warning", title: "Missing details", text: "Please write details in Problem Identified and Work Performed fields.", confirmButtonColor: "#0a649d" });
+        // Service visits: the 11-point checklist is mandatory. Breakdown
+        // tickets: a short comment on what was found/done is mandatory
+        // instead — no checklist for an ad-hoc repair.
+        if (activeJob.isService) {
+            const pendingItems = Object.entries(activeJob.checklist).filter(([_, val]) => !val);
+            if (pendingItems.length > 0) {
+                Swal.fire({ icon: "warning", title: "Checklist incomplete", text: `You must complete all ${CHECKLIST_ITEMS.length} checklist checkpoints before closing.`, confirmButtonColor: "#0a649d" });
+                return;
+            }
+        } else if (!activeJob.comments.trim()) {
+            Swal.fire({ icon: "warning", title: "Details required", text: "Please add a comment describing what was found and done.", confirmButtonColor: "#0a649d" });
             return;
         }
 
@@ -589,15 +537,15 @@ export default function Techniciandashboard({ user }) {
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     jobDbId: activeJob.dbId,
-                    problemIdentified: activeJob.workReport.problem,
-                    workPerformed: activeJob.workReport.workPerformed,
+                    problemIdentified: activeJob.isService ? activeJob.workReport.problem : activeJob.comments,
+                    workPerformed: activeJob.isService ? activeJob.workReport.workPerformed : activeJob.comments,
                     sparePartsUsed: activeJob.workReport.sparePartsUsed,
-                    statusResolution: activeJob.workReport.status,
+                    statusResolution: activeJob.isService ? activeJob.workReport.status : (activeJob.resolved ? "Resolved" : "Not Resolved"),
                     gpsCheckedIn: activeJob.gpsCheckedIn,
                     gpsLatitude: activeJob.gpsCoords?.latitude ?? null,
                     gpsLongitude: activeJob.gpsCoords?.longitude ?? null,
                     gpsAccuracyMeters: activeJob.gpsCoords?.accuracy ?? null,
-                    checklistData: activeJob.checklist,
+                    checklistData: activeJob.isService ? activeJob.checklist : {},
                     customerRepName: sigCustomerName,
                     voiceLanguage: voiceLanguage !== "auto" ? voiceLanguage : null,
                     voiceOriginalTranscript: voiceTranscript || null,
@@ -1153,6 +1101,16 @@ export default function Techniciandashboard({ user }) {
                                         </div>
                                     </div>
 
+                                    {activeJob.status === "Completed" && (
+                                        <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3.5 flex items-center gap-2.5">
+                                            <svg className="h-5 w-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            <div>
+                                                <p className="text-xs font-black text-emerald-800">Job completed{activeJob.completeTime ? ` — ${activeJob.completeTime}` : ""}</p>
+                                                <p className="text-[10px] font-semibold text-emerald-700">Showing what was submitted. This job is closed.</p>
+                                            </div>
+                                        </div>
+                                    )}
+
                                     {/* SECTION 1: CUSTOMER & LIFT INFO */}
                                     <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
                                         <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Site & Asset Details</h3>
@@ -1226,80 +1184,22 @@ export default function Techniciandashboard({ user }) {
 
                                         {!activeJob.gpsCheckedIn ? (
                                             <div className="space-y-4">
-                                                {!cameraActive ? (
-                                                    <>
-                                                        <button
-                                                            onClick={triggerGPSCheckIn}
-                                                            disabled={checkingIn || activeJob.status === "Assigned" || !activeJob.isPrimary}
-                                                            className="h-12 w-full bg-[#0a649d] text-white hover:bg-[#085282] disabled:opacity-40 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition active:scale-98 shadow-sm cursor-pointer"
-                                                        >
-                                                            {checkingIn ? (
-                                                                <span>VERIFYING SATELLITE LOC...</span>
-                                                            ) : (
-                                                                <>
-                                                                    <svg className="h-4.5 w-4.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><circle cx="12" cy="12" r="3" /></svg>
-                                                                    <span>Capture GPS Location</span>
-                                                                </>
-                                                            )}
-                                                        </button>
-                                                        {gpsError && (
-                                                            <p className="text-[10px] font-bold text-red-600 text-center">{gpsError}</p>
-                                                        )}
-                                                    </>
-                                                ) : (
-                                                    <div className="space-y-4 text-center">
-                                                        <div className="relative h-48 w-full rounded-2xl bg-black overflow-hidden border border-slate-200">
-                                                            <video ref={videoRef} autoPlay playsInline className="h-full w-full object-cover scale-x-[-1]"></video>
-                                                            <div className="absolute inset-0 border-[3px] border-[#59e0ff] rounded-2xl pointer-events-none opacity-50 m-4"></div>
-                                                            
-                                                            {/* Virt Shutter animation */}
-                                                            {selfieCaptured && (
-                                                                <div className="absolute inset-0 bg-white flex items-center justify-center animate-out fade-out duration-300">
-                                                                    <span className="font-extrabold text-black uppercase tracking-wider">CAPTURE DONE</span>
-                                                                </div>
-                                                            )}
-                                                        </div>
-
-                                                        <div className="flex gap-2">
-                                                            <button
-                                                                onClick={captureRealSelfie}
-                                                                className="h-10 flex-1 bg-emerald-600 text-white rounded-xl text-xs font-bold uppercase transition active:scale-95"
-                                                            >
-                                                                Capture Selfie
-                                                            </button>
-                                                            <button
-                                                                onClick={() => {
-                                                                    if (cameraStream) {
-                                                                        cameraStream.getTracks().forEach(track => track.stop());
-                                                                    }
-                                                                    setCameraActive(false);
-                                                                }}
-                                                                className="h-10 px-4 border border-slate-200 text-slate-500 rounded-xl text-xs font-bold transition active:scale-95"
-                                                            >
-                                                                Cancel
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                )}
-
-                                                {selfieCaptured && (
-                                                    <div className="p-3 bg-emerald-50 border border-emerald-100 rounded-2xl flex items-center justify-between animate-in zoom-in-95">
-                                                        <div className="flex items-center gap-2.5">
-                                                            <div className="h-9 w-9 rounded-lg bg-emerald-100 border border-emerald-200 flex items-center justify-center text-emerald-600">
-                                                                <svg className="h-5.5 w-5.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                                                            </div>
-                                                            <div className="text-left">
-                                                                <span className="block text-[10px] font-bold text-emerald-800 uppercase tracking-wide leading-none">Location Captured</span>
-                                                                <span className="text-[9px] text-slate-400 font-bold block mt-0.5">GPS check-in ready.</span>
-                                                            </div>
-                                                        </div>
-                                                        <button
-                                                            onClick={confirmCheckIn}
-                                                            className="h-8 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold tracking-wide active:scale-95 transition"
-                                                        >
-                                                            CONFIRM ARRIVAL
-                                                        </button>
-                                                    </div>
+                                                <button
+                                                    onClick={triggerGPSCheckIn}
+                                                    disabled={checkingIn || activeJob.status === "Assigned" || !activeJob.isPrimary}
+                                                    className="h-12 w-full bg-[#0a649d] text-white hover:bg-[#085282] disabled:opacity-40 rounded-xl text-xs font-black uppercase tracking-wider flex items-center justify-center gap-2 transition active:scale-98 shadow-sm cursor-pointer"
+                                                >
+                                                    {checkingIn ? (
+                                                        <span>VERIFYING SATELLITE LOC...</span>
+                                                    ) : (
+                                                        <>
+                                                            <svg className="h-4.5 w-4.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><circle cx="12" cy="12" r="3" /></svg>
+                                                            <span>Capture GPS Location</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                                {gpsError && (
+                                                    <p className="text-[10px] font-bold text-red-600 text-center">{gpsError}</p>
                                                 )}
 
                                                 {activeJob.status === "Assigned" && (
@@ -1327,8 +1227,8 @@ export default function Techniciandashboard({ user }) {
                                         )}
                                     </div>
 
-                                    {/* SECTION 3: SERVICE CHECKLIST (ONLY IF ARRIVED) */}
-                                    {activeJob.gpsCheckedIn && (
+                                    {/* SECTION 3: SERVICE CHECKLIST (SERVICE VISITS ONLY, ONLY IF ARRIVED) */}
+                                    {activeJob.gpsCheckedIn && activeJob.isService && (
                                         <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4 animate-in slide-in-from-bottom-3">
                                             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
                                                 <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d]">Lift Inspection Checklist</h3>
@@ -1355,8 +1255,9 @@ export default function Techniciandashboard({ user }) {
                                                                         <button
                                                                             key={option}
                                                                             type="button"
+                                                                            disabled={activeJob.status === "Completed"}
                                                                             onClick={() => handleChecklistSelect(item.key, option)}
-                                                                            className={`h-8 rounded-lg text-[9.5px] font-black uppercase tracking-wide transition active:scale-95 ${tone}`}
+                                                                            className={`h-8 rounded-lg text-[9.5px] font-black uppercase tracking-wide transition active:scale-95 disabled:active:scale-100 disabled:cursor-default ${tone}`}
                                                                         >
                                                                             {option}
                                                                         </button>
@@ -1370,16 +1271,57 @@ export default function Techniciandashboard({ user }) {
                                         </div>
                                     )}
 
-                                    {/* SECTION 5: WORK REPORT REMARKS */}
-                                    {activeJob.gpsCheckedIn && (
-                                        <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
-                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Technical Work Report</h3>
-                                            
+                                    {/* SECTION 4: BREAKDOWN DETAILS (BREAKDOWN TICKETS ONLY, ONLY IF ARRIVED) */}
+                                    {activeJob.gpsCheckedIn && !activeJob.isService && (
+                                        <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4 animate-in slide-in-from-bottom-3">
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Details</h3>
                                             <div className="space-y-4 text-xs">
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Problem Identified</label>
-                                                    <textarea 
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Details / Comments</label>
+                                                    <textarea
                                                         required
+                                                        rows={4}
+                                                        disabled={activeJob.status === "Completed"}
+                                                        value={activeJob.comments}
+                                                        onChange={(e) => setActiveJob(prev => ({ ...prev, comments: e.target.value }))}
+                                                        placeholder="What was the issue, and what did you do about it?"
+                                                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 outline-none text-base bg-white focus:border-[#0a649d] resize-none leading-relaxed font-semibold disabled:bg-slate-50 disabled:text-slate-600"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Status</label>
+                                                    <div className="grid grid-cols-2 gap-2">
+                                                        <button
+                                                            type="button"
+                                                            disabled={activeJob.status === "Completed"}
+                                                            onClick={() => setActiveJob(prev => ({ ...prev, resolved: true }))}
+                                                            className={`h-11 rounded-xl text-xs font-black uppercase tracking-wide transition active:scale-95 disabled:active:scale-100 ${activeJob.resolved ? "bg-emerald-600 text-white" : "bg-emerald-50 text-emerald-700"}`}
+                                                        >
+                                                            Resolved
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            disabled={activeJob.status === "Completed"}
+                                                            onClick={() => setActiveJob(prev => ({ ...prev, resolved: false }))}
+                                                            className={`h-11 rounded-xl text-xs font-black uppercase tracking-wide transition active:scale-95 disabled:active:scale-100 ${!activeJob.resolved ? "bg-red-600 text-white" : "bg-red-50 text-red-700"}`}
+                                                        >
+                                                            Not Resolved
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* SECTION 5: WORK REPORT REMARKS (SERVICE VISITS ONLY) */}
+                                    {activeJob.gpsCheckedIn && activeJob.isService && (
+                                        <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Technical Work Report</h3>
+
+                                            <div className="space-y-4 text-xs">
+                                                <div>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Problem Identified (optional)</label>
+                                                    <textarea
                                                         rows={2}
                                                         value={activeJob.workReport.problem}
                                                         onChange={(e) => handleReportFieldChange("problem", e.target.value)}
@@ -1508,9 +1450,8 @@ export default function Techniciandashboard({ user }) {
                                                 {/* ─────────────────────────────────────────────────────────────── */}
 
                                                 <div>
-                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Work Performed</label>
+                                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Work Performed (optional)</label>
                                                     <textarea
-                                                        required
                                                         rows={2}
                                                         value={activeJob.workReport.workPerformed}
                                                         onChange={(e) => handleReportFieldChange("workPerformed", e.target.value)}
@@ -1564,14 +1505,23 @@ export default function Techniciandashboard({ user }) {
                                     )}
 
                                     {/* SECTION 6: CUSTOMER DIGITAL SIGNATURE */}
-                                    {activeJob.gpsCheckedIn && (
+                                    {activeJob.gpsCheckedIn && activeJob.status === "Completed" && (
+                                        <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-2">
+                                            <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Customer Sign-Off</h3>
+                                            <p className="text-xs font-semibold text-slate-600">
+                                                Signed by <span className="font-black text-slate-800">{activeJob.signature?.customerName || sigCustomerName || "—"}</span>
+                                            </p>
+                                        </div>
+                                    )}
+
+                                    {activeJob.gpsCheckedIn && activeJob.status !== "Completed" && (
                                         <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-4">
                                             <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Customer Sign-Off</h3>
-                                            
+
                                             <div className="space-y-4 text-xs">
                                                 <div>
                                                     <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Customer Representative Name</label>
-                                                    <input 
+                                                    <input
                                                         type="text"
                                                         required
                                                         placeholder="Enter client rep's name"
@@ -1585,17 +1535,17 @@ export default function Techniciandashboard({ user }) {
                                                 <div className="space-y-1.5">
                                                     <div className="flex justify-between items-center px-0.5">
                                                         <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Draw Signature</label>
-                                                        <button 
-                                                            type="button" 
+                                                        <button
+                                                            type="button"
                                                             onClick={clearSignaturePad}
                                                             className="text-[9.5px] font-black text-red-500 hover:underline bg-transparent border-0 cursor-pointer"
                                                         >
                                                             CLEAR PAD
                                                         </button>
                                                     </div>
-                                                    
+
                                                     <div className="h-32 w-full border border-slate-200 bg-slate-50/50 rounded-2xl overflow-hidden relative shadow-inner">
-                                                        <canvas 
+                                                        <canvas
                                                             ref={canvasRef}
                                                             height={128}
                                                             width={360}
@@ -1618,11 +1568,11 @@ export default function Techniciandashboard({ user }) {
 
                                                 {/* Consent */}
                                                 <label className="flex items-start gap-3 p-2 rounded-xl hover:bg-slate-50 transition cursor-pointer select-none">
-                                                    <input 
-                                                        type="checkbox" 
-                                                        checked={sigConsentChecked} 
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={sigConsentChecked}
                                                         onChange={() => setSigConsentChecked(!sigConsentChecked)}
-                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d] mt-0.5 shrink-0" 
+                                                        className="h-4.5 w-4.5 text-[#0a649d] border-slate-300 rounded focus:ring-[#0a649d] mt-0.5 shrink-0"
                                                     />
                                                     <span className="text-[10px] text-slate-500 font-bold leading-normal">
                                                         I confirm that the service work has been completed to our satisfaction.
@@ -1633,7 +1583,7 @@ export default function Techniciandashboard({ user }) {
                                     )}
 
                                     {/* SECTION 7: SUBMIT BUTTON */}
-                                    {activeJob.gpsCheckedIn && (
+                                    {activeJob.gpsCheckedIn && activeJob.status !== "Completed" && (
                                         <button
                                             type="button"
                                             onClick={handleCompleteJob}
