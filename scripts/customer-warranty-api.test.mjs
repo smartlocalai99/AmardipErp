@@ -20,15 +20,18 @@ test("endpoint returns the PDF once a warranty notice exists for that customer",
     query: async (_sql, params) => ({ rows: params[0] === 44 && params[1] === "lift-1" ? [{
       id: "lift-1", customer_code: "LIFT-1", customer_name: "Linked Customer",
       address: "Main Road", city: "Kadapa", hoc_date: "2025-08-29", amc_amount: "12000",
+      hoc_date_text: "30/08/2025", warranty_due_date_text: "30/08/2026",
     }] : [] }),
-    generatePdf: (letter) => Buffer.from(`PDF:${letter.customerName}:${letter.expiryDate}:${letter.amcAmount}`),
+    generatePdf: (letter) => Buffer.from(`PDF:${letter.customerName}:${letter.hocDate}:${letter.expiryDate}:${letter.amcAmount}`),
   });
   const res = responseRecorder();
   await handler({ method: "GET", query: { customerId: "lift-1" } }, res);
 
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers["Content-Type"], "application/pdf");
-  assert.match(res.body.toString(), /Linked Customer:29\/08\/2026:12000/);
+  // Dates come from the stored sheet-sourced text (30/08), not the DB
+  // hoc_date used only for eligibility (29/08).
+  assert.match(res.body.toString(), /Linked Customer:30\/08\/2025:30\/08\/2026:12000/);
 });
 
 test("endpoint 404s when no warranty notice has been sent yet (join excludes the row)", async () => {

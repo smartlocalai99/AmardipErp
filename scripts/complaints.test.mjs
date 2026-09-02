@@ -68,6 +68,7 @@ assert.deepEqual(
     adminNotes: null,
     assignedTechnicianUserId: 7,
     assignedTechnicianName: "RANJITH",
+    assignees: undefined,
     assignedByUsername: null,
     assignedAt: null,
     raisedByUsername: null,

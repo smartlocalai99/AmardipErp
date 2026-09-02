@@ -8,6 +8,7 @@ import { clearSessionCache } from "@/lib/adminCache";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
+import WorkerMultiPicker from "@/components/admin/WorkerMultiPicker";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import { subscribeToPush } from "@/lib/pushClient";
 import {
@@ -384,7 +385,7 @@ function AdmindashboardShell({ user }) {
     const [selectedComplaint, setSelectedComplaint] = useState(null);
     const [showAddComplaintModal, setShowAddComplaintModal] = useState(false);
     const [selectedSchedule, setSelectedSchedule] = useState(null);
-    const [modalTech, setModalTech] = useState("");
+    const [modalTechIds, setModalTechIds] = useState([]);
     const [spareQuery, setSpareQuery] = useState("");
     const [spareSearchResults, setSpareSearchResults] = useState([]);
     const [spareQuantity, setSpareQuantity] = useState(1);
@@ -444,7 +445,11 @@ function AdmindashboardShell({ user }) {
     const openComplaintDetails = (complaint) => {
         acknowledgeTicketNotification(complaint?.id);
         setSelectedComplaint(complaint);
-        setModalTech(complaint?.assignedTechnicianUserId || "");
+        setModalTechIds(
+            complaint?.assignees?.length
+                ? complaint.assignees.map((a) => a.id)
+                : (complaint?.assignedTechnicianUserId ? [complaint.assignedTechnicianUserId] : [])
+        );
         setAllocatedItems([]);
         setSpareQuery("");
         setSpareSearchResults([]);
@@ -517,8 +522,7 @@ function AdmindashboardShell({ user }) {
         customerId: "",
         customerName: "",
         scheduledDate: "",
-        technician: "",
-        technicianId: "",
+        technicianIds: [],
         notes: "",
     });
 
@@ -920,7 +924,7 @@ function AdmindashboardShell({ user }) {
     }
 
     async function assignSelectedComplaint() {
-        if (!selectedComplaint || !modalTech) return;
+        if (!selectedComplaint || modalTechIds.length === 0) return;
         if (["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint.status || "").toUpperCase())) {
             setComplaintError("This ticket is already resolved/closed and cannot be reassigned.");
             return;
@@ -931,7 +935,7 @@ function AdmindashboardShell({ user }) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    assignedTechnicianUserId: Number(modalTech),
+                    assignedTechnicianUserIds: modalTechIds.map(Number),
                     assignmentNotes,
                     allocatedItems: allocatedItems.map(item => ({ itemId: item.itemId, quantity: item.quantity })),
                 }),
@@ -939,7 +943,7 @@ function AdmindashboardShell({ user }) {
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to assign complaint");
             setSelectedComplaint(null);
-            setModalTech("");
+            setModalTechIds([]);
             setAssignmentNotes("");
             setAllocatedItems([]);
             await fetchComplaints();
@@ -1247,8 +1251,7 @@ function AdmindashboardShell({ user }) {
                 body: JSON.stringify({
                     customerId: newSchedule.customerId,
                     scheduledDate: newSchedule.scheduledDate || null,
-                    assignedTechnicianName: newSchedule.technician || null,
-                    assignedTechnicianUserId: newSchedule.technicianId || null,
+                    assignedTechnicianUserIds: newSchedule.technicianIds,
                     priority: "NORMAL",
                     notes: newSchedule.notes || null,
                 }),
@@ -1256,25 +1259,12 @@ function AdmindashboardShell({ user }) {
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to schedule");
 
-            // Reload from DB
+            // Reload from DB — the server already pushed a notification to
+            // every assigned technician when it dispatched the job.
             await fetchServiceSchedules();
-
-            // Send push notification to the assigned worker (non-blocking)
-            if (newSchedule.technician) {
-                fetch("/api/push/notify-worker", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                        workerName: newSchedule.technician,
-                        title: "New Service Assigned",
-                        body: `Service at ${newSchedule.customerName} scheduled for ${newSchedule.scheduledDate || "soon"}`,
-                        data: { url: "/Techniciandashboard" },
-                    }),
-                }).catch(() => {});
-            }
         } catch {}
 
-        setNewSchedule({ customerId: "", customerName: "", scheduledDate: "", technician: "", technicianId: "", notes: "" });
+        setNewSchedule({ customerId: "", customerName: "", scheduledDate: "", technicianIds: [], notes: "" });
         setShowScheduleModal(false);
     }
 
@@ -1433,8 +1423,8 @@ function AdmindashboardShell({ user }) {
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
                             <div className="flex items-center justify-between gap-3">
                                 <div>
-                                    <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Complaints</h1>
-                                    <p className="text-xs text-slate-500 mt-0.5">Real complaint tickets and worker assignment.</p>
+                                    <h1 className="text-2xl font-black tracking-tight text-slate-900">Service Breakdowns</h1>
+                                    <p className="text-xs text-slate-500 mt-0.5">Real breakdown tickets and worker assignment.</p>
                                 </div>
                                 <button
                                     type="button"
@@ -1449,7 +1439,7 @@ function AdmindashboardShell({ user }) {
                                 <div className="relative">
                                     <input
                                         type="text"
-                                        placeholder="Search complaints..."
+                                        placeholder="Search breakdowns..."
                                         value={searchQuery}
                                         onChange={(e) => setSearchQuery(e.target.value)}
                                         className="amardip-search-field w-full"
@@ -1495,9 +1485,9 @@ function AdmindashboardShell({ user }) {
 
                             <div className="space-y-3">
                                 {complaintsLoading && complaints.length === 0 ? (
-                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real complaints...</p>
+                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real breakdowns...</p>
                                 ) : complaints.length === 0 ? (
-                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No complaints found. Use Add to create the first DB-backed ticket.</p>
+                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No breakdowns found. Use Add to create the first ticket.</p>
                                 ) : complaints.map(c => (
                                     <button
                                         key={c.id}
@@ -1519,7 +1509,9 @@ function AdmindashboardShell({ user }) {
                                         <p className="mt-3 line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{c.description}</p>
                                         <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px] font-bold text-slate-400">
                                             <span>{formatComplaintDate(c.createdAt)}</span>
-                                            <span>{c.assignedTechnicianName ? `Worker: ${c.assignedTechnicianName}` : "Unassigned"}</span>
+                                            <span className="truncate pl-2">
+                                                {c.assignees?.length ? `Worker${c.assignees.length > 1 ? "s" : ""}: ${c.assignees.map((a) => a.name).join(", ")}` : "Unassigned"}
+                                            </span>
                                         </div>
                                     </button>
                                 ))}
@@ -1733,7 +1725,7 @@ function AdmindashboardShell({ user }) {
                                                             <div className="min-w-0">
                                                                 <h3 className="text-sm font-extrabold text-slate-900 truncate">{sch.customer_name || "—"}</h3>
                                                                 <p className="text-[10px] text-slate-400 mt-0.5">
-                                                                    Engineer: <span className="font-semibold text-slate-600">{sch.assigned_technician_name || "Unassigned"}</span>
+                                                                    Engineer: <span className="font-semibold text-slate-600">{sch.assignees?.length ? sch.assignees.map((a) => a.name).join(", ") : "Unassigned"}</span>
                                                                 </p>
                                                                 {sch.city && <p className="text-[10px] text-slate-400">{sch.city}</p>}
                                                             </div>
@@ -2573,7 +2565,7 @@ function AdmindashboardShell({ user }) {
                 <div className="amardip-bottom-nav absolute bottom-0 left-0 right-0 bg-[#0a1f35]/95 backdrop-blur-xl border-t border-white/8 text-white flex justify-around items-start z-50 px-1 pt-2">
                     {[
                         { tab: "dashboard", label: "Dashboard", Icon: OverviewIcon, badge: null },
-                        { tab: "complaints", label: "Complaints", Icon: AlertIcon, badge: liveKpiCounts.openComplaints > 0 ? liveKpiCounts.openComplaints : null, badgeColor: "bg-red-500 text-white" },
+                        { tab: "complaints", label: "Breakdowns", Icon: AlertIcon, badge: liveKpiCounts.openComplaints > 0 ? liveKpiCounts.openComplaints : null, badgeColor: "bg-red-500 text-white" },
                         { tab: "service", label: "Service", Icon: ServiceIcon, badge: liveKpiCounts.todayService > 0 ? liveKpiCounts.todayService : null, badgeColor: "bg-[#59e0ff] text-[#0a1f35]" },
                         { tab: "technicians", label: "Techs", Icon: TechniciansIcon, badge: null },
                         { tab: "more", label: "More", Icon: MoreIcon, badge: null },
@@ -2939,22 +2931,18 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Technician</label>
-                                <select
-                                    value={newSchedule.technician}
-                                    onChange={(e) => {
-                                        const sel = technicians.find(t => t.name === e.target.value);
-                                        setNewSchedule({ ...newSchedule, technician: e.target.value, technicianId: sel?.id || "" });
-                                    }}
-                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer"
-                                >
-                                    <option value="">Select technician…</option>
-                                    {usersLoading && <option disabled>Loading…</option>}
-                                    {!usersLoading && technicians.length === 0 && <option disabled>No technicians found</option>}
-                                    {technicians.map(t => (
-                                        <option key={t.id} value={t.name}>{t.name}</option>
-                                    ))}
-                                </select>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Technicians</label>
+                                {usersLoading ? (
+                                    <p className="text-xs font-semibold text-slate-400">Loading…</p>
+                                ) : technicians.length === 0 ? (
+                                    <p className="text-xs font-semibold text-slate-400">No technicians found</p>
+                                ) : (
+                                    <WorkerMultiPicker
+                                        workers={technicians}
+                                        selectedIds={newSchedule.technicianIds}
+                                        onChange={(ids) => setNewSchedule({ ...newSchedule, technicianIds: ids })}
+                                    />
+                                )}
                             </div>
 
                             <div>
@@ -2994,7 +2982,7 @@ function AdmindashboardShell({ user }) {
                     <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
                         <div className="flex items-center justify-between bg-[#0a649d] px-5 py-4.5 text-white">
                             <div>
-                                <h2 className="text-base font-bold">Add Complaint</h2>
+                                <h2 className="text-base font-bold">Add Breakdown</h2>
                                 <p className="text-[10px] font-bold uppercase tracking-wider text-white/80">Office / admin ticket</p>
                             </div>
                             <button
@@ -3054,7 +3042,7 @@ function AdmindashboardShell({ user }) {
                                 onChange={(e) => setNewComplaintData({ ...newComplaintData, description: e.target.value })}
                                 rows={4}
                                 required
-                                placeholder="Complaint description"
+                                placeholder="Breakdown description"
                                 className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
                             />
                             <textarea
@@ -3076,7 +3064,7 @@ function AdmindashboardShell({ user }) {
                                     type="submit"
                                     className="h-10 flex-1 rounded-xl bg-[#0a649d] text-xs font-bold text-white"
                                 >
-                                    Save Complaint
+                                    Save Breakdown
                                 </button>
                             </div>
                         </form>
@@ -3090,7 +3078,7 @@ function AdmindashboardShell({ user }) {
                     <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>
-                                <h2 className="text-base font-bold">Complaint Ticket</h2>
+                                <h2 className="text-base font-bold">Breakdown Ticket</h2>
                                 <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.complaintNo}</p>
                             </div>
                             <button
@@ -3138,18 +3126,13 @@ function AdmindashboardShell({ user }) {
                             )}
 
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Worker</label>
-                                <select
-                                    value={modalTech}
-                                    onChange={(e) => setModalTech(e.target.value)}
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Workers</label>
+                                <WorkerMultiPicker
+                                    workers={technicians}
+                                    selectedIds={modalTechIds}
+                                    onChange={setModalTechIds}
                                     disabled={selectedComplaintIsTerminal}
-                                    className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition cursor-pointer disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                                >
-                                    <option value="">-- Unassigned --</option>
-                                    {technicians.map(t => (
-                                        <option key={t.id} value={t.id}>{t.name} ({t.role})</option>
-                                    ))}
-                                </select>
+                                />
                             </div>
 
                             <div>

@@ -154,9 +154,9 @@ function ComplaintsBanner({ newCount, onClick, enabled = true }) {
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-lg font-black leading-tight">Service Tickets</p>
+              <p className="text-lg font-black leading-tight">Breakdowns</p>
               <p className="mt-1 text-xs font-semibold leading-relaxed text-white/80">
-                Review new complaints and assign a technician
+                Review new breakdowns and assign a technician
               </p>
             </div>
             <ChevronRightIcon className="mt-1 h-5 w-5 shrink-0 text-white/75" />
@@ -170,7 +170,7 @@ function ComplaintsBanner({ newCount, onClick, enabled = true }) {
 
           <div className="mt-4">
             <span className="flex h-10 w-full items-center justify-center rounded-2xl bg-white px-4 text-xs font-black text-orange-600 shadow-sm">
-              View Complaints
+              View Breakdowns
             </span>
           </div>
         </div>

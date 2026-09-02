@@ -6,6 +6,7 @@ import {
   ensureServiceSchedulesTable,
 } from "@/lib/serviceSchedules";
 import { createComplaint, assignComplaintToWorker } from "@/lib/complaints";
+import { setScheduleAssignees, getScheduleAssigneesForMany } from "@/lib/assignees";
 import { createAuditLog } from "@/lib/auditLog";
 import { safeSendPush } from "@/lib/pushNotifications";
 
@@ -82,11 +83,13 @@ export default async function handler(req, res) {
       );
 
       const totalPages = Math.max(1, Math.ceil(total / pageSize));
+      const assigneesBySchedule = await getScheduleAssigneesForMany(schedulesResult.rows.map((row) => row.id));
+      const schedules = schedulesResult.rows.map((row) => ({ ...row, assignees: assigneesBySchedule.get(row.id) || [] }));
 
       res.setHeader("Cache-Control", "private, no-store, max-age=0");
       return res.status(200).json({
         success: true,
-        schedules: schedulesResult.rows,
+        schedules,
         pagination: {
           page,
           pageSize,
@@ -110,6 +113,7 @@ export default async function handler(req, res) {
       scheduledDate,
       preferredTime,
       assignedTechnicianUserId,
+      assignedTechnicianUserIds,
       assignedTechnicianName,
       priority,
       notes,
@@ -149,10 +153,15 @@ export default async function handler(req, res) {
     }
 
     const technicianName = String(assignedTechnicianName || "").trim();
-    const parsedTechnicianUserId = assignedTechnicianUserId
-      ? Number.parseInt(assignedTechnicianUserId, 10)
-      : null;
-    const technicianUserId = Number.isNaN(parsedTechnicianUserId) ? null : parsedTechnicianUserId;
+    const technicianUserIds = [
+      ...new Set(
+        (Array.isArray(assignedTechnicianUserIds) && assignedTechnicianUserIds.length
+          ? assignedTechnicianUserIds
+          : [assignedTechnicianUserId]
+        ).map((id) => Number.parseInt(id, 10)).filter((id) => !Number.isNaN(id) && id > 0)
+      ),
+    ];
+    const technicianUserId = technicianUserIds[0] || null;
     const status = technicianName || technicianUserId ? "ASSIGNED" : "SCHEDULED";
     const cleanNotes = String(notes || "").trim();
 
@@ -206,11 +215,11 @@ export default async function handler(req, res) {
 
       schedule = insertResult.rows[0];
 
-      // Picking a real technician doesn't just note it on the plan — it
-      // dispatches an actual job to that technician's app, the same way
-      // any other ticket does, so "schedule someone for today" actually
-      // reaches the field.
-      if (technicianUserId) {
+      // Picking real technicians doesn't just note it on the plan — it
+      // dispatches an actual job (assignable to more than one worker) to
+      // their apps, the same way any other ticket does, so "schedule
+      // someone for today" actually reaches the field.
+      if (technicianUserIds.length > 0) {
         const visitLabel = scheduledDate
           ? `Scheduled monthly service visit on ${scheduledDate}${preferredTime ? ` (${preferredTime})` : ""}.`
           : "Scheduled monthly service visit.";
@@ -228,7 +237,7 @@ export default async function handler(req, res) {
 
         dispatchedJob = await assignComplaintToWorker({
           complaintId: complaint.id,
-          workerUserId: technicianUserId,
+          workerUserIds: technicianUserIds,
           actor: user,
           assignmentNotes: cleanNotes || null,
         });
@@ -238,6 +247,8 @@ export default async function handler(req, res) {
           [dispatchedJob.id, schedule.id]
         );
         schedule.linked_complaint_id = dispatchedJob.id;
+        await setScheduleAssignees(schedule.id, technicianUserIds);
+        schedule.assignees = dispatchedJob.assignees;
       }
 
       await query("COMMIT");
@@ -265,7 +276,7 @@ export default async function handler(req, res) {
         changedFields: ["linked_complaint_id", "assigned_technician_user_id"],
       });
       await safeSendPush(
-        { userIds: [dispatchedJob.assignedTechnicianUserId] },
+        { userIds: (dispatchedJob.assignees || []).map((a) => a.id) },
         {
           title: "New job assigned",
           body: `${dispatchedJob.complaintNo} - ${dispatchedJob.customerName || "Customer"} service visit is assigned to you.`,

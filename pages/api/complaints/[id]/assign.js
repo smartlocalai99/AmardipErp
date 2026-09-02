@@ -25,9 +25,11 @@ export default async function handler(req, res) {
     return res.status(403).json({ success: false, message: "Unauthorized." });
   }
 
-  const workerUserId = Number(req.body?.assignedTechnicianUserId);
-  if (!workerUserId) {
-    return res.status(400).json({ success: false, message: "Select a worker." });
+  const workerUserIds = Array.isArray(req.body?.assignedTechnicianUserIds)
+    ? req.body.assignedTechnicianUserIds.map(Number).filter(Boolean)
+    : [Number(req.body?.assignedTechnicianUserId)].filter(Boolean);
+  if (workerUserIds.length === 0) {
+    return res.status(400).json({ success: false, message: "Select at least one worker." });
   }
 
   const allocatedItems = normalizeAllocatedItems(req.body?.allocatedItems);
@@ -39,7 +41,7 @@ export default async function handler(req, res) {
     before = await getComplaintById(req.query.id);
     complaint = await assignComplaintToWorker({
       complaintId: req.query.id,
-      workerUserId,
+      workerUserIds,
       actor,
       assignmentNotes: req.body?.assignmentNotes,
     });
@@ -71,7 +73,7 @@ export default async function handler(req, res) {
     changedFields: ["assignedTechnicianUserId", "assignedTechnicianName", "status"],
   });
   await safeSendPush(
-    { userIds: [complaint.assignedTechnicianUserId] },
+    { userIds: (complaint.assignees || []).map((a) => a.id) },
     {
       title: "New job assigned",
       body: `${complaint.complaintNo} - ${complaint.customerName || "Customer"} is assigned to you.`,
