@@ -810,7 +810,14 @@ function AdmindashboardShell({ user }) {
 
     async function deleteScheduleAndRefresh(id) {
         if (!(await confirmDialog("Remove this schedule?"))) return;
-        await fetch(`/api/service-schedules/${id}`, { method: "DELETE" });
+        try {
+            const res = await fetch(`/api/service-schedules/${id}`, { method: "DELETE" });
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to delete this schedule.");
+        } catch (err) {
+            Swal.fire({ icon: "error", title: "Could not delete", text: err.message || "Something went wrong.", confirmButtonColor: "#0a649d" });
+            return;
+        }
         fetchUpcomingServiceRows(serviceSearch);
     }
 
@@ -3418,6 +3425,17 @@ function AdmindashboardShell({ user }) {
                             )}
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        const id = selectedSchedule.id;
+                                        setSelectedSchedule(null);
+                                        await deleteScheduleAndRefresh(id);
+                                    }}
+                                    className="h-10 px-4.5 border border-red-100 bg-red-50 text-red-600 rounded-xl text-xs font-semibold hover:bg-red-100 transition cursor-pointer"
+                                >
+                                    Delete
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => setSelectedSchedule(null)}

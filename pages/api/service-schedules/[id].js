@@ -14,8 +14,14 @@ export default async function handler(req, res) {
 
   await ensureServiceSchedulesTable();
 
-  const id = Number.parseInt(req.query.id, 10);
-  if (!id || Number.isNaN(id)) return res.status(400).json({ success: false, message: "Invalid id" });
+  // service_schedules.id is a UUID (gen_random_uuid()), not an integer —
+  // Number.parseInt on a UUID string returns NaN (UUIDs routinely start with
+  // a letter), so every GET/PATCH/DELETE to this route was returning 400
+  // "Invalid id" regardless of the actual id. This is why opening a service
+  // schedule's detail view, and deleting one, never actually worked.
+  const id = String(req.query.id || "");
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_PATTERN.test(id)) return res.status(400).json({ success: false, message: "Invalid id" });
 
   if (req.method === "GET") {
     const scheduleResult = await query(
