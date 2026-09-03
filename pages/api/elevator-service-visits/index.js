@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
+import { getServicePeriodRange } from "@/lib/serviceVisitFilters.mjs";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 
@@ -48,8 +49,9 @@ export default async function handler(req, res) {
     }
 
     const page = cleanNumber(req.query.page, 1, 1, 999999);
-    const pageSize = cleanNumber(req.query.pageSize, 25, 10, 100);
-    const offset = (page - 1) * pageSize;
+    const returnAll = ["1", "true"].includes(String(req.query.all || "").toLowerCase());
+    const pageSize = returnAll ? 5000 : cleanNumber(req.query.pageSize, 25, 10, 100);
+    const offset = returnAll ? 0 : (page - 1) * pageSize;
     const search = String(req.query.search || "").trim();
     const fromDate = String(req.query.fromDate || "").trim();
     const toDate = String(req.query.toDate || "").trim();
@@ -79,6 +81,12 @@ export default async function handler(req, res) {
 
     addTextFilter(whereParts, params, "v.customer_code", req.query.customerCode);
     addTextFilter(whereParts, params, "v.service_type", req.query.serviceType);
+    addTextFilter(
+      whereParts,
+      params,
+      "COALESCE(c.customer_name, v.customer_name_snapshot)",
+      req.query.customerName
+    );
 
     const technician = String(req.query.technician || "").trim();
     if (technician) {
@@ -94,6 +102,24 @@ export default async function handler(req, res) {
     if (toDate) {
       params.push(toDate);
       whereParts.push(`v.service_date <= $${params.length}`);
+    }
+
+    const year = String(req.query.year || "").trim();
+    const month = String(req.query.month || "").trim();
+    if (year || month) {
+      const period = getServicePeriodRange(year, month);
+
+      if (!period) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid service year or month",
+        });
+      }
+
+      params.push(period.fromDate);
+      whereParts.push(`v.service_date >= $${params.length}::date`);
+      params.push(period.toDateExclusive);
+      whereParts.push(`v.service_date < $${params.length}::date`);
     }
 
     const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
@@ -152,19 +178,21 @@ export default async function handler(req, res) {
       [...params, pageSize, offset]
     );
 
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const responsePage = returnAll ? 1 : page;
+    const totalPages = returnAll ? 1 : Math.max(1, Math.ceil(total / pageSize));
 
     res.setHeader("Cache-Control", "private, no-store, max-age=0");
     return res.status(200).json({
       success: true,
       visits: dataResult.rows,
       pagination: {
-        page,
+        page: responsePage,
         pageSize,
         total,
         totalPages,
-        hasPrev: page > 1,
-        hasNext: page < totalPages,
+        hasPrev: returnAll ? false : page > 1,
+        hasNext: returnAll ? false : page < totalPages,
+        truncated: returnAll && total > pageSize,
       },
     });
   } catch (error) {

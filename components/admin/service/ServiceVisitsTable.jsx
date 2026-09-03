@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 
@@ -18,6 +18,34 @@ const CONDITION_FIELDS = [
 
 const GOOD_WORDS = ["ok", "good", "working", "normal", "fine", "yes"];
 const BAD_WORDS = ["bad", "fault", "not working", "damage", "worn", "leak", "no", "repair", "replace"];
+
+const MONTH_OPTIONS = [
+  { value: "1", label: "January" },
+  { value: "2", label: "February" },
+  { value: "3", label: "March" },
+  { value: "4", label: "April" },
+  { value: "5", label: "May" },
+  { value: "6", label: "June" },
+  { value: "7", label: "July" },
+  { value: "8", label: "August" },
+  { value: "9", label: "September" },
+  { value: "10", label: "October" },
+  { value: "11", label: "November" },
+  { value: "12", label: "December" },
+];
+
+function getCurrentPeriod() {
+  const now = new Date();
+
+  return {
+    year: String(now.getFullYear()),
+    month: String(now.getMonth() + 1),
+  };
+}
+
+function getYearOptions(currentYear) {
+  return Array.from({ length: currentYear - 1999 }, (_, index) => currentYear - index);
+}
 
 function conditionTone(value) {
   const text = String(value || "").trim().toLowerCase();
@@ -89,44 +117,11 @@ function LinkBadge({ status }) {
   );
 }
 
-function Pager({ pagination, page, setPage }) {
-  if (!pagination) return null;
-
-  return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs font-bold text-slate-500">
-        Page <span className="text-slate-900">{pagination.page}</span> of{" "}
-        <span className="text-slate-900">{pagination.totalPages}</span> -{" "}
-        <span className="text-slate-900">{pagination.total}</span> visits
-      </p>
-
-      <div className="grid grid-cols-2 gap-2 sm:flex">
-        <button
-          type="button"
-          disabled={!pagination.hasPrev}
-          onClick={() => setPage(Math.max(1, page - 1))}
-          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          disabled={!pagination.hasNext}
-          onClick={() => setPage(page + 1)}
-          className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
-    </div>
-  );
-}
-
 function VisitDetailModal({ visit, onClose, onViewCustomer }) {
   if (!visit) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/45 backdrop-blur-[2px] sm:items-center sm:p-6">
+    <div className="amardip-modal-layer fixed inset-0 flex items-end justify-center bg-slate-950/45 backdrop-blur-[2px] sm:items-center sm:p-6">
       <button
         type="button"
         aria-label="Close visit details"
@@ -222,36 +217,20 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
   const [selectedVisit, setSelectedVisit] = useState(null);
   const [visits, setVisits] = useState([]);
   const [stats, setStats] = useState(null);
-  const [pagination, setPagination] = useState(null);
+  const [totalVisits, setTotalVisits] = useState(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
-  const [filters, setFilters] = useState({
-    serviceType: "",
-    technician: "",
-    fromDate: "",
-    toDate: "",
-  });
+  const [filters, setFilters] = useState(getCurrentPeriod);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [syncing, setSyncing] = useState(false);
   const [syncNotice, setSyncNotice] = useState(null);
 
-  const visibleFrom = useMemo(() => {
-    if (!pagination || pagination.total === 0) return 0;
-    return (pagination.page - 1) * pagination.pageSize + 1;
-  }, [pagination]);
-
-  const visibleTo = useMemo(() => {
-    if (!pagination) return 0;
-    return Math.min(pagination.page * pagination.pageSize, pagination.total);
-  }, [pagination]);
+  const yearOptions = getYearOptions(new Date().getFullYear());
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      setPage(1);
       setSearch(searchInput.trim());
     }, 350);
 
@@ -284,12 +263,9 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
       setError("");
 
       try {
-        const params = new URLSearchParams({
-          page: String(page),
-          pageSize: String(pageSize),
-        });
+        const params = new URLSearchParams({ all: "1" });
 
-        if (search) params.set("search", search);
+        if (search) params.set("customerName", search);
         Object.entries(filters).forEach(([key, value]) => {
           if (value) params.set(key, value);
         });
@@ -305,7 +281,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
         }
 
         setVisits(data.visits || []);
-        setPagination(data.pagination || null);
+        setTotalVisits(data.pagination?.total ?? data.visits?.length ?? 0);
       } catch (err) {
         if (err.name !== "AbortError") {
           setError(err.message || "Failed to load service visits");
@@ -318,7 +294,7 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
     fetchVisits();
 
     return () => controller.abort();
-  }, [page, pageSize, search, filters, refreshVersion]);
+  }, [search, filters, refreshVersion]);
 
   async function syncFromSheets() {
     setSyncing(true);
@@ -341,7 +317,6 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
           ? `Sheet synced: ${data.inserted} new service ${data.inserted === 1 ? "visit" : "visits"} added.`
           : `Sheet synced: all ${data.sheetRows || 0} service visits are up to date.`,
       });
-      setPage(1);
       setRefreshVersion((current) => current + 1);
     } catch (syncError) {
       setSyncNotice({
@@ -354,7 +329,6 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
   }
 
   function updateFilter(key, value) {
-    setPage(1);
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
@@ -409,11 +383,11 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
                 <h2 className="text-base font-black text-slate-900">
                   Service Ledger
                 </h2>
-                {loading && !pagination ? (
+                {loading && totalVisits === null ? (
                   <CountSkeleton />
                 ) : (
                   <p className="mt-1 text-xs font-semibold text-slate-500">
-                    Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} service records
+                    {totalVisits || 0} service records
                   </p>
                 )}
               </div>
@@ -452,55 +426,45 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
               </p>
             ) : null}
 
-            <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-6">
+            <div className="grid gap-2 md:grid-cols-[minmax(0,2fr)_minmax(150px,1fr)_minmax(160px,1fr)]">
               <input
                 type="text"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search visits"
-                className="amardip-search-field lg:col-span-2"
+                placeholder="Search customer name"
+                aria-label="Search customer name"
+                className="amardip-search-field"
               />
-              <input
-                type="text"
-                value={filters.serviceType}
-                onChange={(event) => updateFilter("serviceType", event.target.value)}
-                placeholder="Service type"
-                className="amardip-field"
-              />
-              <input
-                type="text"
-                value={filters.technician}
-                onChange={(event) => updateFilter("technician", event.target.value)}
-                placeholder="Technician"
-                className="amardip-field"
-              />
-              <input
-                type="date"
-                value={filters.fromDate}
-                onChange={(event) => updateFilter("fromDate", event.target.value)}
-                className="amardip-field text-sm"
-              />
-              <input
-                type="date"
-                value={filters.toDate}
-                onChange={(event) => updateFilter("toDate", event.target.value)}
-                className="amardip-field text-sm"
-              />
+              <label className="relative">
+                <span className="sr-only">Year</span>
+                <select
+                  value={filters.year}
+                  onChange={(event) => updateFilter("year", event.target.value)}
+                  aria-label="Year"
+                  className="amardip-field w-full appearance-none text-sm"
+                >
+                  {yearOptions.map((year) => (
+                    <option key={year} value={year}>{year}</option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Year</span>
+              </label>
+              <label className="relative">
+                <span className="sr-only">Month</span>
+                <select
+                  value={filters.month}
+                  onChange={(event) => updateFilter("month", event.target.value)}
+                  aria-label="Month"
+                  className="amardip-field w-full appearance-none text-sm"
+                >
+                  <option value="">All months</option>
+                  {MONTH_OPTIONS.map((month) => (
+                    <option key={month.value} value={month.value}>{month.label}</option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">Month</span>
+              </label>
             </div>
-
-            <select
-              value={pageSize}
-              onChange={(event) => {
-                setPage(1);
-                setPageSize(Number(event.target.value));
-              }}
-              className="amardip-field w-full text-sm sm:w-auto"
-            >
-              <option value={10}>10 / page</option>
-              <option value={25}>25 / page</option>
-              <option value={50}>50 / page</option>
-              <option value={100}>100 / page</option>
-            </select>
           </div>
         </section>
 
@@ -594,8 +558,6 @@ export default function ServiceVisitsTable({ user, embedded = false }) {
                 </table>
               </div>
             </section>
-
-            <Pager pagination={pagination} page={page} setPage={setPage} />
           </>
         )}
       </main>

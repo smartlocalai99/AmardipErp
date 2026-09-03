@@ -2556,7 +2556,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: TECHNICIAN ASSIGNMENTS */}
             {technicianDetail && (
-                <div className="fixed inset-0 z-60 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="flex max-h-[86vh] w-full max-w-md flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
                         <div className="flex items-center justify-between bg-[#0a649d] px-5 py-4 text-white shrink-0">
                             <div className="min-w-0">
@@ -2658,7 +2658,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: ONBOARD USER (SUPERADMIN ONLY) */}
             {showOnboardModal && user?.role === "superadmin" && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full min-w-0 max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between shrink-0">
                             <h2 className="text-base font-bold">Onboard New Member</h2>
@@ -2773,7 +2773,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: RESET USER PASSWORD (SUPERADMIN ONLY) */}
             {showResetModal && user?.role === "superadmin" && selectedResetUser && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <h2 className="text-base font-bold">Reset Password</h2>
@@ -2848,7 +2848,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: CREATE SERVICE CALL/SCHEDULE */}
             {showScheduleModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <h2 className="text-base font-bold">Schedule Service Call</h2>
@@ -2963,7 +2963,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: ADD COMPLAINT */}
             {showAddComplaintModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
                         <div className="flex items-center justify-between bg-[#0a649d] px-5 py-4.5 text-white">
                             <div>
@@ -3059,7 +3059,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: COMPLAINT DETAILS & ASSIGNMENT */}
             {selectedComplaint && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>
@@ -3264,7 +3264,7 @@ function AdmindashboardShell({ user }) {
 
             {/* MODAL: SERVICE SCHEDULE DETAILS */}
             {selectedSchedule && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>

@@ -470,7 +470,7 @@ export default function Storedashboard({ user }) {
 
                 {/* Real camera QR scanner (html5-qrcode) */}
                 {showQrScanner && (
-                    <div className="absolute inset-0 z-50 bg-black/90 flex flex-col justify-between text-white p-6">
+                    <div className="amardip-modal-layer absolute inset-0 bg-black/90 flex flex-col justify-between text-white p-6">
                         <div className="flex justify-between items-center mt-6">
                             <span className="font-extrabold text-base tracking-tight">Scan Store Pass</span>
                             <button onClick={stopCameraScanner} className="h-9 w-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20">
@@ -489,7 +489,7 @@ export default function Storedashboard({ user }) {
 
                 {/* Scan Result: editable material issue */}
                 {scanResult && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="amardip-modal-layer absolute inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90dvh] flex flex-col">
                             <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center shrink-0">
                                 <div>
@@ -986,7 +986,7 @@ export default function Storedashboard({ user }) {
 
                 {/* MODAL: ADD STOCK */}
                 {showAddStockModal && (
-                    <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="amardip-modal-layer absolute inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                             <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center">
                                 <div>
@@ -1060,7 +1060,7 @@ export default function Storedashboard({ user }) {
 
                 {/* MODAL: UPDATE STOCK */}
                 {showUpdateStockModal && selectedInventoryItem && (
-                    <div className="absolute inset-0 z-40 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="amardip-modal-layer absolute inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                             <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center">
                                 <div>

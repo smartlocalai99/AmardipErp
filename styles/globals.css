@@ -27,6 +27,10 @@ textarea {
   padding-bottom: max(10px, env(safe-area-inset-bottom));
 }
 
+.amardip-modal-layer {
+  z-index: 100;
+}
+
 .amardip-app-main {
   padding-bottom: calc(92px + env(safe-area-inset-bottom));
 }

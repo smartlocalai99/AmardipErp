@@ -1295,7 +1295,7 @@ export default function Customerdashboard({
 
                 {/* MODAL: TRACK SUPPORT COMPLAINT TIMELINE */}
                 {selectedTrackComplaint && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="amardip-modal-layer absolute inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                             <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                                 <div>
@@ -1516,7 +1516,7 @@ export default function Customerdashboard({
                 )}
 
                 {viewingAmc && (
-                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
+                    <div className="amardip-modal-layer absolute inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
                             <div className="bg-[#0a649d] px-5 py-4 text-white">
                                 <div className="flex items-center justify-between">
