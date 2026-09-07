@@ -264,6 +264,9 @@ export default function Customerlogin() {
             <h1 className="text-center text-[20px] font-semibold text-[#111827]">
               Customer Login
             </h1>
+            <p className="mt-1.5 text-center text-[12px] font-medium text-[#9ca3af]">
+              Your PIN is the last 4 digits of your registered mobile number
+            </p>
 
             <form onSubmit={handleLogin} className="mt-8">
               <div className="space-y-5">
@@ -302,13 +305,14 @@ export default function Customerlogin() {
 
                   <div className="min-w-0 flex-1">
                     <label className="block text-[11px] font-medium leading-none text-[#9ca3af]">
-                      Password
+                      PIN
                     </label>
                     <input
                       type={showPassword ? "text" : "password"}
+                      inputMode="numeric"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
-                      placeholder="Enter password"
+                      placeholder="Last 4 digits of your mobile number"
                       autoComplete="current-password"
                       required
                       className="mt-1 w-full bg-transparent text-[14px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
