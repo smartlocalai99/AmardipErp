@@ -4,6 +4,7 @@ import { safeSendPush } from "@/lib/pushNotifications";
 import { createCustomerNotification } from "@/lib/customerNotifications";
 import { getComplaintAssignees } from "@/lib/assignees";
 import { reverseGeocode } from "@/lib/reverseGeocode";
+import { appendServiceCompletionToSheet } from "@/lib/serviceHistorySheetWriter";
 
 let tableReady = false;
 
@@ -129,7 +130,8 @@ export default async function handler(req, res) {
          co.assigned_technician_user_id, co.status, co.complaint_type,
          co.customer_id, co.customer_code, co.mobile_no, co.city, co.address,
          cust.customer_status AS customer_status_snapshot,
-         cust.amc_warranty_due AS amc_warranty_due_snapshot
+         cust.amc_warranty_due AS amc_warranty_due_snapshot,
+         cust.hoc_date AS hoc_date_snapshot
        FROM complaints co
        LEFT JOIN elevator_service_customers cust ON cust.id = co.customer_id
        WHERE co.id = $1`,
@@ -165,6 +167,7 @@ export default async function handler(req, res) {
       [jobDbId]
     );
     const linkedSchedule = linkedScheduleResult.rows[0] || null;
+    let sheetRowPayload = null;
 
     await query("BEGIN");
     try {
@@ -255,12 +258,36 @@ export default async function handler(req, res) {
            WHERE id = $2`,
           [visitResult.rows[0].id, linkedSchedule.id]
         );
+
+        sheetRowPayload = {
+          customerCode: complaint.customer_code,
+          customerName: complaint.customer_name,
+          hocDate: complaint.hoc_date_snapshot,
+          remarks: workPerformed || problemIdentified || null,
+          serviceType: "MONTHLY_SERVICE",
+          technician1: actor.name || actor.username,
+          technician2: juniorTechnician?.name || null,
+          checklist,
+          statusResolution: statusResolution || null,
+          customerRepName: customerRepName || null,
+          location: gpsAddress,
+        };
       }
 
       await query("COMMIT");
     } catch (err) {
       await query("ROLLBACK");
       throw err;
+    }
+
+    // Best-effort and awaited (not fire-and-forget) — on Vercel's
+    // serverless runtime, work started after the response is sent isn't
+    // guaranteed to finish. The function's own internal try/catch means
+    // this can never throw or block the worker on a sheet outage; it's
+    // kept outside the DB transaction so a slow Sheets API call never
+    // holds open the single DB connection this app is limited to.
+    if (sheetRowPayload) {
+      await appendServiceCompletionToSheet(sheetRowPayload);
     }
     // Service-schedule jobs live only in the Service tab now (Breakdowns
     // excludes SERVICE_REQUEST rows), so route the notification wherever
