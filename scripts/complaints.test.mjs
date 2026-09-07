@@ -77,6 +77,11 @@ assert.deepEqual(
     closedAt: null,
     createdAt: "2026-06-27T10:00:00.000Z",
     updatedAt: null,
+    checkedInAt: null,
+    checkInLatitude: null,
+    checkInLongitude: null,
+    checkInAccuracyMeters: null,
+    checkInAddress: null,
   }
 );
 

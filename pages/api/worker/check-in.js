@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     await ensureComplaintsTable();
 
     const check = await query(
-      `SELECT id, complaint_no, customer_name, assigned_technician_user_id
+      `SELECT id, complaint_no, customer_name, assigned_technician_user_id, status
          FROM complaints
         WHERE id = $1`,
       [jobDbId]
@@ -53,14 +53,19 @@ export default async function handler(req, res) {
 
     // Only the first check-in counts as "arrival" — reopening the job later
     // (e.g. to finish the report) shouldn't overwrite the original arrival
-    // time or fire a second notification.
+    // time or fire a second notification. Status moves to IN_PROGRESS so
+    // admin's list reflects "worker is on site" in real time instead of
+    // still showing ASSIGNED until the whole job is closed out — but only
+    // from ASSIGNED, so it never resurrects an already-terminal job.
     const updated = await query(
       `UPDATE complaints
           SET checked_in_at = COALESCE(checked_in_at, NOW()),
               check_in_latitude = COALESCE(check_in_latitude, $2),
               check_in_longitude = COALESCE(check_in_longitude, $3),
               check_in_accuracy_meters = COALESCE(check_in_accuracy_meters, $4),
-              check_in_address = COALESCE(check_in_address, $5)
+              check_in_address = COALESCE(check_in_address, $5),
+              status = CASE WHEN status = 'ASSIGNED' THEN 'IN_PROGRESS' ELSE status END,
+              updated_at = NOW()
         WHERE id = $1
         RETURNING checked_in_at`,
       [jobDbId, latitude, longitude, accuracyMeters, address]

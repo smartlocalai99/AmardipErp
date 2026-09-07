@@ -254,11 +254,20 @@ export default function Techniciandashboard({ user }) {
             },
             comments: (!isService && (jc?.workPerformed || jc?.problemIdentified)) || "",
             resolved: jc ? jc.statusResolution !== "Not Resolved" : true,
-            gpsCheckedIn: Boolean(jc),
-            checkInTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
-            gpsCoords: hasGps ? { latitude: Number(jc.gpsLatitude), longitude: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null,
+            // checkedInAt reaches the server the moment the worker taps
+            // "Check In" (lib/complaints.js normalizeComplaintRow) — well
+            // before job completion, so reopening the app after closing it
+            // mid-job still shows "already on site" instead of asking the
+            // worker to check in again.
+            gpsCheckedIn: Boolean(c.checkedInAt) || Boolean(jc),
+            checkInTime: c.checkedInAt
+                ? new Date(c.checkedInAt).toLocaleString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })
+                : (jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null),
+            gpsCoords: Number.isFinite(Number(c.checkInLatitude)) && Number.isFinite(Number(c.checkInLongitude))
+                ? { latitude: Number(c.checkInLatitude), longitude: Number(c.checkInLongitude), accuracy: c.checkInAccuracyMeters }
+                : (hasGps ? { latitude: Number(jc.gpsLatitude), longitude: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null),
             signature: jc?.customerRepName ? { customerName: jc.customerRepName, image: jc.signatureImage || null } : null,
-            gpsAddress: jc?.gpsAddress || null,
+            gpsAddress: c.checkInAddress || jc?.gpsAddress || null,
             completeTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
             materials: c.materials || [],
             durationMinutes: jc?.durationMinutes ?? null,
@@ -1001,7 +1010,7 @@ export default function Techniciandashboard({ user }) {
                                                         <span className="text-[7.5px] font-black px-1 rounded bg-red-100 text-red-700 uppercase tracking-wide">Emergency</span>
                                                     )}
                                                 </div>
-                                                <span className="text-[10px] text-slate-400 font-medium block mt-0.5">{job.customerName} • Lift {job.liftId}</span>
+                                                <span className="text-[10px] text-slate-400 font-medium block mt-0.5">{job.customerName} • {job.phone} • Lift {job.liftId}</span>
                                             </div>
                                             <span className={`text-[9px] font-black px-2 py-0.5 rounded-full border ${
                                                 job.status === "Completed" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
@@ -1086,8 +1095,12 @@ export default function Techniciandashboard({ user }) {
                                                         {/* Brief address details */}
                                                         <div className="text-xs text-slate-500 font-medium leading-relaxed space-y-1 bg-slate-50/50 p-2.5 rounded-2xl border border-slate-100">
                                                             <p><strong className="text-slate-700">Client:</strong> {job.customerName}</p>
+                                                            <p><strong className="text-slate-700">Number:</strong> {job.phone}</p>
                                                             <p><strong className="text-slate-700">Site:</strong> {job.buildingName}</p>
                                                             <p><strong className="text-slate-700">Assigned:</strong> {job.assignedTime}</p>
+                                                            {job.checkInTime && (
+                                                                <p><strong className="text-slate-700">Checked in:</strong> {job.checkInTime}</p>
+                                                            )}
                                                         </div>
 
                                                         {/* Actions */}

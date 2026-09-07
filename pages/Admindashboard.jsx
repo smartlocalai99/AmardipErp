@@ -1410,18 +1410,29 @@ function AdmindashboardShell({ user }) {
             // "Services This Month" (the default view) keeps showing the
             // customer as "TO BE SCHEDULED" until the next manual reload.
             await fetchUpcomingServiceRows(serviceSearch);
-        } catch {}
 
-        setNewSchedule({
-            customerId: "",
-            customerName: "",
-            customerLocked: false,
-            scheduledDate: "",
-            technicianIdSenior: "",
-            technicianIdJunior: "",
-            notes: "",
-        });
-        setShowScheduleModal(false);
+            setNewSchedule({
+                customerId: "",
+                customerName: "",
+                customerLocked: false,
+                scheduledDate: "",
+                technicianIdSenior: "",
+                technicianIdJunior: "",
+                notes: "",
+            });
+            setShowScheduleModal(false);
+        } catch (err) {
+            // This used to fail silently (empty catch) and clear the form
+            // regardless of outcome — an admin had no way to tell a
+            // schedule attempt had failed at all, let alone why. Most
+            // common cause: this customer already has a schedule this
+            // month (one customer can only be scheduled once per month).
+            Swal.fire({
+                icon: "error",
+                title: "Could not schedule",
+                text: err.message || "Failed to schedule this service visit.",
+            });
+        }
     }
 
     async function openScheduleDetail(id) {
@@ -2027,7 +2038,10 @@ function AdmindashboardShell({ user }) {
                                                 {outOfWarrantyCandidates.map((c) => (
                                                     <div key={c.id} className="rounded-2xl bg-white p-3">
                                                         <div className="flex items-center justify-between gap-2">
-                                                            <span className="text-xs font-black text-slate-800 truncate">{c.customerName}</span>
+                                                            <div className="min-w-0">
+                                                                <span className="block text-xs font-black text-slate-800 truncate">{c.customerName}</span>
+                                                                <span className="block text-[10px] text-slate-400 font-semibold">{c.mobileNo || "No mobile on file"}</span>
+                                                            </div>
                                                             <span className="text-[10px] text-slate-400 font-semibold shrink-0 pl-2">
                                                                 Expired {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
                                                             </span>
