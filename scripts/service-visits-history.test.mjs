@@ -26,10 +26,9 @@ assert.deepEqual(getServicePeriodRange("2026", ""), {
 assert.equal(getServicePeriodRange("invalid", "9"), null);
 assert.equal(getServicePeriodRange("2026", "13"), null);
 
-const [globalsSource, serviceHistorySource, technicianSource] = await Promise.all([
+const [globalsSource, serviceHistorySource] = await Promise.all([
   readFile(path.join(projectRoot, "styles/globals.css"), "utf8"),
   readFile(path.join(projectRoot, "components/admin/service/ServiceVisitsTable.jsx"), "utf8"),
-  readFile(path.join(projectRoot, "pages/Techniciandashboard.jsx"), "utf8"),
 ]);
 
 assert.match(globalsSource, /\.amardip-modal-layer\s*\{[^}]*z-index:\s*100/s);
@@ -42,6 +41,5 @@ assert.doesNotMatch(serviceHistorySource, /type="date"/);
 assert.doesNotMatch(serviceHistorySource, /function Pager/);
 assert.doesNotMatch(serviceHistorySource, /\/ page</);
 assert.match(serviceHistorySource, /amardip-modal-layer fixed inset-0/);
-assert.match(technicianSource, /amardip-modal-layer absolute inset-0[\s\S]{0,500}QR Lift Scan Simulator/);
 
 console.log("service visits history tests passed");

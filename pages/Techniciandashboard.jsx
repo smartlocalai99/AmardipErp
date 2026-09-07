@@ -162,13 +162,18 @@ export default function Techniciandashboard({ user }) {
     const [activeJob, setActiveJob] = useState(null); // active job workspace
     const [jobsFilter, setJobsFilter] = useState("assigned"); // assigned, completed
 
+    // Dashboard "Return Materials" list — every job the worker has ever had
+    // materials issued for, so they can jump straight to that job's Store
+    // Pass QR without opening the full job workspace first.
+    const [showReturnMaterials, setShowReturnMaterials] = useState(false);
+
     // Every tab/filter switch and job open reuses the same scrollable <main>
     // — without this its scroll position carries over from whatever was
     // scrolled before, so a new view can silently open mid-scroll.
     const mainScrollRef = useRef(null);
     useEffect(() => {
         mainScrollRef.current?.scrollTo(0, 0);
-    }, [activeTab, activeJob, jobsFilter]);
+    }, [activeTab, activeJob, jobsFilter, showReturnMaterials]);
 
     // Signature Canvas Refs & States
     const canvasRef = useRef(null);
@@ -252,10 +257,6 @@ export default function Techniciandashboard({ user }) {
             setSubmittingMaterialRequest(false);
         }
     }
-
-    // QR scanner simulator states
-    const [showQrScanner, setShowQrScanner] = useState(false);
-    const [qrStatusText, setQrStatusText] = useState("Align Lift QR inside frame");
 
     // Store Material Pass (real QR job-pass image) states
     const [jobPassJob, setJobPassJob] = useState(null);
@@ -475,30 +476,6 @@ export default function Techniciandashboard({ user }) {
         } finally {
             setCheckingIn(false);
         }
-    };
-
-    // QR scan simulation
-    const triggerScanQR = () => {
-        setShowQrScanner(true);
-        setQrStatusText("Align Lift QR inside frame");
-    };
-
-    const runQrSimulation = (scannedLiftId) => {
-        setQrStatusText("Scanning...");
-        setTimeout(() => {
-            setQrStatusText("MATCH FOUND!");
-            setTimeout(() => {
-                setShowQrScanner(false);
-                // Find job with this lift
-                const matchJob = jobs.find(j => j.liftId === scannedLiftId);
-                if (matchJob) {
-                    openJobDetails(matchJob);
-                    Swal.fire({ icon: "success", title: "Lift verified", text: `Opening job workspace for ${scannedLiftId}`, timer: 1600, showConfirmButton: false });
-                } else {
-                    Swal.fire({ icon: "info", title: "No active job", text: `${scannedLiftId} has no active service assigned right now.`, confirmButtonColor: "#0a649d" });
-                }
-            }, 600);
-        }, 1000);
     };
 
     // Checklist toggles
@@ -851,6 +828,15 @@ export default function Techniciandashboard({ user }) {
         }
     };
 
+    // Closing the pass modal is also the natural moment to refresh — the
+    // store may have scanned and reconciled it while it was open, and the
+    // Return Materials list should reflect that as soon as the worker is
+    // back looking at it, not just on the next full page load.
+    const closeJobPassModal = () => {
+        setShowJobPassModal(false);
+        fetchAssignedComplaints();
+    };
+
     // Logout
     const handleLogout = async () => {
         try {
@@ -863,11 +849,16 @@ export default function Techniciandashboard({ user }) {
 
     // Dynamic counts
     const todayJobsCount = jobs.filter(j => j.status !== "Completed").length;
-    const pendingJobsCount = jobs.filter(j => j.status === "Assigned").length;
     const completedJobsCount = jobs.filter(j => j.status === "Completed").length;
     const emergencyJobsCount = jobs.filter(j => j.status !== "Completed" && j.priority === "Emergency").length;
     const activeAssignedJobs = jobs.filter(j => j.status !== "Completed");
     const unreadNotificationsCount = notifications.filter(n => !n.read).length;
+
+    // Every job that's ever had materials issued against it — stays listed
+    // even after the store fully reconciles it, so "used/returned" numbers
+    // remain visible instead of disappearing the moment nothing's owed.
+    const jobsWithMaterials = jobs.filter(j => (j.materials || []).length > 0);
+    const pendingReturnJobsCount = jobsWithMaterials.filter(j => (j.materials || []).some(m => m.outstandingQuantity > 0)).length;
 
     return (
         <>
@@ -926,52 +917,71 @@ export default function Techniciandashboard({ user }) {
                     </button>
                 </header>
 
-                {/* QR Scanner simulator overlay */}
-                {showQrScanner && (
-                    <div className="amardip-modal-layer absolute inset-0 bg-black/90 flex flex-col justify-between text-white p-6">
-                        <div className="flex justify-between items-center mt-6">
-                            <span className="font-extrabold text-base tracking-tight">QR Lift Scan Simulator</span>
-                            <button onClick={() => setShowQrScanner(false)} className="h-9 w-9 bg-white/10 rounded-full flex items-center justify-center hover:bg-white/20">
-                                <CloseIcon className="h-5 w-5" />
-                            </button>
-                        </div>
-
-                        {/* Scanner Box frame */}
-                        <div className="my-auto flex flex-col items-center">
-                            <div className="relative h-64 w-64 border-2 border-dashed border-[#59e0ff] rounded-2xl flex items-center justify-center overflow-hidden">
-                                <div className="absolute inset-x-0 h-0.5 bg-red-500 animate-bounce"></div>
-                                <ScanIcon className="h-16 w-16 text-[#0a649d]/30" />
-                            </div>
-                            <p className="text-sm font-semibold mt-6 text-slate-300 animate-pulse">{qrStatusText}</p>
-                        </div>
-
-                        <div className="space-y-3 mb-6">
-                            <span className="block text-[10px] text-center text-slate-500 font-bold uppercase tracking-wider">Simulate Lift Codes</span>
-                            <div className="grid grid-cols-2 gap-3">
-                                <button
-                                    onClick={() => runQrSimulation("LIFT-9821")}
-                                    className="h-12 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-bold transition active:scale-95"
-                                >
-                                    Scan Unit LIFT-9821
-                                </button>
-                                <button
-                                    onClick={() => runQrSimulation("LIFT-7652")}
-                                    className="h-12 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-bold transition active:scale-95"
-                                >
-                                    Scan Unit LIFT-7652
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
                 {/* Main Workspace content */}
                 <main ref={mainScrollRef} className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {/* VIEW: DASHBOARD TAB */}
-                    {activeTab === "dashboard" && !activeJob && (
+                    {activeTab === "dashboard" && !activeJob && showReturnMaterials && (
                         <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setShowReturnMaterials(false)}
+                                    className="h-9.5 w-9.5 rounded-full border border-slate-200 bg-white flex items-center justify-center text-slate-700 hover:bg-slate-50 active:scale-95 transition"
+                                >
+                                    &larr;
+                                </button>
+                                <div>
+                                    <h1 className="text-lg font-black tracking-tight text-slate-900">Return Materials</h1>
+                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Show your Store Pass QR to hand back or close out parts</p>
+                                </div>
+                            </div>
+
+                            {jobsWithMaterials.length === 0 ? (
+                                <p className="p-8 text-center text-xs text-slate-400 font-bold bg-white rounded-3xl border border-slate-100">No materials issued to you yet.</p>
+                            ) : (
+                                <div className="space-y-3">
+                                    {jobsWithMaterials.map((job) => {
+                                        const pending = (job.materials || []).some((m) => m.outstandingQuantity > 0);
+                                        return (
+                                            <div
+                                                key={job.id}
+                                                onClick={() => openJobPass(job)}
+                                                className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3 cursor-pointer active:scale-[0.99] transition"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div>
+                                                        <p className="text-sm font-black text-slate-900">{job.id}</p>
+                                                        <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">{job.customerName}</p>
+                                                    </div>
+                                                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-wide ${pending ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+                                                        {pending ? "Pending Return" : "Reconciled"}
+                                                    </span>
+                                                </div>
+                                                <div className="space-y-1.5">
+                                                    {job.materials.map((m) => (
+                                                        <div key={m.itemId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 bg-amber-50/60 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                                                            <span className="font-bold text-slate-700 text-[11px]">{m.name}</span>
+                                                            <span className="text-[10px] font-semibold text-slate-500">
+                                                                Issued {m.issuedQuantity} {m.unit} · Used {m.usedQuantity} {m.unit} · Returned {m.returnedQuantity} {m.unit}
+                                                            </span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                                <div className="w-full bg-[#0a649d] rounded-xl py-2.5 text-center text-xs font-black text-white flex items-center justify-center gap-1.5">
+                                                    <ScanIcon className="h-3.5 w-3.5" />
+                                                    Show Store Pass QR
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {activeTab === "dashboard" && !activeJob && !showReturnMaterials && (
+                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
+
                             {/* Greeting card */}
                             <div className="rounded-3xl p-5 text-white shadow-md relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${PRIMARY_COLOR} 0%, #1e4b7a 65%, #0e2a4a 100%)` }}>
                                 <div className="absolute top-0 right-0 h-28 w-28 bg-white/5 rounded-full -mr-8 -mt-8"></div>
@@ -995,12 +1005,12 @@ export default function Techniciandashboard({ user }) {
                                         <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Today&apos;s Active Jobs</span>
                                         <p className="text-2xl font-black text-slate-900 mt-2">{todayJobsCount}</p>
                                     </div>
-                                    <div 
-                                        onClick={() => { setActiveTab("jobs"); setJobsFilter("assigned"); }}
+                                    <div
+                                        onClick={() => setShowReturnMaterials(true)}
                                         className="rounded-3xl bg-white border border-slate-200/60 p-4 shadow-sm hover:shadow active:scale-98 transition flex flex-col justify-between h-26 cursor-pointer select-none"
                                     >
-                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Pending Dispatch</span>
-                                        <p className="text-2xl font-black text-slate-900 mt-2">{pendingJobsCount}</p>
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight">Return Materials</span>
+                                        <p className="text-2xl font-black text-slate-900 mt-2">{pendingReturnJobsCount}</p>
                                     </div>
                                     <div 
                                         onClick={() => { setActiveTab("jobs"); setJobsFilter("completed"); }}
@@ -1016,58 +1026,6 @@ export default function Techniciandashboard({ user }) {
                                         <span className="text-[10px] font-bold text-red-500 uppercase tracking-wider leading-tight font-black">Emergency Tickets</span>
                                         <p className={`text-2xl font-black mt-2 ${emergencyJobsCount > 0 ? "text-red-600 animate-pulse" : "text-slate-900"}`}>{emergencyJobsCount}</p>
                                     </div>
-                                </div>
-                            </div>
-
-                            {/* Quick Action Grid */}
-                            <div>
-                                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Quick Service Actions</h3>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <button
-                                        onClick={() => { setActiveTab("jobs"); setJobsFilter("assigned"); }}
-                                        className="h-14.5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center gap-3.5 px-4 active:scale-95 transition text-left cursor-pointer"
-                                    >
-                                        <div className="h-9.5 w-9.5 rounded-xl bg-blue-50 text-[#0a649d] flex items-center justify-center">
-                                            <JobsIcon className="h-5 w-5" />
-                                        </div>
-                                        <div>
-                                            <span className="text-[10.5px] font-black text-slate-800 leading-none block">View Jobs</span>
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Assigned List</span>
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        onClick={triggerScanQR}
-                                        className="h-14.5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center gap-3.5 px-4 active:scale-95 transition text-left cursor-pointer"
-                                    >
-                                        <div className="h-9.5 w-9.5 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
-                                            <ScanIcon className="h-5 w-5" />
-                                        </div>
-                                        <div>
-                                            <span className="text-[10.5px] font-black text-slate-800 leading-none block">Scan Lift QR</span>
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Instant Verify</span>
-                                        </div>
-                                    </button>
-
-                                    <button
-                                        onClick={() => {
-                                            const activeJ = jobs.find(j => j.status !== "Completed");
-                                            if (activeJ) {
-                                                openJobDetails(activeJ);
-                                            } else {
-                                                Swal.fire({ icon: "info", title: "All caught up", text: "No active incomplete jobs to work on.", confirmButtonColor: "#0a649d" });
-                                            }
-                                        }}
-                                        className="h-14.5 rounded-2xl bg-white border border-slate-200 shadow-sm flex items-center gap-3.5 px-4 active:scale-95 transition text-left cursor-pointer"
-                                    >
-                                        <div className="h-9.5 w-9.5 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                                            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                        </div>
-                                        <div>
-                                            <span className="text-[10.5px] font-black text-slate-800 leading-none block">Resume Work</span>
-                                            <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block mt-0.5">Active Job</span>
-                                        </div>
-                                    </button>
                                 </div>
                             </div>
 
@@ -1941,7 +1899,7 @@ export default function Techniciandashboard({ user }) {
                                     <h2 className="text-sm font-bold truncate">Store Material Pass</h2>
                                     <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">{jobPassJob.id}</p>
                                 </div>
-                                <button onClick={() => setShowJobPassModal(false)} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
+                                <button onClick={closeJobPassModal} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
                                     <CloseIcon className="h-5 w-5" />
                                 </button>
                             </div>
@@ -1964,7 +1922,7 @@ export default function Techniciandashboard({ user }) {
                                 </div>
 
                                 <button
-                                    onClick={() => setShowJobPassModal(false)}
+                                    onClick={closeJobPassModal}
                                     className="h-10.5 w-full border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
                                 >
                                     Close
