@@ -1,0 +1,43 @@
+{
+  "packageId": "com.amardipelevators.customer",
+  "host": "amardip-erp.vercel.app",
+  "name": "Amardip Elevators",
+  "launcherName": "Amardip",
+  "display": "standalone",
+  "themeColor": "#0A649D",
+  "themeColorDark": "#000000",
+  "navigationColor": "#0A649D",
+  "navigationColorDark": "#000000",
+  "navigationDividerColor": "#000000",
+  "navigationDividerColorDark": "#000000",
+  "backgroundColor": "#0A649D",
+  "enableNotifications": true,
+  "startUrl": "/Customerlogin",
+  "iconUrl": "https://amardip-erp.vercel.app/adlogo-pwa-512.png",
+  "maskableIconUrl": "https://amardip-erp.vercel.app/adlogo-pwa-512.png",
+  "splashScreenFadeOutDuration": 300,
+  "signingKey": {
+    "path": "/Users/vardhanreddy/Desktop/amardipelevators erp/android-customer-app/android-keystore.jks",
+    "alias": "amardip-customer"
+  },
+  "appVersionName": "1.0.0",
+  "appVersionCode": 1,
+  "shortcuts": [],
+  "generatorApp": "unknown",
+  "webManifestUrl": "https://amardip-erp.vercel.app/manifest-customer.webmanifest",
+  "fallbackType": "customtabs",
+  "features": {},
+  "alphaDependencies": {
+    "enabled": false
+  },
+  "enableSiteSettingsShortcut": true,
+  "isChromeOSOnly": false,
+  "isMetaQuest": false,
+  "minSdkVersion": 21,
+  "orientation": "portrait",
+  "fingerprints": [],
+  "additionalTrustedOrigins": [],
+  "retainedBundles": [],
+  "displayOverride": [],
+  "appVersion": "1.0.0"
+}

@@ -1,0 +1,24 @@
+# Never commit the signing key or its passwords — losing/leaking these
+# means you can never update the published app again, or someone else could.
+*.jks
+*.keystore
+android-keystore.jks
+KEYSTORE_PASSWORDS.txt
+
+# Node
+node_modules/
+
+# Gradle / Android build output
+.gradle/
+app/build/
+build/
+local.properties
+*.iml
+.idea/
+
+# Build artifacts (regenerate via `npm run build:aab`)
+*.aab
+*.apk
+*.apk.idsig
+app-release-bundle.aab
+app-release-signed.apk
