@@ -206,6 +206,16 @@ const VISIT_CONDITION_FIELDS = [
     { column: "osg_condition", label: "OSG Condition" },
 ];
 
+// "1h 24m" / "45m" — how long the technician was actually on site.
+function formatJobDuration(minutes) {
+    if (!Number.isFinite(minutes) || minutes < 0) return null;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+}
+
 function mapComplaintForCustomer(complaint) {
     const jc = complaint.jobCompletion || null;
     const hasGps = jc && Number.isFinite(Number(jc.gpsLatitude)) && Number.isFinite(Number(jc.gpsLongitude));
@@ -226,6 +236,7 @@ function mapComplaintForCustomer(complaint) {
         checklist: jc?.checklist || null,
         gps: hasGps ? { lat: Number(jc.gpsLatitude), lng: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters, address: jc.gpsAddress || null } : null,
         workReport: jc ? { problem: jc.problemIdentified, workPerformed: jc.workPerformed, sparePartsUsed: jc.sparePartsUsed } : null,
+        durationMinutes: jc?.durationMinutes ?? null,
         signatureImage: jc?.signatureImage || null,
         customerRepName: jc?.customerRepName || null,
         materials: complaint.materials || [],
@@ -334,6 +345,31 @@ export default function Customerdashboard({
     }));
 
     const [activeTab, setActiveTab] = useState(initialTab); // home, complaints, documents, service, profile
+
+    // Tab switches never touched the browser's history — the Android app
+    // (a Trusted Web Activity) has nothing to "go back" through, so the
+    // hardware/gesture back button exits the whole app on the very first
+    // press instead of undoing the last tab change. Pushing one history
+    // entry per tab change, and listening for the back button's popstate,
+    // makes each tab switch a real, undoable step.
+    const isPoppingTabRef = useRef(false);
+    useEffect(() => {
+        function handlePopState(event) {
+            isPoppingTabRef.current = true;
+            setActiveTab(event.state?.tab || "home");
+        }
+        window.history.replaceState({ tab: activeTab }, "");
+        window.addEventListener("popstate", handlePopState);
+        return () => window.removeEventListener("popstate", handlePopState);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    useEffect(() => {
+        if (isPoppingTabRef.current) {
+            isPoppingTabRef.current = false;
+            return;
+        }
+        window.history.pushState({ tab: activeTab }, "");
+    }, [activeTab]);
     const [complaintSubTab, setComplaintSubTab] = useState(initialComplaintSubTab); // logs, raise
 
     useEffect(() => {
@@ -1466,7 +1502,12 @@ export default function Customerdashboard({
                                     <>
                                         <hr className="border-slate-100" />
                                         <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
-                                            <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                            <div className="flex items-center justify-between">
+                                                <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                                {formatJobDuration(selectedTrackComplaint.durationMinutes) && (
+                                                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9.5px] font-bold text-emerald-700">Time on site: {formatJobDuration(selectedTrackComplaint.durationMinutes)}</span>
+                                                )}
+                                            </div>
 
                                             <div>
                                                 <span className="block text-[9px] font-semibold text-slate-400 uppercase">Problem Identified</span>

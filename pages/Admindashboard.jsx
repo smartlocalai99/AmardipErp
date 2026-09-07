@@ -240,6 +240,17 @@ function PlusIcon({ className = "h-5 w-5" }) {
     );
 }
 
+// "1h 24m" / "45m" — how long a technician was actually on site, from GPS
+// check-in to job completion.
+function formatJobDuration(minutes) {
+    if (!Number.isFinite(minutes) || minutes < 0) return null;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+}
+
 function AmcStatStrip({ stats, loading, selectedMode, onSelect }) {
     const cards = [
         {
@@ -462,6 +473,7 @@ function AdmindashboardShell({ user }) {
     const [quotationStats, setQuotationStats] = useState(null);
     const [hasBoqPermission, setHasBoqPermission] = useState(false);
     const [newComplaintData, setNewComplaintData] = useState({
+        customerId: "",
         customerName: "",
         mobileNo: "",
         city: "",
@@ -471,6 +483,46 @@ function AdmindashboardShell({ user }) {
         description: "",
         officeNotes: "",
     });
+    const [customerNameQuery, setCustomerNameQuery] = useState("");
+    const [customerNameResults, setCustomerNameResults] = useState([]);
+
+    // Typing a customer's name in "Add Breakdown" searches the real customer
+    // list — picking one auto-fills mobile/city/address and links the ticket
+    // to that customer record instead of leaving it as free-text.
+    useEffect(() => {
+        const q = customerNameQuery.trim();
+        if (!q || newComplaintData.customerId) {
+            const timer = setTimeout(() => setCustomerNameResults([]), 0);
+            return () => clearTimeout(timer);
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/elevator-customers?search=${encodeURIComponent(q)}&pageSize=8`, { signal: controller.signal });
+                const data = await res.json();
+                if (!controller.signal.aborted && data.success) setCustomerNameResults(data.customers || data.rows || []);
+            } catch {
+                if (!controller.signal.aborted) setCustomerNameResults([]);
+            }
+        }, 300);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [customerNameQuery, newComplaintData.customerId]);
+
+    function selectCustomerForComplaint(customer) {
+        setNewComplaintData((prev) => ({
+            ...prev,
+            customerId: customer.id,
+            customerName: customer.customer_name || customer.customerName || "",
+            mobileNo: customer.mobile_no || customer.mobileNo || "",
+            city: customer.city || "",
+            address: customer.address || "",
+        }));
+        setCustomerNameQuery(customer.customer_name || customer.customerName || "");
+        setCustomerNameResults([]);
+    }
 
     const openComplaintDetails = (complaint) => {
         acknowledgeTicketNotification(complaint?.id);
@@ -546,6 +598,11 @@ function AdmindashboardShell({ user }) {
     const [warrantyAmounts, setWarrantyAmounts] = useState({});
     const [sendingWarrantyCustomerId, setSendingWarrantyCustomerId] = useState(null);
     const [warrantySendFeedback, setWarrantySendFeedback] = useState({});
+    const [outOfWarrantyCandidates, setOutOfWarrantyCandidates] = useState([]);
+    const [outOfWarrantyLoading, setOutOfWarrantyLoading] = useState(false);
+    const [outOfWarrantyAmounts, setOutOfWarrantyAmounts] = useState({});
+    const [sendingOutOfWarrantyCustomerId, setSendingOutOfWarrantyCustomerId] = useState(null);
+    const [outOfWarrantySendFeedback, setOutOfWarrantySendFeedback] = useState({});
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -906,6 +963,49 @@ function AdmindashboardShell({ user }) {
         }
     }
 
+    async function fetchOutOfWarrantyCandidates() {
+        setOutOfWarrantyLoading(true);
+        try {
+            const res = await fetch("/api/elevator-customers/out-of-warranty", { cache: "no-store" });
+            const data = await res.json();
+            setOutOfWarrantyCandidates(data.success ? data.candidates : []);
+        } catch {
+            setOutOfWarrantyCandidates([]);
+        } finally {
+            setOutOfWarrantyLoading(false);
+        }
+    }
+
+    // AMC amount is optional here (unlike the expiring-soon letter) — this
+    // customer has already lapsed, so the notice is a plain "you're
+    // uncovered" reminder, not necessarily a fixed renewal quote yet.
+    async function sendOutOfWarrantyLetterFor(candidate) {
+        if (sendingOutOfWarrantyCustomerId) return;
+        const amcAmount = outOfWarrantyAmounts[candidate.id];
+
+        setSendingOutOfWarrantyCustomerId(candidate.id);
+        setOutOfWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: null }));
+        try {
+            const res = await fetch("/api/elevator-customers/send-out-of-warranty", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ customerId: candidate.id, amcAmount: amcAmount || undefined }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setOutOfWarrantyCandidates((prev) => prev.map((c) =>
+                    c.id === candidate.id ? { ...c, sentAt: new Date().toISOString(), amcAmount: amcAmount || null } : c
+                ));
+            } else {
+                setOutOfWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: data.message || "Failed to send" } }));
+            }
+        } catch {
+            setOutOfWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: "Failed to send out-of-warranty letter" } }));
+        } finally {
+            setSendingOutOfWarrantyCustomerId(null);
+        }
+    }
+
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "month") return;
         const timer = setTimeout(() => fetchUpcomingServiceRows(serviceSearch), 250);
@@ -925,6 +1025,12 @@ function AdmindashboardShell({ user }) {
         return () => clearTimeout(timer);
     }, [activeTab, moreSubTab]);
 
+    useEffect(() => {
+        if (activeTab !== "more" || moreSubTab !== "out_of_warranty") return;
+        const timer = setTimeout(() => fetchOutOfWarrantyCandidates(), 0);
+        return () => clearTimeout(timer);
+    }, [activeTab, moreSubTab]);
+
     async function handleCreateComplaint(e) {
         e.preventDefault();
         setComplaintError("");
@@ -938,6 +1044,7 @@ function AdmindashboardShell({ user }) {
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to create complaint");
             setShowAddComplaintModal(false);
             setNewComplaintData({
+                customerId: "",
                 customerName: "",
                 mobileNo: "",
                 city: "",
@@ -947,6 +1054,8 @@ function AdmindashboardShell({ user }) {
                 description: "",
                 officeNotes: "",
             });
+            setCustomerNameQuery("");
+            setCustomerNameResults([]);
             await fetchComplaints();
         } catch (err) {
             setComplaintError(err.message || "Failed to create complaint");
@@ -1880,6 +1989,90 @@ function AdmindashboardShell({ user }) {
                                         bucket="warranty"
                                         returnTo="/Admindashboard?tab=more&subtab=warranty"
                                     />
+                                </div>
+                            ) : moreSubTab === "out_of_warranty" ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openTab("dashboard")}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Out of Warranty</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Past their handover warranty, still not on AMC.</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="h-10 w-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
+                                                <BellIcon className="h-5 w-5 text-red-600" />
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-black text-red-900">
+                                                    {outOfWarrantyLoading
+                                                        ? "Checking who's out of warranty…"
+                                                        : `${outOfWarrantyCandidates.filter((c) => !c.sentAt).length} of ${outOfWarrantyCandidates.length} out-of-warranty customers still need a letter`}
+                                                </p>
+                                                <p className="text-[11px] font-semibold text-red-700 mt-0.5">
+                                                    AMC amount is optional here — send with or without one. Once sent, a customer never gets this letter again.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        {outOfWarrantyCandidates.length > 0 && (
+                                            <div className="mt-3 space-y-2">
+                                                {outOfWarrantyCandidates.map((c) => (
+                                                    <div key={c.id} className="rounded-2xl bg-white p-3">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <span className="text-xs font-black text-slate-800 truncate">{c.customerName}</span>
+                                                            <span className="text-[10px] text-slate-400 font-semibold shrink-0 pl-2">
+                                                                Expired {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                                            </span>
+                                                        </div>
+                                                        {c.sentAt ? (
+                                                            <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
+                                                                <span className="text-[10px] font-black text-emerald-700">
+                                                                    ✓ Notice Sent{c.amcAmount ? ` · Rs. ${Number(c.amcAmount).toLocaleString("en-IN")}` : ""}
+                                                                </span>
+                                                                <span className="text-[9px] font-bold text-emerald-600 shrink-0">
+                                                                    {new Date(c.sentAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                                                </span>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="mt-2 flex items-center gap-2">
+                                                                <div className="relative flex-1">
+                                                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">Rs.</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="1"
+                                                                        inputMode="numeric"
+                                                                        placeholder="AMC amount (optional)"
+                                                                        value={outOfWarrantyAmounts[c.id] || ""}
+                                                                        onChange={(e) => setOutOfWarrantyAmounts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                                                                        className="h-9 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-xs font-bold outline-none focus:border-[#0a649d]"
+                                                                    />
+                                                                </div>
+                                                                <button
+                                                                    type="button"
+                                                                    disabled={sendingOutOfWarrantyCustomerId === c.id}
+                                                                    onClick={() => sendOutOfWarrantyLetterFor(c)}
+                                                                    className="h-9 shrink-0 rounded-xl bg-red-600 px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                                                >
+                                                                    {sendingOutOfWarrantyCustomerId === c.id ? "Sending…" : "Send Notice"}
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                        {outOfWarrantySendFeedback[c.id]?.error && (
+                                                            <p className="mt-1.5 text-[10px] font-bold text-red-700">{outOfWarrantySendFeedback[c.id].error}</p>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             ) : moreSubTab === "amc" ? (
                                 <div className="space-y-4">
@@ -2979,13 +3172,38 @@ function AdmindashboardShell({ user }) {
                             </button>
                         </div>
                         <form onSubmit={handleCreateComplaint} className="max-h-[75vh] space-y-3 overflow-y-auto p-5">
-                            <input
-                                value={newComplaintData.customerName}
-                                onChange={(e) => setNewComplaintData({ ...newComplaintData, customerName: e.target.value })}
-                                placeholder="Customer name"
-                                required
-                                className="amardip-field w-full"
-                            />
+                            <div className="relative">
+                                <input
+                                    value={customerNameQuery}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setCustomerNameQuery(value);
+                                        setNewComplaintData((prev) => ({ ...prev, customerId: "", customerName: value }));
+                                    }}
+                                    placeholder="Type to search existing customers, or enter a new name"
+                                    required
+                                    autoComplete="off"
+                                    className="amardip-field w-full"
+                                />
+                                {newComplaintData.customerId && (
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold uppercase tracking-wide text-emerald-600">Linked</span>
+                                )}
+                                {customerNameResults.length > 0 && (
+                                    <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                        {customerNameResults.map((customer) => (
+                                            <button
+                                                key={customer.id}
+                                                type="button"
+                                                onClick={() => selectCustomerForComplaint(customer)}
+                                                className="block w-full border-b border-slate-50 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-slate-50"
+                                            >
+                                                <p className="font-bold text-slate-800">{customer.customer_name}</p>
+                                                <p className="text-[10px] text-slate-400">{customer.mobile_no || "No mobile on file"} · {customer.city || "—"}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
                             <div className="grid grid-cols-2 gap-2">
                                 <input
                                     value={newComplaintData.mobileNo}
@@ -3113,7 +3331,12 @@ function AdmindashboardShell({ user }) {
                                 <>
                                     <hr className="border-slate-100" />
                                     <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
-                                        <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                        <div className="flex items-center justify-between">
+                                            <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                            {formatJobDuration(selectedComplaint.jobCompletion.durationMinutes) && (
+                                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9.5px] font-bold text-emerald-700">Time on site: {formatJobDuration(selectedComplaint.jobCompletion.durationMinutes)}</span>
+                                            )}
+                                        </div>
                                         <div>
                                             <span className="block text-[9px] font-semibold text-slate-400 uppercase">Details / Comments</span>
                                             <p className="font-extrabold text-slate-800">{selectedComplaint.jobCompletion.workPerformed || selectedComplaint.jobCompletion.problemIdentified || "N/A"}</p>
@@ -3375,7 +3598,12 @@ function AdmindashboardShell({ user }) {
 
                                     <hr className="border-slate-100" />
                                     <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
-                                        <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                        <div className="flex items-center justify-between">
+                                            <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
+                                            {formatJobDuration(selectedSchedule.jobCompletion.durationMinutes) && (
+                                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9.5px] font-bold text-emerald-700">Time on site: {formatJobDuration(selectedSchedule.jobCompletion.durationMinutes)}</span>
+                                            )}
+                                        </div>
                                         <div>
                                             <span className="block text-[9px] font-semibold text-slate-400 uppercase">Problem Identified</span>
                                             <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.problemIdentified || "N/A"}</p>

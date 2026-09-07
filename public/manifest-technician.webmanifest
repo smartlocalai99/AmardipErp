@@ -1,0 +1,26 @@
+{
+  "name": "Amardip Technician",
+  "short_name": "AD Tech",
+  "description": "Manage assigned jobs, check in on site, and submit completion reports.",
+  "id": "/Technicianlogin",
+  "start_url": "/Technicianlogin",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a649d",
+  "theme_color": "#0a649d",
+  "icons": [
+    {
+      "src": "/adlogo-pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/adlogo-pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

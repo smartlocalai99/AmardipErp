@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useRouter } from "next/router";
+import Head from "next/head";
 import Image from "next/image";
 import { getUserFromRequest } from "@/lib/auth";
 
@@ -230,7 +231,11 @@ export default function Technicianlogin() {
   }
 
   return (
-    <main
+    <>
+      <Head>
+        <link key="manifest" rel="manifest" href="/manifest-technician.webmanifest" />
+      </Head>
+      <main
       className="min-h-screen overflow-hidden"
       style={{
         background:
@@ -342,5 +347,6 @@ export default function Technicianlogin() {
         </div>
       </div>
     </main>
+    </>
   );
 }

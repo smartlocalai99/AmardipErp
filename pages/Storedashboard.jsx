@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/router";
+import Head from "next/head";
 import { getUserFromRequest } from "@/lib/auth";
 import { getStaffProfile } from "@/lib/staffProfile";
 import Image from "next/image";
@@ -479,10 +480,14 @@ export default function Storedashboard({ user }) {
     });
 
     return (
+        <>
+        <Head>
+            <link key="manifest" rel="manifest" href="/manifest-store.webmanifest" />
+        </Head>
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
             {/* Phone Bezel Simulator */}
             <div className="w-full sm:max-w-md h-[100dvh] sm:h-[840px] sm:min-h-[840px] sm:max-h-[840px] bg-[#f8fafc] text-[#0f172a] relative flex flex-col sm:shadow-2xl sm:rounded-[40px] sm:border-[10px] sm:border-slate-800 overflow-hidden select-none">
-                
+
                 {/* Status Bar */}
                 <div className="bg-[#0a649d] px-6 pt-3.5 pb-2.5 flex justify-between items-center text-[11px] font-bold text-white select-none shrink-0 sm:flex hidden">
                     <span>9:41</span>
@@ -1297,5 +1302,6 @@ export default function Storedashboard({ user }) {
 
             </div>
         </div>
+        </>
     );
 }

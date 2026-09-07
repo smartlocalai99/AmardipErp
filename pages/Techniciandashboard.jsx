@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { subscribeToPush } from "@/lib/pushClient";
 import { useRouter } from "next/router";
+import Head from "next/head";
 import { getUserFromRequest } from "@/lib/auth";
 import { getStaffProfile } from "@/lib/staffProfile";
 import Image from "next/image";
@@ -93,6 +94,16 @@ function BellIcon({ className = "h-5 w-5" }) {
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
         </svg>
     );
+}
+
+// "1h 24m" / "45m" — how long the technician was actually on site.
+function formatJobDuration(minutes) {
+    if (!Number.isFinite(minutes) || minutes < 0) return null;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
 }
 
 function ProfileIcon({ className = "h-5 w-5" }) {
@@ -250,6 +261,7 @@ export default function Techniciandashboard({ user }) {
             gpsAddress: jc?.gpsAddress || null,
             completeTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
             materials: c.materials || [],
+            durationMinutes: jc?.durationMinutes ?? null,
         };
     }
 
@@ -344,12 +356,27 @@ export default function Techniciandashboard({ user }) {
                 longitude: position.coords.longitude,
                 accuracy: position.coords.accuracy,
             };
-            const timeNow = new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+            const timeNow = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
             setGpsCoords(coords);
             setJobs(prev => prev.map(job => job.id === activeJob.id
                 ? { ...job, gpsCheckedIn: true, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }
                 : job));
             setActiveJob(prev => ({ ...prev, gpsCheckedIn: true, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }));
+
+            // Tells the server the moment arrival actually happens — previously
+            // this was purely local state and the backend never learned about
+            // it until the whole job was completed, so admin had no arrival
+            // notification and there was no timestamp to measure visit duration from.
+            fetch("/api/worker/check-in", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    jobDbId: activeJob.dbId,
+                    gpsLatitude: coords.latitude,
+                    gpsLongitude: coords.longitude,
+                    gpsAccuracyMeters: coords.accuracy,
+                }),
+            }).catch(() => {});
         } catch (err) {
             setGpsError(
                 err.code === 1
@@ -754,10 +781,14 @@ export default function Techniciandashboard({ user }) {
     const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
     return (
+        <>
+        <Head>
+            <link key="manifest" rel="manifest" href="/manifest-technician.webmanifest" />
+        </Head>
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
             {/* Phone Bezel Simulator */}
             <div className="w-full sm:max-w-md h-[100dvh] sm:h-[840px] sm:min-h-[840px] sm:max-h-[840px] bg-[#f8fafc] text-[#0f172a] relative flex flex-col sm:shadow-2xl sm:rounded-[40px] sm:border-[10px] sm:border-slate-800 overflow-hidden select-none">
-                
+
                 {/* Status Bar */}
                 <div className="bg-[#0a649d] px-6 pt-3.5 pb-2.5 flex justify-between items-center text-[11px] font-bold text-white select-none shrink-0 sm:flex hidden">
                     <span>9:41</span>
@@ -1109,7 +1140,10 @@ export default function Techniciandashboard({ user }) {
                                             <svg className="h-5 w-5 text-emerald-600 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                             <div>
                                                 <p className="text-xs font-black text-emerald-800">Job completed{activeJob.completeTime ? ` — ${activeJob.completeTime}` : ""}</p>
-                                                <p className="text-[10px] font-semibold text-emerald-700">Showing what was submitted. This job is closed.</p>
+                                                <p className="text-[10px] font-semibold text-emerald-700">
+                                                    Showing what was submitted. This job is closed.
+                                                    {formatJobDuration(activeJob.durationMinutes) ? ` Time on site: ${formatJobDuration(activeJob.durationMinutes)}.` : ""}
+                                                </p>
                                             </div>
                                         </div>
                                     )}
@@ -1821,5 +1855,6 @@ export default function Techniciandashboard({ user }) {
 
             </div>
         </div>
+        </>
     );
 }
