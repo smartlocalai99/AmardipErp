@@ -83,6 +83,11 @@ export default async function handler(req, res) {
   );
 
   if (complaint.customerUserId) {
+    // A monthly service visit assigned through this generic endpoint (e.g.
+    // a technician picked at ticket-creation time) should land the customer
+    // on the Service tab, same as a schedule dispatched the dedicated way —
+    // not the general Complaints tab, which wouldn't show it as a service.
+    const customerTab = complaint.complaintType === "SERVICE_REQUEST" ? "service" : "complaints";
     const technicianNames = (complaint.assignees || []).map((a) => a.name).join(" & ") || complaint.assignedTechnicianName;
     const message = `${complaint.complaintNo} has been assigned to ${technicianNames || "a technician"} and is on its way.`;
     await createCustomerNotification({
@@ -97,7 +102,7 @@ export default async function handler(req, res) {
       {
         title: "Technician assigned",
         body: message,
-        data: { url: "/Customerdashboard?tab=complaints", complaintId: complaint.id },
+        data: { url: `/Customerdashboard?tab=${customerTab}`, complaintId: complaint.id },
       }
     );
   }

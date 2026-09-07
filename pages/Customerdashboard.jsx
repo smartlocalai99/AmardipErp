@@ -223,8 +223,12 @@ function mapComplaintForCustomer(complaint) {
         id: complaint.complaintNo,
         dbId: complaint.id,
         liftId: complaint.customerCode || "LIFT",
+        siteName: complaint.city || complaint.address || complaint.customerCode || "Site",
+        mobileNo: complaint.mobileNo || "",
         date: complaint.createdAt?.slice(0, 10) || new Date().toISOString().slice(0, 10),
         category: complaint.complaintType?.replaceAll("_", " ") || "SERVICE REQUEST",
+        rawComplaintType: complaint.complaintType || null,
+        rawStatus: complaint.status || "UNASSIGNED",
         description: complaint.description,
         status: complaint.status?.replaceAll("_", " ") || "UNASSIGNED",
         isCompleted: ["RESOLVED", "CLOSED"].includes(complaint.status),
@@ -242,6 +246,59 @@ function mapComplaintForCustomer(complaint) {
         customerRepName: jc?.customerRepName || null,
         materials: complaint.materials || [],
     };
+}
+
+// One label per real lifecycle stage — an arrival is worth calling out on
+// its own, distinct from "assigned but not there yet".
+function getTicketStatusInfo(c) {
+    if (["RESOLVED", "CLOSED"].includes(c.rawStatus)) {
+        return { label: "Completed", className: "bg-emerald-100 text-emerald-800" };
+    }
+    if (c.rawStatus === "CANCELLED") {
+        return { label: "Cancelled", className: "bg-slate-200 text-slate-600" };
+    }
+    if (c.checkedInAt || c.rawStatus === "IN_PROGRESS") {
+        return { label: "Technician arrived", className: "bg-[#0a649d] text-white" };
+    }
+    if (c.rawStatus === "ASSIGNED") {
+        return { label: "Technician on the way", className: "bg-amber-400 text-amber-950" };
+    }
+    return { label: "Awaiting technician", className: "bg-slate-200 text-slate-600" };
+}
+
+// Shared by the Log Book and the Service tab's active-visit list — same
+// card either way, since a technician arriving is the same event whether
+// the ticket started as a breakdown or a scheduled service.
+function TicketCard({ ticket, onOpen }) {
+    const statusInfo = getTicketStatusInfo(ticket);
+    return (
+        <div
+            onClick={() => onOpen(ticket)}
+            className="overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] shadow-sm cursor-pointer active:scale-[0.99] transition"
+        >
+            <div className="p-4 flex flex-col gap-2.5">
+                <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-bold text-[#0a649d]">{formatPortalDate(ticket.date)}</span>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9.5px] font-black uppercase tracking-wide ${statusInfo.className}`}>
+                        {statusInfo.label}
+                    </span>
+                </div>
+                <div>
+                    <p className="text-sm font-black text-slate-900">{ticket.siteName}</p>
+                    {ticket.mobileNo && <p className="text-[11px] font-semibold text-slate-500">{ticket.mobileNo}</p>}
+                </div>
+                {ticket.assignedTech && (
+                    <p className="text-xs font-bold text-slate-700">Technician: {ticket.assignedTech}</p>
+                )}
+                {ticket.description && (
+                    <p className="text-xs text-slate-500 leading-normal line-clamp-2">{ticket.description}</p>
+                )}
+            </div>
+            <div className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white">
+                Tap to Track Status &rarr;
+            </div>
+        </div>
+    );
 }
 
 // SVG Icons
@@ -649,6 +706,14 @@ export default function Customerdashboard({
         setSelectedTrackComplaint(complaint);
     };
 
+    // A service visit that's been dispatched but not yet completed has
+    // nowhere to show up today — the Service tab only ever showed
+    // already-finished visits, so a customer had no way to see "yes, this
+    // month's service is on its way" until it was over.
+    const activeServiceTickets = complaints.filter(
+        (c) => c.rawComplaintType === "SERVICE_REQUEST" && !["RESOLVED", "CLOSED", "CANCELLED"].includes(c.rawStatus)
+    );
+
     return (
         <>
         <Head>
@@ -941,36 +1006,7 @@ export default function Customerdashboard({
                                     {complaints.length === 0 ? (
                                         <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No complaints submitted yet.</p>
                                     ) : complaints.map(c => (
-                                        <div
-                                            key={c.id}
-                                            onClick={() => openComplaintDetails(c)}
-                                            className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm flex flex-col gap-3 cursor-pointer hover:bg-slate-50 transition active:scale-[0.99]"
-                                        >
-                                            <div className="flex justify-between items-start">
-                                                <div>
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="text-sm font-black text-slate-900">{c.id}</span>
-                                                        {c.emergency && (
-                                                            <span className="text-[8.5px] font-black px-1.5 py-0.2 rounded-sm bg-red-100 border border-red-200 text-red-700 animate-pulse uppercase">
-                                                                Emergency
-                                                            </span>
-                                                        )}
-                                                    </div>
-                                                    <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mt-1">{c.category} • {c.liftId}</p>
-                                                </div>
-                                                <span className={`text-[10px] font-black px-3 py-1 rounded-xl border ${c.isCompleted ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                    c.status === "IN PROGRESS" ? "bg-blue-50 border-blue-100 text-blue-700" :
-                                                        "bg-amber-50 border-amber-100 text-amber-700"
-                                                    }`}>
-                                                    {c.status}
-                                                </span>
-                                            </div>
-                                            <p className="text-xs text-slate-500 leading-normal line-clamp-2 pl-0.5">{c.description}</p>
-                                            <div className="border-t border-slate-100/60 pt-2 flex items-center justify-between text-[10px] text-slate-400 font-semibold pl-0.5">
-                                                <span>Log: {formatGroupDate(c.date)}</span>
-                                                <span className="text-[#0a649d] font-bold">Tap to Track Status &rarr;</span>
-                                            </div>
-                                        </div>
+                                        <TicketCard key={c.id} ticket={c} onOpen={openComplaintDetails} />
                                     ))}
                                 </div>
                             )}
@@ -1118,6 +1154,17 @@ export default function Customerdashboard({
                                 <h1 className="text-2xl font-black tracking-tight text-slate-900">Service</h1>
                                 <p className="text-xs text-slate-500 mt-0.5">See when each lift was last serviced and review completed visits.</p>
                             </div>
+
+                            {activeServiceTickets.length > 0 && (
+                                <section>
+                                    <h2 className="mb-3 px-1 text-xs font-bold uppercase tracking-wider text-slate-400">Assigned service visit</h2>
+                                    <div className="space-y-2.5">
+                                        {activeServiceTickets.map((c) => (
+                                            <TicketCard key={c.id} ticket={c} onOpen={openComplaintDetails} />
+                                        ))}
+                                    </div>
+                                </section>
+                            )}
 
                             {latestServiceVisit ? (
                                 <>
