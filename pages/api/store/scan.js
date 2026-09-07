@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { resolveJobPass, listMaterialRequestsForComplaint } from "@/lib/materialRequests";
+import { getStoreJobByReference } from "@/lib/inventory";
 
 const STORE_ROLES = new Set(["storekeeper", "admin", "superadmin", "manager"]);
 
@@ -13,7 +14,22 @@ export default async function handler(req, res) {
 
   try {
     const { complaint, workerId } = await resolveJobPass(req.body?.token);
-    const materialRequests = await listMaterialRequestsForComplaint(complaint.id);
+    // One QR, two directions: items still waiting to be issued (requested
+    // by admin at assignment, or by the worker), and items already issued
+    // but not yet returned. Both can be non-empty at once — a worker might
+    // still have parts to collect for other items while returning unused
+    // ones from earlier in the same job.
+    const [allRequests, storeJob] = await Promise.all([
+      listMaterialRequestsForComplaint(complaint.id),
+      getStoreJobByReference(complaint.id),
+    ]);
+    // Only requests still awaiting action — an already-fulfilled request
+    // left in this list would re-populate at its original quantity and a
+    // careless "Collect All" tap would issue that same quantity a second
+    // time, double-deducting stock for something already handed over.
+    const materialRequests = allRequests.filter((request) =>
+      ["pending", "approved", "partially_issued"].includes(request.status)
+    );
     return res.status(200).json({
       success: true,
       job: {
@@ -25,6 +41,7 @@ export default async function handler(req, res) {
         status: complaint.status,
       },
       materialRequests,
+      returnableItems: storeJob.returnableItems,
     });
   } catch (err) {
     console.error("Scan job pass error:", err);

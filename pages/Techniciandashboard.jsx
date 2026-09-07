@@ -1163,7 +1163,7 @@ export default function Techniciandashboard({ user }) {
                                     <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-3">
                                         <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Store Material Pass</h3>
                                         <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
-                                            Generate a real QR pass for this job. The storekeeper scans it to issue any spare parts requested for {activeJob.id}.
+                                            Show this QR to the storekeeper — before the job to collect parts, or after to return any unused ones. Same QR works both times.
                                         </p>
                                         <button
                                             onClick={() => openJobPass(activeJob)}

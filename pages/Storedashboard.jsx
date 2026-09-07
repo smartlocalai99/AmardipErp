@@ -274,7 +274,8 @@ export default function Storedashboard({ user }) {
         setScanResult({
             token,
             job: data.job,
-            editableItems: data.materialRequests.map(r => ({ itemId: r.itemId, name: r.itemName, unit: r.itemUnit, quantity: r.requestedQuantity })),
+            editableItems: data.materialRequests.map(r => ({ itemId: r.itemId, name: r.itemName, unit: r.itemUnit, quantity: r.requestedQuantity, requestedQuantity: r.requestedQuantity })),
+            returnItems: (data.returnableItems || []).map(r => ({ itemId: r.itemId, name: r.name, unit: r.unit, quantity: r.returnableQuantity, maxQuantity: r.returnableQuantity })),
         });
     }
 
@@ -293,8 +294,15 @@ export default function Storedashboard({ user }) {
         setAddItemSearchResults([]);
     }
 
-    async function confirmScanIssue() {
-        const items = scanResult.editableItems.filter(it => it.quantity > 0).map(it => ({ itemId: it.itemId, quantity: it.quantity }));
+    function adjustReturnItemQty(index, quantity) {
+        if (quantity < 0) return;
+        setScanResult(prev => ({
+            ...prev,
+            returnItems: prev.returnItems.map((it, i) => i === index ? { ...it, quantity: Math.min(quantity, it.maxQuantity) } : it),
+        }));
+    }
+
+    async function issueItems(items) {
         if (items.length === 0) {
             Swal.fire({ icon: "warning", title: "No items selected", text: "Add at least one item before confirming." });
             return;
@@ -318,6 +326,58 @@ export default function Storedashboard({ user }) {
         refreshInventory();
         refreshRequests();
         refreshTransactions();
+    }
+
+    function confirmScanIssue() {
+        const items = scanResult.editableItems.filter(it => it.quantity > 0).map(it => ({ itemId: it.itemId, quantity: it.quantity }));
+        issueItems(items);
+    }
+
+    // One tap, no per-item editing — issues every requested item at its
+    // original full requested quantity, undoing any manual adjustments,
+    // exactly what the worker actually asked for.
+    function collectAllIssue() {
+        const items = scanResult.editableItems
+            .map(it => ({ itemId: it.itemId, quantity: it.requestedQuantity ?? it.quantity }))
+            .filter(it => it.quantity > 0);
+        issueItems(items);
+    }
+
+    async function returnItemsNow(items) {
+        if (items.length === 0) {
+            Swal.fire({ icon: "warning", title: "No items selected", text: "Nothing to return." });
+            return;
+        }
+        const res = await fetch("/api/store/return", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId: scanResult.job.complaintId, items }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            Swal.fire({ icon: "error", title: "Failed to record return", text: data.message || "Please try again." });
+            return;
+        }
+        Swal.fire({
+            icon: "success",
+            title: "Returned to inventory",
+            html: data.returned.map(i => `${i.quantity} ${i.unit} x ${i.name}`).join("<br/>"),
+        });
+        setScanResult(null);
+        refreshInventory();
+        refreshTransactions();
+    }
+
+    function confirmScanReturn() {
+        const items = scanResult.returnItems.filter(it => it.quantity > 0).map(it => ({ itemId: it.itemId, quantity: it.quantity }));
+        returnItemsNow(items);
+    }
+
+    // One tap — returns every outstanding issued item at its full
+    // returnable quantity, for a worker handing back everything unused.
+    function collectAllReturn() {
+        const items = scanResult.returnItems.map(it => ({ itemId: it.itemId, quantity: it.maxQuantity }));
+        returnItemsNow(items);
     }
 
     // Save Stock form
@@ -487,13 +547,13 @@ export default function Storedashboard({ user }) {
                     </div>
                 )}
 
-                {/* Scan Result: editable material issue */}
+                {/* Scan Result: store pass scanned — issue and/or return in one place */}
                 {scanResult && (
                     <div className="amardip-modal-layer absolute inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                         <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90dvh] flex flex-col">
                             <div className="px-5 py-4 bg-[#0a649d] text-white flex justify-between items-center shrink-0">
                                 <div>
-                                    <h2 className="text-sm font-bold truncate">Confirm Material Issue</h2>
+                                    <h2 className="text-sm font-bold truncate">Store Pass Scanned</h2>
                                     <p className="text-[9px] text-white/80 font-bold uppercase tracking-wider">{scanResult.job.complaintNo}</p>
                                 </div>
                                 <button onClick={() => setScanResult(null)} className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition">
@@ -501,17 +561,29 @@ export default function Storedashboard({ user }) {
                                 </button>
                             </div>
 
-                            <div className="p-6 text-left space-y-4 overflow-y-auto">
+                            <div className="p-6 text-left space-y-5 overflow-y-auto">
                                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 space-y-2 text-xs">
                                     <p><strong className="text-slate-800">Technician:</strong> {scanResult.job.assignedTechnicianName}</p>
                                     <p><strong className="text-slate-800">Customer:</strong> {scanResult.job.customerName}</p>
                                 </div>
 
+                                {/* ISSUE: parts still waiting to be handed over */}
                                 <div>
-                                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 pl-0.5">Parts to be Handed Over</h4>
+                                    <div className="flex items-center justify-between mb-2 pl-0.5">
+                                        <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts to Hand Over</h4>
+                                        {scanResult.editableItems.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={collectAllIssue}
+                                                className="h-7 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-bold transition active:scale-95"
+                                            >
+                                                Collect All
+                                            </button>
+                                        )}
+                                    </div>
                                     <div className="space-y-2">
                                         {scanResult.editableItems.length === 0 && (
-                                            <p className="text-xs text-slate-400 text-center py-3">No items yet — search below to add one.</p>
+                                            <p className="text-xs text-slate-400 text-center py-3">Nothing requested for this job yet — search below to add one.</p>
                                         )}
                                         {scanResult.editableItems.map((it, idx) => (
                                             <div key={`${it.itemId}-${idx}`} className="flex justify-between items-center bg-slate-50 p-2.5 rounded-xl border border-slate-100 text-xs">
@@ -551,7 +623,7 @@ export default function Storedashboard({ user }) {
                                 </div>
 
                                 <div className="relative">
-                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Add another item</label>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 pl-0.5">Add another item to hand over</label>
                                     <input
                                         type="text"
                                         value={addItemQuery}
@@ -575,20 +647,72 @@ export default function Storedashboard({ user }) {
                                     )}
                                 </div>
 
-                                <div className="flex gap-2.5 pt-2">
-                                    <button
-                                        onClick={() => setScanResult(null)}
-                                        className="h-11 flex-1 border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={confirmScanIssue}
-                                        className="h-11 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition active:scale-95"
-                                    >
-                                        Confirm Issue
-                                    </button>
-                                </div>
+                                <button
+                                    onClick={confirmScanIssue}
+                                    className="h-11 w-full bg-[#0a649d] hover:bg-[#085282] text-white rounded-xl text-xs font-bold transition active:scale-95"
+                                >
+                                    Confirm Issue
+                                </button>
+
+                                {/* RETURN: parts already issued but not yet handed back */}
+                                {scanResult.returnItems.length > 0 && (
+                                    <>
+                                        <hr className="border-slate-100" />
+                                        <div>
+                                            <div className="flex items-center justify-between mb-2 pl-0.5">
+                                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts to Collect Back</h4>
+                                                <button
+                                                    type="button"
+                                                    onClick={collectAllReturn}
+                                                    className="h-7 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold transition active:scale-95"
+                                                >
+                                                    Collect All
+                                                </button>
+                                            </div>
+                                            <div className="space-y-2">
+                                                {scanResult.returnItems.map((it, idx) => (
+                                                    <div key={`${it.itemId}-return-${idx}`} className="flex justify-between items-center bg-amber-50/60 p-2.5 rounded-xl border border-amber-100 text-xs">
+                                                        <div>
+                                                            <span className="font-extrabold text-slate-800">{it.name}</span>
+                                                            <span className="block text-[10px] text-slate-400">Issued, not yet returned · max {it.maxQuantity} {it.unit}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => adjustReturnItemQty(idx, it.quantity - 1)}
+                                                                className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                            >
+                                                                -
+                                                            </button>
+                                                            <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{it.quantity}</span>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => adjustReturnItemQty(idx, it.quantity + 1)}
+                                                                className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                            >
+                                                                +
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        </div>
+
+                                        <button
+                                            onClick={confirmScanReturn}
+                                            className="h-11 w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition active:scale-95"
+                                        >
+                                            Confirm Return
+                                        </button>
+                                    </>
+                                )}
+
+                                <button
+                                    onClick={() => setScanResult(null)}
+                                    className="h-11 w-full border border-slate-200 text-slate-600 rounded-xl text-xs font-bold hover:bg-slate-50 transition"
+                                >
+                                    Close
+                                </button>
                             </div>
                         </div>
                     </div>
