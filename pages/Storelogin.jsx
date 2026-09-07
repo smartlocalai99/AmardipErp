@@ -271,14 +271,17 @@ export default function Storelogin() {
 
                   <div className="min-w-0 flex-1">
                     <label className="block text-[11px] font-medium leading-none text-[#9ca3af]">
-                      Username
+                      Mobile number
                     </label>
                     <input
-                      type="text"
+                      type="tel"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={15}
                       value={username}
-                      onChange={(event) => setUsername(event.target.value)}
-                      placeholder="Enter username"
-                      autoComplete="username"
+                      onChange={(event) => setUsername(event.target.value.replace(/\D/g, ""))}
+                      placeholder="Enter mobile number"
+                      autoComplete="tel"
                       required
                       className="mt-1 w-full bg-transparent text-[14px] font-medium text-[#111827] outline-none placeholder:text-[#c4c9d2]"
                     />
