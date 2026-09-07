@@ -178,6 +178,49 @@ export default function Storedashboard({ user }) {
         if (data.success) setMaterialRequests(data.requests);
     }
 
+    const [issuingRequestId, setIssuingRequestId] = useState(null);
+
+    // The other way to issue, alongside scanning a Store Pass QR — straight
+    // against a request a worker raised from their own app (or admin
+    // allocated at assignment), for whenever the worker isn't standing here.
+    async function issueMaterialRequest(request) {
+        if (issuingRequestId) return;
+        const remaining = request.requestedQuantity - request.issuedQuantity;
+        const confirmResult = await Swal.fire({
+            icon: "question",
+            title: `Issue ${request.itemName}?`,
+            html: `Job <strong>${request.complaintNo}</strong> · Worker <strong>${request.assignedTechnicianName || request.requestedByName || "Technician"}</strong><br/>Outstanding: ${remaining} ${request.itemUnit}`,
+            input: "number",
+            inputValue: remaining,
+            inputAttributes: { min: 0, max: remaining, step: "0.01" },
+            showCancelButton: true,
+            confirmButtonText: "Issue",
+        });
+        if (!confirmResult.isConfirmed) return;
+        const quantity = Number(confirmResult.value);
+        if (!quantity || quantity <= 0) return;
+
+        setIssuingRequestId(request.id);
+        try {
+            const res = await fetch("/api/store/issue-request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ requestId: request.id, quantity }),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || "Failed to issue");
+            Swal.fire({ icon: "success", title: "Issued", text: `${quantity} ${request.itemUnit} of ${request.itemName} issued.` });
+            refreshRequests();
+            refreshInventory();
+            refreshTransactions();
+            refreshReturnJobs();
+        } catch (err) {
+            Swal.fire({ icon: "error", title: "Failed to issue", text: err.message || "Please try again." });
+        } finally {
+            setIssuingRequestId(null);
+        }
+    }
+
     async function refreshTransactions() {
         const res = await fetch("/api/store/transactions");
         const data = await res.json();
@@ -916,8 +959,34 @@ export default function Storedashboard({ user }) {
                                 <p className="text-xs text-slate-500 mt-0.5">Approve, reject or dispatch requested technician materials.</p>
                             </div>
 
-                            <p className="text-[10px] text-slate-400 -mt-2 px-1">
-                                Items admin allocated at assignment appear here for reference. Scan a technician&apos;s Store Pass QR to actually issue parts.
+                            <div>
+                                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Materials Out — Who&apos;s Holding What</h2>
+                                {returnJobs.length === 0 ? (
+                                    <p className="rounded-2xl bg-slate-50 p-4 text-center text-[11px] font-bold text-slate-400">Nothing currently issued and outstanding.</p>
+                                ) : (
+                                    <div className="space-y-2">
+                                        {returnJobs.map((job) => (
+                                            <div key={job.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-xs font-black text-[#0a649d]">{job.complaintNo}</span>
+                                                    <span className="text-[9px] font-bold text-slate-400 shrink-0">{job.customerName}</span>
+                                                </div>
+                                                <p className="mt-0.5 text-[10px] font-bold text-slate-500">Worker: {job.assignedTechnicianName || "Unassigned"}</p>
+                                                <div className="mt-1.5 flex flex-wrap gap-1.5">
+                                                    {(job.items || []).map((item) => (
+                                                        <span key={item.itemId} className="rounded-full bg-white border border-slate-200 px-2 py-0.5 text-[9.5px] font-bold text-slate-700">
+                                                            {item.name} × {item.quantity} {item.unit}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            <p className="text-[10px] text-slate-400 px-1">
+                                Includes items admin allocated at assignment and materials a worker requested from their own app. Issue directly below, or scan a technician&apos;s Store Pass QR instead.
                             </p>
 
                             <div className="space-y-3.5">
@@ -934,6 +1003,7 @@ export default function Storedashboard({ user }) {
                                                     <h3 className="text-sm font-black text-slate-800 mt-1">{req.itemName}</h3>
                                                     <p className="text-xs font-semibold text-slate-500 mt-0.5">Worker: {req.assignedTechnicianName || req.requestedByName || "Technician"}</p>
                                                 </div>
+                                                <div className="shrink-0 flex flex-col items-end gap-1.5">
                                                 <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase ${
                                                     req.status === "approved" ? "bg-sky-50 text-[#0a649d] border border-sky-100" :
                                                     (req.status === "issued" || req.status === "partially_issued" ? "bg-emerald-50 text-emerald-600 border border-emerald-100" :
@@ -941,6 +1011,17 @@ export default function Storedashboard({ user }) {
                                                 }`}>
                                                     {req.status}
                                                 </span>
+                                                {["pending", "approved", "partially_issued"].includes(req.status) && (
+                                                    <button
+                                                        type="button"
+                                                        disabled={issuingRequestId === req.id}
+                                                        onClick={() => issueMaterialRequest(req)}
+                                                        className="h-8 rounded-lg bg-[#0a649d] px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                                    >
+                                                        {issuingRequestId === req.id ? "…" : "Issue"}
+                                                    </button>
+                                                )}
+                                                </div>
                                             </div>
 
                                             {/* Details Grid */}

@@ -173,6 +173,78 @@ export default function Techniciandashboard({ user }) {
     const [gpsCoords, setGpsCoords] = useState(null); // { latitude, longitude, accuracy }
     const [gpsError, setGpsError] = useState("");
 
+    // Requesting materials without a QR — for a job the worker already knows
+    // needs a part, or one they didn't collect in person.
+    const [materialRequestQuery, setMaterialRequestQuery] = useState("");
+    const [materialRequestResults, setMaterialRequestResults] = useState([]);
+    const [materialRequestQuantity, setMaterialRequestQuantity] = useState(1);
+    const [materialRequestCart, setMaterialRequestCart] = useState([]);
+    const [submittingMaterialRequest, setSubmittingMaterialRequest] = useState(false);
+    const [materialRequestFeedback, setMaterialRequestFeedback] = useState("");
+
+    useEffect(() => {
+        const q = materialRequestQuery.trim();
+        if (!q) {
+            const timer = setTimeout(() => setMaterialRequestResults([]), 0);
+            return () => clearTimeout(timer);
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/inventory?search=${encodeURIComponent(q)}`, { signal: controller.signal });
+                const data = await res.json();
+                if (!controller.signal.aborted && data.success) setMaterialRequestResults(data.items);
+            } catch {
+                if (!controller.signal.aborted) setMaterialRequestResults([]);
+            }
+        }, 300);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [materialRequestQuery]);
+
+    function addToMaterialRequestCart(item) {
+        setMaterialRequestCart(prev => {
+            const exists = prev.find(p => p.itemId === item.id);
+            if (exists) {
+                return prev.map(p => p.itemId === item.id ? { ...p, quantity: p.quantity + materialRequestQuantity } : p);
+            }
+            return [...prev, { itemId: item.id, name: item.name, unit: item.unit, quantity: materialRequestQuantity }];
+        });
+        setMaterialRequestQuery("");
+        setMaterialRequestResults([]);
+        setMaterialRequestQuantity(1);
+    }
+
+    function removeFromMaterialRequestCart(itemId) {
+        setMaterialRequestCart(prev => prev.filter(p => p.itemId !== itemId));
+    }
+
+    async function submitMaterialRequest() {
+        if (!activeJob || materialRequestCart.length === 0) return;
+        setSubmittingMaterialRequest(true);
+        setMaterialRequestFeedback("");
+        try {
+            const res = await fetch("/api/worker/request-materials", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    jobDbId: activeJob.dbId,
+                    items: materialRequestCart.map(item => ({ itemId: item.itemId, quantity: item.quantity })),
+                }),
+            });
+            const data = await res.json();
+            if (!data.success) throw new Error(data.message || "Failed to send request");
+            setMaterialRequestCart([]);
+            setMaterialRequestFeedback("Request sent to the store.");
+        } catch (err) {
+            setMaterialRequestFeedback(err.message || "Failed to send request");
+        } finally {
+            setSubmittingMaterialRequest(false);
+        }
+    }
+
     // QR scanner simulator states
     const [showQrScanner, setShowQrScanner] = useState(false);
     const [qrStatusText, setQrStatusText] = useState("Align Lift QR inside frame");
@@ -1235,6 +1307,69 @@ export default function Techniciandashboard({ user }) {
                                                     </div>
                                                 ))}
                                             </div>
+                                        )}
+                                    </div>
+
+                                    {/* SECTION 1C: REQUEST MATERIALS (no QR needed) */}
+                                    <div className="rounded-3xl border border-slate-200 bg-white p-4.5 shadow-sm space-y-3">
+                                        <h3 className="text-xs font-bold uppercase tracking-wider text-[#0a649d] border-b border-slate-100 pb-2">Request Materials</h3>
+                                        <p className="text-[11px] text-slate-500 font-semibold leading-relaxed">
+                                            Know what this job needs already? Request it here — the store sees it and issues it, no QR needed.
+                                        </p>
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                value={materialRequestQuery}
+                                                onChange={(e) => setMaterialRequestQuery(e.target.value)}
+                                                placeholder="Search inventory item..."
+                                                className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-sm bg-white outline-none focus:border-[#0a649d] transition"
+                                            />
+                                            {materialRequestResults.length > 0 && (
+                                                <div className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                                    {materialRequestResults.map(item => (
+                                                        <button
+                                                            type="button"
+                                                            key={item.id}
+                                                            onClick={() => addToMaterialRequestCart(item)}
+                                                            className="block w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
+                                                        >
+                                                            {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit} in stock)</span>
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="grid grid-cols-[auto_5rem_1fr] items-center gap-2">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Qty</span>
+                                            <input
+                                                type="number"
+                                                min={1}
+                                                value={materialRequestQuantity}
+                                                onChange={(e) => setMaterialRequestQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                                className="h-9 w-20 px-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-[#0a649d]"
+                                            />
+                                            <span className="min-w-0 text-[10px] leading-snug text-slate-400">Search and tap an item above to add it at this quantity.</span>
+                                        </div>
+                                        {materialRequestCart.length > 0 && (
+                                            <div className="space-y-1.5">
+                                                {materialRequestCart.map(item => (
+                                                    <div key={item.itemId} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
+                                                        <span className="min-w-0 break-words text-xs font-semibold text-slate-700">{item.name} × {item.quantity} {item.unit}</span>
+                                                        <button type="button" onClick={() => removeFromMaterialRequestCart(item.itemId)} className="shrink-0 text-red-500 text-xs font-bold">Remove</button>
+                                                    </div>
+                                                ))}
+                                                <button
+                                                    type="button"
+                                                    disabled={submittingMaterialRequest}
+                                                    onClick={submitMaterialRequest}
+                                                    className="h-10.5 w-full bg-[#0a649d] text-white hover:bg-[#085282] rounded-xl text-xs font-bold uppercase tracking-wider transition active:scale-98 shadow-sm disabled:opacity-50"
+                                                >
+                                                    {submittingMaterialRequest ? "Sending…" : "Send Request to Store"}
+                                                </button>
+                                            </div>
+                                        )}
+                                        {materialRequestFeedback && (
+                                            <p className="text-[11px] font-bold text-emerald-600">{materialRequestFeedback}</p>
                                         )}
                                     </div>
 
