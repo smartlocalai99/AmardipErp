@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/router";
+import Head from "next/head";
 import { getUserFromRequest } from "@/lib/auth";
 import { getCustomerRecordsForUser, getCustomerServiceVisitsForUser } from "@/lib/customerAccounts";
 import Image from "next/image";
@@ -612,6 +613,10 @@ export default function Customerdashboard({
     };
 
     return (
+        <>
+        <Head>
+            <link key="manifest" rel="manifest" href="/manifest-customer.webmanifest" />
+        </Head>
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
             {/* Phone Bezel Simulator */}
             <div className="w-full sm:max-w-md h-[100dvh] sm:h-[840px] sm:min-h-[840px] sm:max-h-[840px] bg-[#f8fafc] text-[#0f172a] relative flex flex-col sm:shadow-2xl sm:rounded-[40px] sm:border-[10px] sm:border-slate-800 overflow-hidden select-none">
@@ -1626,5 +1631,6 @@ export default function Customerdashboard({
 
             </div>
         </div>
+        </>
     );
 }

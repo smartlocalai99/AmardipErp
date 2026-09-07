@@ -1,0 +1,26 @@
+{
+  "name": "Amardip Elevators",
+  "short_name": "Amardip",
+  "description": "Track your elevator's service visits, raise a complaint, and reach your technician.",
+  "id": "/Customerlogin",
+  "start_url": "/Customerlogin",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a649d",
+  "theme_color": "#0a649d",
+  "icons": [
+    {
+      "src": "/adlogo-pwa-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/adlogo-pwa-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

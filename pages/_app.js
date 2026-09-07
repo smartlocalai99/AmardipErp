@@ -20,7 +20,7 @@ export default function App({ Component, pageProps }) {
         <meta name="format-detection" content="telephone=no" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="theme-color" content="#0a649d" />
-        <link rel="manifest" href="/manifest.webmanifest" />
+        <link key="manifest" rel="manifest" href="/manifest.webmanifest" />
         <link rel="apple-touch-icon" href="/adlogo-pwa.png" />
         <link rel="icon" href="/adlogo-pwa.png" />
       </Head>
