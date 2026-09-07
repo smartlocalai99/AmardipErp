@@ -101,8 +101,30 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
-    const result = await query(`DELETE FROM service_schedules WHERE id = $1`, [id]);
-    if (result.rowCount === 0) return res.status(404).json({ success: false, message: "Not found" });
+    // Dispatching a schedule creates a real complaint the worker sees and
+    // acts on in their own app. Deleting only the schedule row left that
+    // job dangling — still ASSIGNED, still fully visible and actionable in
+    // the worker's job list — because nothing ever told the linked
+    // complaint it was cancelled.
+    await query("BEGIN");
+    try {
+      const scheduleResult = await query(
+        `DELETE FROM service_schedules WHERE id = $1 RETURNING linked_complaint_id`,
+        [id]
+      );
+      if (scheduleResult.rowCount === 0) {
+        await query("ROLLBACK");
+        return res.status(404).json({ success: false, message: "Not found" });
+      }
+      const linkedComplaintId = scheduleResult.rows[0].linked_complaint_id;
+      if (linkedComplaintId) {
+        await query(`DELETE FROM complaints WHERE id = $1`, [linkedComplaintId]);
+      }
+      await query("COMMIT");
+    } catch (err) {
+      await query("ROLLBACK");
+      throw err;
+    }
     return res.status(200).json({ success: true });
   }
 

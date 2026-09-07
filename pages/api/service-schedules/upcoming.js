@@ -1,7 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { cleanNumber, ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
-import { getServiceDueCustomerCodes } from "@/lib/customerAutomationSheet";
+import { getServiceDueCustomerCodes, getServiceDueCustomerMobiles } from "@/lib/customerAutomationSheet";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const SCHEDULED_STATUSES = new Set(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "MISSED"]);
@@ -65,13 +65,17 @@ export default async function handler(req, res) {
     // status if the sheet is unreachable, so this list never goes empty
     // just because of a transient Sheets API issue.
     let serviceDueCodes = [];
+    let serviceDueMobiles = [];
     try {
-      serviceDueCodes = await getServiceDueCustomerCodes();
+      [serviceDueCodes, serviceDueMobiles] = await Promise.all([
+        getServiceDueCustomerCodes(),
+        getServiceDueCustomerMobiles(),
+      ]);
     } catch (err) {
-      console.error("Failed to fetch service-due customer codes from sheet, falling back to DB status:", err);
+      console.error("Failed to fetch service-due customers from sheet, falling back to DB status:", err);
     }
 
-    const params = [serviceDueCodes];
+    const params = [serviceDueCodes, serviceDueMobiles];
     const whereParts = [];
 
     addSearchFilter(whereParts, params, req.query.search);
@@ -158,7 +162,14 @@ export default async function handler(req, res) {
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
         WHERE ${
           serviceDueCodes.length > 0
-            ? "UPPER(TRIM(c.customer_code)) = ANY($1::text[])"
+            // Matches by code OR mobile number — staff periodically re-code
+            // a customer in the sheet (e.g. AMC4 -> 23AMCMT5) without
+            // updating the app's own customer_code, which used to make
+            // that customer silently vanish from this list even though
+            // both the sheet and the DB agree they're on an active
+            // contract. Mobile number doesn't get relabeled, so it
+            // recovers those cases.
+            ? `(UPPER(TRIM(c.customer_code)) = ANY($1::text[]) OR regexp_replace(COALESCE(c.mobile_no, ''), '\\D', '', 'g') = ANY($2::text[]))`
             : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
         }
           AND NOT EXISTS (
