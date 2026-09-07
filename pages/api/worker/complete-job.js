@@ -5,6 +5,7 @@ import { createCustomerNotification } from "@/lib/customerNotifications";
 import { getComplaintAssignees } from "@/lib/assignees";
 import { reverseGeocode } from "@/lib/reverseGeocode";
 import { appendServiceCompletionToSheet } from "@/lib/serviceHistorySheetWriter";
+import { buildCustomerDateSql } from "@/lib/customerDates";
 
 let tableReady = false;
 
@@ -130,8 +131,8 @@ export default async function handler(req, res) {
          co.assigned_technician_user_id, co.status, co.complaint_type,
          co.customer_id, co.customer_code, co.mobile_no, co.city, co.address,
          cust.customer_status AS customer_status_snapshot,
-         cust.amc_warranty_due AS amc_warranty_due_snapshot,
-         cust.hoc_date AS hoc_date_snapshot
+         (${buildCustomerDateSql("cust.amc_warranty_due")}) AS amc_warranty_due_snapshot,
+         (${buildCustomerDateSql("cust.hoc_date")}) AS hoc_date_snapshot
        FROM complaints co
        LEFT JOIN elevator_service_customers cust ON cust.id = co.customer_id
        WHERE co.id = $1`,
