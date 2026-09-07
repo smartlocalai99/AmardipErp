@@ -1168,6 +1168,9 @@ export default function Techniciandashboard({ user }) {
                                             <div className="space-y-1">
                                                 <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-wider leading-none">Customer / Building</span>
                                                 <p className="font-extrabold text-slate-800">{activeJob.customerName}</p>
+                                                {activeJob.checkInTime && (
+                                                    <p className="text-[10px] font-bold text-emerald-600">Technician arrived {activeJob.checkInTime}</p>
+                                                )}
                                                 <p className="text-slate-500 font-medium leading-relaxed">{activeJob.address}</p>
                                             </div>
                                             <div className="grid grid-cols-2 gap-3.5 pt-1">

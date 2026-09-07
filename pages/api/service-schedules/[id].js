@@ -43,10 +43,15 @@ export default async function handler(req, res) {
     // complaint this schedule dispatched, not on the schedule itself.
     let jobCompletion = null;
     let materials = [];
+    let checkedInAt = null;
     if (row.linked_complaint_id) {
       const completions = await getJobCompletionsForMany([row.linked_complaint_id]);
       jobCompletion = completions.get(row.linked_complaint_id) || null;
       materials = await getMaterialsForComplaint(row.linked_complaint_id);
+      // Independent of jobCompletion — that only exists once the whole job
+      // is submitted, but arrival happens well before that.
+      const linkedComplaint = await query(`SELECT checked_in_at FROM complaints WHERE id = $1`, [row.linked_complaint_id]);
+      checkedInAt = linkedComplaint.rows[0]?.checked_in_at || null;
     }
 
     // Prior visits for this same customer, so opening one service card
@@ -80,6 +85,7 @@ export default async function handler(req, res) {
         assignees,
         jobCompletion,
         materials,
+        checkedInAt,
         history: historyResult.rows.map((v) => ({
           id: v.id,
           serviceDate: v.service_date,

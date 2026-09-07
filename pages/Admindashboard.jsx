@@ -481,7 +481,6 @@ function AdmindashboardShell({ user }) {
         complaintType: "BREAKDOWN",
         priority: "NORMAL",
         description: "",
-        officeNotes: "",
     });
     const [customerNameQuery, setCustomerNameQuery] = useState("");
     const [customerNameResults, setCustomerNameResults] = useState([]);
@@ -1042,6 +1041,26 @@ function AdmindashboardShell({ user }) {
             });
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to create complaint");
+
+            // Assigning workers/allocating spares at creation reuses the same
+            // endpoint the detail modal's "Save Assignment" already uses —
+            // no separate open-then-assign step needed for a ticket raised
+            // with a technician already in mind.
+            if (modalTechIds.length > 0 || allocatedItems.length > 0) {
+                try {
+                    await fetch(`/api/complaints/${data.complaint.id}/assign`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            assignedTechnicianUserIds: modalTechIds.map(Number),
+                            allocatedItems: allocatedItems.map(item => ({ itemId: item.itemId, quantity: item.quantity })),
+                        }),
+                    });
+                } catch (assignErr) {
+                    console.error("Failed to assign newly created complaint:", assignErr);
+                }
+            }
+
             setShowAddComplaintModal(false);
             setNewComplaintData({
                 customerId: "",
@@ -1052,10 +1071,13 @@ function AdmindashboardShell({ user }) {
                 complaintType: "BREAKDOWN",
                 priority: "NORMAL",
                 description: "",
-                officeNotes: "",
             });
             setCustomerNameQuery("");
             setCustomerNameResults([]);
+            setModalTechIds([]);
+            setAllocatedItems([]);
+            setSpareQuery("");
+            setSpareSearchResults([]);
             await fetchComplaints();
         } catch (err) {
             setComplaintError(err.message || "Failed to create complaint");
@@ -1577,7 +1599,13 @@ function AdmindashboardShell({ user }) {
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => setShowAddComplaintModal(true)}
+                                    onClick={() => {
+                                        setModalTechIds([]);
+                                        setAllocatedItems([]);
+                                        setSpareQuery("");
+                                        setSpareSearchResults([]);
+                                        setShowAddComplaintModal(true);
+                                    }}
                                     className="h-10 px-4 rounded-2xl bg-[#0a649d] text-white text-xs font-black shadow-sm active:scale-95"
                                 >
                                     Add
@@ -3262,13 +3290,64 @@ function AdmindashboardShell({ user }) {
                                 placeholder="Breakdown description"
                                 className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
                             />
-                            <textarea
-                                value={newComplaintData.officeNotes}
-                                onChange={(e) => setNewComplaintData({ ...newComplaintData, officeNotes: e.target.value })}
-                                rows={3}
-                                placeholder="Office notes optional"
-                                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
-                            />
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Workers (optional)</label>
+                                <WorkerMultiPicker
+                                    workers={technicians}
+                                    selectedIds={modalTechIds}
+                                    onChange={setModalTechIds}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Spares to Allocate (optional)</label>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={spareQuery}
+                                        onChange={(e) => setSpareQuery(e.target.value)}
+                                        placeholder="Search inventory item..."
+                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition"
+                                    />
+                                    {spareSearchResults.length > 0 && (
+                                        <div className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
+                                            {spareSearchResults.map(item => (
+                                                <button
+                                                    type="button"
+                                                    key={item.id}
+                                                    onClick={() => addAllocatedItem(item)}
+                                                    className="block w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
+                                                >
+                                                    {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit} in stock)</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="mt-2 grid grid-cols-[auto_5rem_1fr] items-center gap-2">
+                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Qty</span>
+                                    <input
+                                        type="number"
+                                        min={1}
+                                        value={spareQuantity}
+                                        onChange={(e) => setSpareQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+                                        className="h-9 w-20 px-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-[#0a649d]"
+                                    />
+                                    <span className="min-w-0 text-[10px] leading-snug text-slate-400">Search and tap an item above to add it at this quantity.</span>
+                                </div>
+                                {allocatedItems.length > 0 && (
+                                    <div className="mt-2.5 space-y-1.5">
+                                        {allocatedItems.map(item => (
+                                            <div key={item.itemId} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
+                                                <span className="min-w-0 break-words text-xs font-semibold text-slate-700">{item.name} × {item.quantity} {item.unit}</span>
+                                                <button type="button" onClick={() => removeAllocatedItem(item.itemId)} className="shrink-0 text-red-500 text-xs font-bold">Remove</button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
                             <div className="flex gap-2 border-t border-slate-100 pt-3">
                                 <button
                                     type="button"
@@ -3310,6 +3389,11 @@ function AdmindashboardShell({ user }) {
                             <div>
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
                                 <p className="text-sm font-extrabold text-slate-800">{selectedComplaint.customerName}</p>
+                                {selectedComplaint.checkedInAt && (
+                                    <p className="mt-0.5 text-[10px] font-bold text-emerald-600">
+                                        Technician arrived {new Date(selectedComplaint.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                    </p>
+                                )}
                                 <p className="mt-0.5 text-xs text-slate-500">{selectedComplaint.mobileNo || "-"} · {selectedComplaint.city || "-"}</p>
                                 {selectedComplaint.address && <p className="mt-1 text-xs text-slate-400">{selectedComplaint.address}</p>}
                             </div>
@@ -3545,6 +3629,11 @@ function AdmindashboardShell({ user }) {
                             <div>
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
                                 <p className="text-sm font-extrabold text-slate-800">{selectedSchedule.customerName || "—"}</p>
+                                {selectedSchedule.checkedInAt && (
+                                    <p className="mt-0.5 text-[10px] font-bold text-emerald-600">
+                                        Technician arrived {new Date(selectedSchedule.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                    </p>
+                                )}
                                 {selectedSchedule.address && <p className="text-[10px] text-slate-400 mt-0.5">{selectedSchedule.address}{selectedSchedule.city ? `, ${selectedSchedule.city}` : ""}</p>}
                                 {selectedSchedule.mobileNo && <p className="text-[10px] text-slate-400">{selectedSchedule.mobileNo}</p>}
                                 {selectedSchedule.customerStatus && (

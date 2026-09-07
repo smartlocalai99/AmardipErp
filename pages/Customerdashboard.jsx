@@ -237,6 +237,7 @@ function mapComplaintForCustomer(complaint) {
         gps: hasGps ? { lat: Number(jc.gpsLatitude), lng: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters, address: jc.gpsAddress || null } : null,
         workReport: jc ? { problem: jc.problemIdentified, workPerformed: jc.workPerformed, sparePartsUsed: jc.sparePartsUsed } : null,
         durationMinutes: jc?.durationMinutes ?? null,
+        checkedInAt: complaint.checkedInAt || null,
         signatureImage: jc?.signatureImage || null,
         customerRepName: jc?.customerRepName || null,
         materials: complaint.materials || [],
@@ -1356,6 +1357,11 @@ export default function Customerdashboard({
                                 <div>
                                     <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Lift Unit & Site</span>
                                     <p className="text-xs font-extrabold text-slate-800">{selectedTrackComplaint.liftId} • Grand Plaza Complex</p>
+                                    {selectedTrackComplaint.checkedInAt && (
+                                        <p className="mt-0.5 text-[10px] font-bold text-emerald-600">
+                                            Technician arrived {new Date(selectedTrackComplaint.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div>
