@@ -380,6 +380,41 @@ export default function Storedashboard({ user }) {
         returnItemsNow(items);
     }
 
+    // For the part(s) the worker kept — installed/replaced for the
+    // customer instead of coming back to the shelf. Closes out that one
+    // line's outstanding balance without restocking it.
+    async function markItemUsed(index) {
+        const item = scanResult.returnItems[index];
+        const res = await fetch("/api/store/mark-used", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ jobId: scanResult.job.complaintId, items: [{ itemId: item.itemId, quantity: item.quantity }] }),
+        });
+        const data = await res.json();
+        if (!data.success) {
+            Swal.fire({ icon: "error", title: "Failed to mark as used", text: data.message || "Please try again." });
+            return;
+        }
+        Swal.fire({ icon: "success", title: "Marked as used", text: `${item.quantity} ${item.unit} x ${item.name} tagged to ${scanResult.job.customerName}.` });
+        setScanResult(prev => {
+            if (!prev) return prev;
+            // Only the amount just marked as used comes off this line — if
+            // less than the full outstanding quantity was used, the rest
+            // still needs to be either returned or used separately.
+            const remainingMax = item.maxQuantity - item.quantity;
+            if (remainingMax <= 0) {
+                return { ...prev, returnItems: prev.returnItems.filter((_, i) => i !== index) };
+            }
+            return {
+                ...prev,
+                returnItems: prev.returnItems.map((it, i) => i === index
+                    ? { ...it, maxQuantity: remainingMax, quantity: Math.min(it.quantity, remainingMax) }
+                    : it),
+            };
+        });
+        refreshTransactions();
+    }
+
     // Save Stock form
     async function handleSaveStock(e) {
         e.preventDefault();
@@ -671,28 +706,37 @@ export default function Storedashboard({ user }) {
                                             </div>
                                             <div className="space-y-2">
                                                 {scanResult.returnItems.map((it, idx) => (
-                                                    <div key={`${it.itemId}-return-${idx}`} className="flex justify-between items-center bg-amber-50/60 p-2.5 rounded-xl border border-amber-100 text-xs">
-                                                        <div>
-                                                            <span className="font-extrabold text-slate-800">{it.name}</span>
-                                                            <span className="block text-[10px] text-slate-400">Issued, not yet returned · max {it.maxQuantity} {it.unit}</span>
+                                                    <div key={`${it.itemId}-return-${idx}`} className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-100 text-xs space-y-2">
+                                                        <div className="flex justify-between items-center">
+                                                            <div>
+                                                                <span className="font-extrabold text-slate-800">{it.name}</span>
+                                                                <span className="block text-[10px] text-slate-400">Issued, not yet returned · max {it.maxQuantity} {it.unit}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => adjustReturnItemQty(idx, it.quantity - 1)}
+                                                                    className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                                >
+                                                                    -
+                                                                </button>
+                                                                <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{it.quantity}</span>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => adjustReturnItemQty(idx, it.quantity + 1)}
+                                                                    className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                                >
+                                                                    +
+                                                                </button>
+                                                            </div>
                                                         </div>
-                                                        <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => adjustReturnItemQty(idx, it.quantity - 1)}
-                                                                className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
-                                                            >
-                                                                -
-                                                            </button>
-                                                            <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{it.quantity}</span>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => adjustReturnItemQty(idx, it.quantity + 1)}
-                                                                className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
-                                                            >
-                                                                +
-                                                            </button>
-                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => markItemUsed(idx)}
+                                                            className="w-full h-8 rounded-lg border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition active:scale-95"
+                                                        >
+                                                            Not returning this — mark {it.quantity} {it.unit} as used for {scanResult.job.customerName}
+                                                        </button>
                                                     </div>
                                                 ))}
                                             </div>
