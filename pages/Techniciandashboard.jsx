@@ -162,6 +162,14 @@ export default function Techniciandashboard({ user }) {
     const [activeJob, setActiveJob] = useState(null); // active job workspace
     const [jobsFilter, setJobsFilter] = useState("assigned"); // assigned, completed
 
+    // Every tab/filter switch and job open reuses the same scrollable <main>
+    // — without this its scroll position carries over from whatever was
+    // scrolled before, so a new view can silently open mid-scroll.
+    const mainScrollRef = useRef(null);
+    useEffect(() => {
+        mainScrollRef.current?.scrollTo(0, 0);
+    }, [activeTab, activeJob, jobsFilter]);
+
     // Signature Canvas Refs & States
     const canvasRef = useRef(null);
     const [isDrawing, setIsDrawing] = useState(false);
@@ -958,7 +966,7 @@ export default function Techniciandashboard({ user }) {
                 )}
 
                 {/* Main Workspace content */}
-                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
+                <main ref={mainScrollRef} className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {/* VIEW: DASHBOARD TAB */}
                     {activeTab === "dashboard" && !activeJob && (

@@ -190,22 +190,6 @@ const CHECKLIST_LABELS = [
     { key: "osg", label: "OSG Condition" },
 ];
 
-// Matches the technician_2 (junior)/technician_1 (senior) + condition columns
-// written by pages/api/worker/complete-job.js onto elevator_service_visits.
-const VISIT_CONDITION_FIELDS = [
-    { column: "ard_condition", label: "ARD Condition" },
-    { column: "motor_condition", label: "Motor Condition" },
-    { column: "gear_oil_condition", label: "Gear Oil Condition" },
-    { column: "brake_condition", label: "Brake Condition" },
-    { column: "rope_condition", label: "Rope Condition" },
-    { column: "rail_clips_condition", label: "Rail Clips Condition" },
-    { column: "limit_switch_condition", label: "Limit Switch Condition" },
-    { column: "gate_locks_condition", label: "Gate Locks" },
-    { column: "rcr_condition", label: "RCR Condition" },
-    { column: "sensors_condition", label: "Sensors" },
-    { column: "osg_condition", label: "OSG Condition" },
-];
-
 // "1h 24m" / "45m" — how long the technician was actually on site.
 function formatJobDuration(minutes) {
     if (!Number.isFinite(minutes) || minutes < 0) return null;
@@ -242,9 +226,61 @@ function mapComplaintForCustomer(complaint) {
         workReport: jc ? { problem: jc.problemIdentified, workPerformed: jc.workPerformed, sparePartsUsed: jc.sparePartsUsed } : null,
         durationMinutes: jc?.durationMinutes ?? null,
         checkedInAt: complaint.checkedInAt || null,
+        completedAt: complaint.resolvedAt || null,
         signatureImage: jc?.signatureImage || null,
         customerRepName: jc?.customerRepName || null,
         materials: complaint.materials || [],
+    };
+}
+
+// Reuses the exact same ticket-detail modal as breakdown/service tickets for
+// a completed entry in "Recent service history" — most of those fields
+// (signature, work report, GPS, checklist) only exist for visits the app
+// itself recorded (source_sheet = 'App - Technician Completion'); older
+// spreadsheet-imported history simply renders those sections as absent.
+function mapServiceVisitForCustomer(visit) {
+    const hasGps = Number.isFinite(Number(visit.gps_latitude)) && Number.isFinite(Number(visit.gps_longitude));
+    const checklist = {
+        ard: visit.ard_condition,
+        motor: visit.motor_condition,
+        gearOil: visit.gear_oil_condition,
+        brake: visit.brake_condition,
+        rope: visit.rope_condition,
+        railClips: visit.rail_clips_condition,
+        limitSwitch: visit.limit_switch_condition,
+        gateLocks: visit.gate_locks_condition,
+        rcr: visit.rcr_condition,
+        sensors: visit.sensors_condition,
+        osg: visit.osg_condition,
+    };
+    const hasChecklist = Object.values(checklist).some(Boolean);
+    const hasWorkReport = Boolean(visit.problem_identified || visit.work_performed || visit.spare_parts_used);
+    return {
+        id: `visit-${visit.id}`,
+        liftId: visit.customer_code || "LIFT",
+        siteName: visit.service_location || visit.customer_code || "Site",
+        mobileNo: visit.mobile_no || "",
+        date: visit.service_date || new Date().toISOString().slice(0, 10),
+        category: String(visit.service_type || "Routine service").replaceAll("_", " "),
+        rawComplaintType: "SERVICE_REQUEST",
+        rawStatus: "RESOLVED",
+        description: visit.remarks || "",
+        status: "RESOLVED",
+        isCompleted: true,
+        emergency: false,
+        assignedTech: [visit.technician_1, visit.technician_2].filter(Boolean).join(" & "),
+        techPhone: "",
+        eta: "",
+        timeline: [`Completed - ${formatGroupDate(visit.service_date)}`],
+        checklist: hasChecklist ? checklist : null,
+        gps: hasGps ? { lat: Number(visit.gps_latitude), lng: Number(visit.gps_longitude), accuracy: visit.gps_accuracy_meters, address: visit.gps_address || null } : null,
+        workReport: hasWorkReport ? { problem: visit.problem_identified, workPerformed: visit.work_performed, sparePartsUsed: visit.spare_parts_used } : null,
+        durationMinutes: visit.duration_minutes ?? null,
+        checkedInAt: visit.checked_in_at || null,
+        completedAt: visit.completed_at || null,
+        signatureImage: visit.signature_image || null,
+        customerRepName: visit.customer_rep_name || null,
+        materials: [],
     };
 }
 
@@ -269,8 +305,16 @@ function getTicketStatusInfo(c) {
 // Shared by the Log Book and the Service tab's active-visit list — same
 // card either way, since a technician arriving is the same event whether
 // the ticket started as a breakdown or a scheduled service.
+function formatCardTimestamp(iso) {
+    if (!iso) return null;
+    return new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
+}
+
 function TicketCard({ ticket, onOpen }) {
     const statusInfo = getTicketStatusInfo(ticket);
+    const duration = formatJobDuration(ticket.durationMinutes);
+    const arrivedLabel = formatCardTimestamp(ticket.checkedInAt);
+    const completedLabel = ticket.isCompleted ? formatCardTimestamp(ticket.completedAt) : null;
     return (
         <div
             onClick={() => onOpen(ticket)}
@@ -278,17 +322,36 @@ function TicketCard({ ticket, onOpen }) {
         >
             <div className="p-4 flex flex-col gap-2.5">
                 <div className="flex items-start justify-between gap-2">
-                    <span className="text-xs font-bold text-[#0a649d]">{formatPortalDate(ticket.date)}</span>
+                    <p className="text-base font-black leading-tight text-slate-900">{formatPortalDate(ticket.date)}</p>
                     <span className={`shrink-0 rounded-full px-2.5 py-1 text-[9.5px] font-black uppercase tracking-wide ${statusInfo.className}`}>
                         {statusInfo.label}
                     </span>
                 </div>
                 <div>
-                    <p className="text-sm font-black text-slate-900">{ticket.siteName}</p>
+                    <p className="text-xs font-bold text-[#0a649d]">{ticket.siteName}</p>
                     {ticket.mobileNo && <p className="text-[11px] font-semibold text-slate-500">{ticket.mobileNo}</p>}
                 </div>
                 {ticket.assignedTech && (
                     <p className="text-xs font-bold text-slate-700">Technician: {ticket.assignedTech}</p>
+                )}
+                {(arrivedLabel || completedLabel || duration) && (
+                    <div className="flex flex-wrap gap-1.5">
+                        {arrivedLabel && (
+                            <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
+                                Arrived {arrivedLabel}
+                            </span>
+                        )}
+                        {completedLabel && (
+                            <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                                Completed {completedLabel}
+                            </span>
+                        )}
+                        {duration && (
+                            <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                Time on site: {duration}
+                            </span>
+                        )}
+                    </div>
                 )}
                 {ticket.description && (
                     <p className="text-xs text-slate-500 leading-normal line-clamp-2">{ticket.description}</p>
@@ -430,6 +493,14 @@ export default function Customerdashboard({
     }, [activeTab]);
     const [complaintSubTab, setComplaintSubTab] = useState(initialComplaintSubTab); // logs, raise
 
+    // The scrollable <main> is reused across tabs — reset it on every
+    // navigation so a new tab/sub-tab never opens mid-scroll from whatever
+    // was scrolled before.
+    const mainScrollRef = useRef(null);
+    useEffect(() => {
+        mainScrollRef.current?.scrollTo(0, 0);
+    }, [activeTab, complaintSubTab]);
+
     useEffect(() => {
         subscribeToPush().catch(() => {});
     }, []);
@@ -439,6 +510,22 @@ export default function Customerdashboard({
     const [notifications, setNotifications] = useState([
         { id: 1, category: "Portal Ready", message: "Real complaint tracking is now connected to the service office.", time: "Today", read: true }
     ]);
+    const notificationPanelRef = useRef(null);
+    const notificationBellRef = useRef(null);
+    useEffect(() => {
+        if (!showNotificationCenter) return;
+        function handleClickOutside(event) {
+            if (notificationPanelRef.current?.contains(event.target)) return;
+            if (notificationBellRef.current?.contains(event.target)) return;
+            setShowNotificationCenter(false);
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        document.addEventListener("touchstart", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("touchstart", handleClickOutside);
+        };
+    }, [showNotificationCenter]);
 
     // Lifts
     const [lifts] = useState(initialLifts);
@@ -459,7 +546,6 @@ export default function Customerdashboard({
 
     // Active Complaint Tracking Modal state
     const [selectedTrackComplaint, setSelectedTrackComplaint] = useState(null);
-    const [expandedVisitId, setExpandedVisitId] = useState(null);
 
     // Raise Complaint Form State
     const [formLift, setFormLift] = useState(lifts[0]?.customerId || "");
@@ -762,6 +848,7 @@ export default function Customerdashboard({
                     </div>
 
                     <button
+                        ref={notificationBellRef}
                         onClick={() => {
                             clearAppBadgeCount();
                             setShowNotificationCenter(!showNotificationCenter);
@@ -779,13 +866,20 @@ export default function Customerdashboard({
 
                 {/* Notifications Center Overlay */}
                 {showNotificationCenter && (
-                    <div className="absolute top-16 left-0 right-0 z-40 mx-4 mt-2 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden animate-in slide-in-from-top-3 duration-250 select-none">
+                    <div ref={notificationPanelRef} className="absolute top-16 left-0 right-0 z-40 mx-4 mt-2 bg-white rounded-3xl border border-slate-200 shadow-xl overflow-hidden animate-in slide-in-from-top-3 duration-250 select-none">
                         <div className="px-5 py-3.5 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
                             <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">Notifications</span>
-                            <div className="flex gap-2">
+                            <div className="flex items-center gap-2">
                                 <button onClick={handleMarkAllRead} className="text-[#0a649d] hover:text-[#085282] text-[10px] font-bold">Mark all read</button>
                                 <span className="text-slate-300">|</span>
                                 <button onClick={handleClearNotifications} className="text-slate-400 hover:text-slate-600 text-[10px] font-bold">Clear</button>
+                                <button
+                                    onClick={() => setShowNotificationCenter(false)}
+                                    aria-label="Close notifications"
+                                    className="ml-1 flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-600 transition"
+                                >
+                                    <CloseIcon className="h-3.5 w-3.5" />
+                                </button>
                             </div>
                         </div>
                         <div className="divide-y divide-slate-100 max-h-[300px] overflow-y-auto">
@@ -813,14 +907,11 @@ export default function Customerdashboard({
                                 ))
                             )}
                         </div>
-                        <div className="p-3 bg-slate-50 text-center border-t border-slate-100">
-                            <button onClick={() => setShowNotificationCenter(false)} className="text-xs font-bold text-slate-500 hover:text-slate-700">Dismiss</button>
-                        </div>
                     </div>
                 )}
 
                 {/* Main Tab Content */}
-                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
+                <main ref={mainScrollRef} className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {/* VIEW: HOME TAB */}
                     {activeTab === "home" && (
@@ -1209,59 +1300,13 @@ export default function Customerdashboard({
                                     <section>
                                         <h2 className="mb-3 px-1 text-xs font-bold uppercase tracking-wider text-slate-400">Recent service history</h2>
                                         <div className="space-y-2.5">
-                                            {serviceVisits.map((visit) => {
-                                                const technicians = [visit.technician_1, visit.technician_2].filter(Boolean).join(" & ");
-                                                const conditionItems = VISIT_CONDITION_FIELDS.filter((item) => visit[item.column]);
-                                                const expanded = expandedVisitId === visit.id;
-                                                return (
-                                                    <article
-                                                        key={visit.id}
-                                                        onClick={() => conditionItems.length > 0 && setExpandedVisitId(expanded ? null : visit.id)}
-                                                        className={`rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ${conditionItems.length > 0 ? "cursor-pointer active:scale-[0.99] transition" : ""}`}
-                                                    >
-                                                        <div className="flex items-start gap-3">
-                                                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-50 text-[#0a649d]">
-                                                                <ServiceIcon className="h-5 w-5" />
-                                                            </div>
-                                                            <div className="min-w-0 flex-1">
-                                                                <div className="flex items-start justify-between gap-2">
-                                                                    <div className="min-w-0">
-                                                                        <p className="truncate text-xs font-black text-slate-900">{visit.customer_code || "Elevator service"}</p>
-                                                                        <p className="mt-0.5 text-[10px] font-bold uppercase tracking-wide text-slate-400">
-                                                                            {String(visit.service_type || "Routine service").replaceAll("_", " ")}
-                                                                        </p>
-                                                                    </div>
-                                                                    <span className="shrink-0 rounded-full bg-emerald-100 px-2 py-1 text-[8px] font-black uppercase tracking-wider text-emerald-800">Completed</span>
-                                                                </div>
-                                                                <p className="mt-3 text-xs font-black text-[#0a649d]">{formatPortalDate(visit.service_date)}</p>
-                                                                {technicians && <p className="mt-1 text-[10px] font-semibold text-slate-500">Technician: {technicians}</p>}
-                                                                {visit.remarks && <p className="mt-2 text-[10px] font-medium leading-relaxed text-slate-500">{visit.remarks}</p>}
-                                                                {conditionItems.length > 0 && (
-                                                                    <p className="mt-2 text-[10px] font-bold text-[#0a649d]">
-                                                                        {expanded ? "Hide inspection checklist ▲" : "View inspection checklist ▼"}
-                                                                    </p>
-                                                                )}
-                                                                {expanded && conditionItems.length > 0 && (
-                                                                    <div className="mt-3 grid grid-cols-2 gap-2">
-                                                                        {conditionItems.map((item) => {
-                                                                            const value = visit[item.column];
-                                                                            const tone = value === "NORMAL" ? "bg-emerald-50 border-emerald-100 text-emerald-700" :
-                                                                                value === "ABNORMAL" ? "bg-red-50 border-red-100 text-red-700" :
-                                                                                    "bg-amber-50 border-amber-100 text-amber-700";
-                                                                            return (
-                                                                                <div key={item.column} className={`rounded-xl border p-2 ${tone}`}>
-                                                                                    <p className="text-[9px] font-bold uppercase tracking-wide opacity-80">{item.label}</p>
-                                                                                    <p className="text-[11px] font-black mt-0.5">{value}</p>
-                                                                                </div>
-                                                                            );
-                                                                        })}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </article>
-                                                );
-                                            })}
+                                            {serviceVisits.map((visit) => (
+                                                <TicketCard
+                                                    key={visit.id}
+                                                    ticket={mapServiceVisitForCustomer(visit)}
+                                                    onOpen={openComplaintDetails}
+                                                />
+                                            ))}
                                         </div>
                                     </section>
                                 </>
@@ -1390,7 +1435,7 @@ export default function Customerdashboard({
                             <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                                 <div>
                                     <h2 className="text-sm font-bold">Track Ticket Progress</h2>
-                                    <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedTrackComplaint.id}</p>
+                                    <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{formatPortalDate(selectedTrackComplaint.date)}</p>
                                 </div>
                                 <button
                                     onClick={() => setSelectedTrackComplaint(null)}
@@ -1403,7 +1448,7 @@ export default function Customerdashboard({
                             <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto">
                                 <div>
                                     <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Lift Unit & Site</span>
-                                    <p className="text-xs font-extrabold text-slate-800">{selectedTrackComplaint.liftId} • Grand Plaza Complex</p>
+                                    <p className="text-xs font-extrabold text-slate-800">{selectedTrackComplaint.liftId} • {selectedTrackComplaint.siteName}</p>
                                     {selectedTrackComplaint.checkedInAt && (
                                         <p className="mt-0.5 text-[10px] font-bold text-emerald-600">
                                             Technician arrived {new Date(selectedTrackComplaint.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}

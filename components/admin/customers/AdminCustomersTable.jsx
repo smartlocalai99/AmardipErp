@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
 import { getCustomerDueDate } from "@/lib/customerDates";
@@ -104,36 +104,17 @@ function DetailRow({ label, value }) {
   );
 }
 
-function Pagination({ pagination, page, setPage }) {
-  if (!pagination) return null;
-
+// Infinite-scroll end marker — an IntersectionObserver on this node loads
+// the next page instead of a page-size dropdown + Previous/Next buttons.
+function InfiniteScrollSentinel({ sentinelRef, hasMore, loadingMore, hasItems }) {
+  if (!hasItems) return null;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <div className="text-xs font-bold text-slate-500">
-        Page <span className="text-slate-900">{pagination.page}</span> of{" "}
-        <span className="text-slate-900">{pagination.totalPages}</span> •{" "}
-        <span className="text-slate-900">{pagination.total}</span>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 sm:flex sm:items-center">
-        <button
-          type="button"
-          disabled={!pagination.hasPrev}
-          onClick={() => setPage(Math.max(1, page - 1))}
-          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Previous
-        </button>
-
-        <button
-          type="button"
-          disabled={!pagination.hasNext}
-          onClick={() => setPage(page + 1)}
-          className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white shadow-sm transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
+    <div ref={sentinelRef} className="flex items-center justify-center py-5">
+      {loadingMore ? (
+        <span className="text-xs font-bold text-slate-400">Loading more…</span>
+      ) : !hasMore ? (
+        <span className="text-xs font-bold text-slate-300">You&apos;ve reached the end</span>
+      ) : null}
     </div>
   );
 }
@@ -196,6 +177,7 @@ function CustomerDetailsSheet({ customer, onClose }) {
 export default function AdminCustomersTable({ user, embedded = false, returnTo = "/admin/customers", bucket = "" }) {
   const router = useRouter();
   const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
+  const PAGE_SIZE = 25;
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
@@ -204,20 +186,11 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
   const [search, setSearch] = useState("");
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
 
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
-
-  const visibleFrom = useMemo(() => {
-    if (!pagination || pagination.total === 0) return 0;
-    return (pagination.page - 1) * pagination.pageSize + 1;
-  }, [pagination]);
-
-  const visibleTo = useMemo(() => {
-    if (!pagination) return 0;
-    return Math.min(pagination.page * pagination.pageSize, pagination.total);
-  }, [pagination]);
+  const sentinelRef = useRef(null);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -230,15 +203,16 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
 
   useEffect(() => {
     const controller = new AbortController();
+    const isFirstPage = page === 1;
 
     async function fetchCustomers() {
-      setLoading(true);
+      if (isFirstPage) setLoading(true); else setLoadingMore(true);
       setError("");
 
       try {
         const params = new URLSearchParams({
           page: String(page),
-          pageSize: String(pageSize),
+          pageSize: String(PAGE_SIZE),
         });
 
         if (search) {
@@ -258,7 +232,7 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
           throw new Error(data.message || "Failed to load customers");
         }
 
-        setCustomers(data.customers || []);
+        setCustomers((prev) => (isFirstPage ? (data.customers || []) : [...prev, ...(data.customers || [])]));
         setPagination(data.pagination || null);
       } catch (err) {
         if (err.name !== "AbortError") {
@@ -266,13 +240,31 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
         }
       } finally {
         setLoading(false);
+        setLoadingMore(false);
       }
     }
 
     fetchCustomers();
 
     return () => controller.abort();
-  }, [page, pageSize, search, bucket, userCacheKey]);
+  }, [page, search, bucket, userCacheKey]);
+
+  // Loads the next 25 once the sentinel at the bottom of the list scrolls
+  // into view — replaces a page-size dropdown + Previous/Next buttons.
+  useEffect(() => {
+    if (!pagination?.hasNext || loading || loadingMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setPage((prev) => prev + 1);
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [pagination?.hasNext, loading, loadingMore]);
 
   function openCustomer(customer) {
     if (!customer?.id) return;
@@ -315,45 +307,29 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
                 <CountSkeleton />
               ) : (
                 <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} records
+                  Loaded {customers.length} of {pagination?.total || 0} records
                 </p>
               )}
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <div className="relative flex-1">
-                <input
-                  type="text"
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Search name, ID, mobile, city, status"
-                  className="amardip-search-field w-full pr-10"
-                />
+            <div className="relative">
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search name, ID, mobile, city, status"
+                className="amardip-search-field w-full pr-10"
+              />
 
-                {searchInput && (
-                  <button
-                    type="button"
-                    onClick={() => setSearchInput("")}
-                    className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-slate-200 text-slate-500 active:scale-95"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-
-              <select
-                value={pageSize}
-                onChange={(event) => {
-                  setPage(1);
-                  setPageSize(Number(event.target.value));
-                }}
-                className="amardip-field text-sm"
-              >
-                <option value={10}>10 / page</option>
-                <option value={25}>25 / page</option>
-                <option value={50}>50 / page</option>
-                <option value={100}>100 / page</option>
-              </select>
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput("")}
+                  className="absolute right-3 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-slate-200 text-slate-500 active:scale-95"
+                >
+                  ×
+                </button>
+              )}
             </div>
           </div>
         </section>
@@ -462,7 +438,12 @@ export default function AdminCustomersTable({ user, embedded = false, returnTo =
               </div>
             </section>
 
-            <Pagination pagination={pagination} page={page} setPage={setPage} />
+            <InfiniteScrollSentinel
+              sentinelRef={sentinelRef}
+              hasMore={Boolean(pagination?.hasNext)}
+              loadingMore={loadingMore}
+              hasItems={customers.length > 0}
+            />
           </>
         )}
       </main>

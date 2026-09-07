@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/router";
 import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
 import { getCustomerDueDate } from "@/lib/customerDates";
@@ -76,35 +76,17 @@ function StatusBadge({ status }) {
   );
 }
 
-function Pager({ pagination, page, setPage }) {
-  if (!pagination) return null;
-
+// Infinite-scroll end marker — an IntersectionObserver on this node loads
+// the next page instead of a page-size dropdown + Previous/Next buttons.
+function InfiniteScrollSentinel({ sentinelRef, hasMore, loadingMore, hasItems }) {
+  if (!hasItems) return null;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs font-bold text-slate-500">
-        Page <span className="text-slate-900">{pagination.page}</span> of{" "}
-        <span className="text-slate-900">{pagination.totalPages}</span> -{" "}
-        <span className="text-slate-900">{pagination.total}</span> AMC records
-      </p>
-
-      <div className="grid grid-cols-2 gap-2 sm:flex">
-        <button
-          type="button"
-          disabled={!pagination.hasPrev}
-          onClick={() => setPage(Math.max(1, page - 1))}
-          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          disabled={!pagination.hasNext}
-          onClick={() => setPage(page + 1)}
-          className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
+    <div ref={sentinelRef} className="flex items-center justify-center py-5">
+      {loadingMore ? (
+        <span className="text-xs font-bold text-slate-400">Loading more…</span>
+      ) : !hasMore ? (
+        <span className="text-xs font-bold text-slate-300">You&apos;ve reached the end</span>
+      ) : null}
     </div>
   );
 }
@@ -115,23 +97,15 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
   const [pagination, setPagination] = useState(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const PAGE_SIZE = 25;
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const sentinelRef = useRef(null);
 
   const filterModeLabel =
     filterMode === "expired" ? "expired AMC" : filterMode === "this_month" ? "expiring this month" : filterMode === "next_month" ? "expiring next month" : "active AMC";
-
-  const visibleFrom = useMemo(() => {
-    if (!pagination || pagination.total === 0) return 0;
-    return (pagination.page - 1) * pagination.pageSize + 1;
-  }, [pagination]);
-
-  const visibleTo = useMemo(() => {
-    if (!pagination) return 0;
-    return Math.min(pagination.page * pagination.pageSize, pagination.total);
-  }, [pagination]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -149,15 +123,16 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
 
   useEffect(() => {
     const controller = new AbortController();
+    const isFirstPage = page === 1;
 
     async function fetchAmcCustomers() {
-      setLoading(true);
+      if (isFirstPage) setLoading(true); else setLoadingMore(true);
       setError("");
 
       try {
         const params = new URLSearchParams({
           page: String(page),
-          pageSize: String(pageSize),
+          pageSize: String(PAGE_SIZE),
         });
         if (filterMode === "amc") {
           params.set("status", "AMC");
@@ -178,7 +153,7 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
           throw new Error(data.message || "Failed to load AMC customers");
         }
 
-        setCustomers(data.customers || []);
+        setCustomers((prev) => (isFirstPage ? (data.customers || []) : [...prev, ...(data.customers || [])]));
         setPagination(data.pagination || null);
       } catch (err) {
         if (err.name !== "AbortError") {
@@ -186,13 +161,29 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
         }
       } finally {
         setLoading(false);
+        setLoadingMore(false);
       }
     }
 
     fetchAmcCustomers();
 
     return () => controller.abort();
-  }, [page, pageSize, search, filterMode]);
+  }, [page, search, filterMode]);
+
+  useEffect(() => {
+    if (!pagination?.hasNext || loading || loadingMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setPage((prev) => prev + 1);
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [pagination?.hasNext, loading, loadingMore]);
 
   function openCustomer(customer) {
     if (!customer?.id) return;
@@ -235,34 +226,18 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
                 <CountSkeleton />
               ) : (
                 <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} {filterModeLabel} records
+                  Loaded {customers.length} of {pagination?.total || 0} {filterModeLabel} records
                 </p>
               )}
             </div>
 
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <input
-                type="text"
-                value={searchInput}
-                onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Search ID, name, mobile, city, address"
-                className="amardip-search-field flex-1"
-              />
-
-              <select
-                value={pageSize}
-                onChange={(event) => {
-                  setPage(1);
-                  setPageSize(Number(event.target.value));
-                }}
-                className="amardip-field text-sm"
-              >
-                <option value={10}>10 / page</option>
-                <option value={25}>25 / page</option>
-                <option value={50}>50 / page</option>
-                <option value={100}>100 / page</option>
-              </select>
-            </div>
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search ID, name, mobile, city, address"
+              className="amardip-search-field w-full"
+            />
           </div>
         </section>
 
@@ -370,7 +345,12 @@ export default function AdminAmcTable({ user, embedded = false, returnTo = "/adm
               </div>
             </section>
 
-            <Pager pagination={pagination} page={page} setPage={setPage} />
+            <InfiniteScrollSentinel
+              sentinelRef={sentinelRef}
+              hasMore={Boolean(pagination?.hasNext)}
+              loadingMore={loadingMore}
+              hasItems={customers.length > 0}
+            />
           </>
         )}
       </main>

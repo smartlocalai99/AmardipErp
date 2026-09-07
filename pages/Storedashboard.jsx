@@ -122,6 +122,13 @@ export default function Storedashboard({ user }) {
     const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, inventory, requests, transactions, profile
     const [searchQuery, setSearchQuery] = useState("");
 
+    // The scrollable <main> is reused across tabs — reset it on every tab
+    // switch so a new tab never opens mid-scroll from whatever came before.
+    const mainScrollRef = useRef(null);
+    useEffect(() => {
+        mainScrollRef.current?.scrollTo(0, 0);
+    }, [activeTab]);
+
     // Modals
     const [showAddStockModal, setShowAddStockModal] = useState(false);
     const [showUpdateStockModal, setShowUpdateStockModal] = useState(false);
@@ -777,7 +784,7 @@ export default function Storedashboard({ user }) {
                 )}
 
                 {/* Main Workspace content */}
-                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
+                <main ref={mainScrollRef} className="amardip-app-main flex-1 overflow-y-auto bg-[#f1f5f9]">
 
                     {/* VIEW: DASHBOARD TAB */}
                     {activeTab === "dashboard" && (

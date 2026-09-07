@@ -4,7 +4,7 @@ import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
 import { cachedGetJson } from "@/lib/cachedFetch";
 import { clearSessionCache } from "@/lib/adminCache";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const SUMMARY_FIELDS = [
   { key: "mobile_no", label: "Mobile Number" },
@@ -551,35 +551,17 @@ function HistorySheet({ customer, onClose }) {
   );
 }
 
-function Pager({ pagination, page, setPage }) {
-  if (!pagination) return null;
-
+// Infinite-scroll end marker — an IntersectionObserver on this node loads
+// the next page instead of a page-size dropdown + Previous/Next buttons.
+function InfiniteScrollSentinel({ sentinelRef, hasMore, loadingMore, hasItems }) {
+  if (!hasItems) return null;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-      <p className="text-xs font-bold text-slate-500">
-        Page <span className="text-slate-900">{pagination.page}</span> of{" "}
-        <span className="text-slate-900">{pagination.totalPages}</span> -{" "}
-        <span className="text-slate-900">{pagination.total}</span> visits
-      </p>
-
-      <div className="grid grid-cols-2 gap-2 sm:flex">
-        <button
-          type="button"
-          disabled={!pagination.hasPrev}
-          onClick={() => setPage(Math.max(1, page - 1))}
-          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Previous
-        </button>
-        <button
-          type="button"
-          disabled={!pagination.hasNext}
-          onClick={() => setPage(page + 1)}
-          className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Next
-        </button>
-      </div>
+    <div ref={sentinelRef} className="flex items-center justify-center py-5">
+      {loadingMore ? (
+        <span className="text-xs font-bold text-slate-400">Loading more…</span>
+      ) : !hasMore ? (
+        <span className="text-xs font-bold text-slate-300">You&apos;ve reached the end</span>
+      ) : null}
     </div>
   );
 }
@@ -681,28 +663,20 @@ export default function CustomerDetailPage({ user, customer }) {
   const [pagination, setPagination] = useState(null);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const PAGE_SIZE = 25;
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [filters, setFilters] = useState({
     serviceType: "",
     fromDate: "",
     toDate: "",
   });
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [activeSheet, setActiveSheet] = useState("");
+  const sentinelRef = useRef(null);
 
   const amcState = useMemo(() => getAmcState(currentCustomer), [currentCustomer]);
-
-  const visibleFrom = useMemo(() => {
-    if (!pagination || pagination.total === 0) return 0;
-    return (pagination.page - 1) * pagination.pageSize + 1;
-  }, [pagination]);
-
-  const visibleTo = useMemo(() => {
-    if (!pagination) return 0;
-    return Math.min(pagination.page * pagination.pageSize, pagination.total);
-  }, [pagination]);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -715,15 +689,16 @@ export default function CustomerDetailPage({ user, customer }) {
 
   useEffect(() => {
     const controller = new AbortController();
+    const isFirstPage = page === 1;
 
     async function fetchVisits() {
-      setLoading(true);
+      if (isFirstPage) setLoading(true); else setLoadingMore(true);
       setError("");
 
       try {
         const params = new URLSearchParams({
           page: String(page),
-          pageSize: String(pageSize),
+          pageSize: String(PAGE_SIZE),
         });
 
         if (search) params.set("search", search);
@@ -736,14 +711,14 @@ export default function CustomerDetailPage({ user, customer }) {
           ttlMs: 5 * 60 * 1000,
           user: userCacheKey,
           fetchOptions: { signal: controller.signal },
-          onNetworkStart: () => setLoading(true),
+          onNetworkStart: () => { if (isFirstPage) setLoading(true); else setLoadingMore(true); },
         });
 
         if (!data.success) {
           throw new Error(data.message || "Failed to load service history");
         }
 
-        setVisits(data.visits || []);
+        setVisits((prev) => (isFirstPage ? (data.visits || []) : [...prev, ...(data.visits || [])]));
         setPagination(data.pagination || null);
       } catch (err) {
         if (err.name !== "AbortError") {
@@ -751,13 +726,31 @@ export default function CustomerDetailPage({ user, customer }) {
         }
       } finally {
         setLoading(false);
+        setLoadingMore(false);
       }
     }
 
     fetchVisits();
 
     return () => controller.abort();
-  }, [currentCustomer.id, page, pageSize, search, filters, userCacheKey]);
+  }, [currentCustomer.id, page, search, filters, userCacheKey]);
+
+  // Loads the next 25 once the sentinel at the bottom of the list scrolls
+  // into view — replaces a page-size dropdown + Previous/Next buttons.
+  useEffect(() => {
+    if (!pagination?.hasNext || loading || loadingMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setPage((prev) => prev + 1);
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [pagination?.hasNext, loading, loadingMore]);
 
   function goBackToSource() {
     const returnTo = typeof router.query.returnTo === "string" ? router.query.returnTo : "";
@@ -889,12 +882,12 @@ export default function CustomerDetailPage({ user, customer }) {
                 <CountSkeleton />
               ) : (
                 <p className="mt-1 text-xs font-semibold text-slate-500">
-                  Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} service records
+                  Loaded {visits.length} of {pagination?.total || 0} service records
                 </p>
               )}
             </div>
 
-            <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-6">
+            <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-5">
               <input
                 type="text"
                 value={searchInput}
@@ -921,19 +914,6 @@ export default function CustomerDetailPage({ user, customer }) {
                 onChange={(event) => updateFilter("toDate", event.target.value)}
                 className="amardip-field text-sm"
               />
-              <select
-                value={pageSize}
-                onChange={(event) => {
-                  setPage(1);
-                  setPageSize(Number(event.target.value));
-                }}
-                className="amardip-field text-sm"
-              >
-                <option value={10}>10 / page</option>
-                <option value={25}>25 / page</option>
-                <option value={50}>50 / page</option>
-                <option value={100}>100 / page</option>
-              </select>
             </div>
           </div>
 
@@ -1036,7 +1016,12 @@ export default function CustomerDetailPage({ user, customer }) {
                 </div>
               </section>
 
-              <Pager pagination={pagination} page={page} setPage={setPage} />
+              <InfiniteScrollSentinel
+                sentinelRef={sentinelRef}
+                hasMore={Boolean(pagination?.hasNext)}
+                loadingMore={loadingMore}
+                hasItems={visits.length > 0}
+              />
             </>
           )}
         </section>

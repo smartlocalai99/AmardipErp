@@ -422,6 +422,22 @@ function AdmindashboardShell({ user }) {
     const [showOnboardModal, setShowOnboardModal] = useState(false);
     const [showResetModal, setShowResetModal] = useState(false);
     const [showNotificationCenter, setShowNotificationCenter] = useState(false);
+    const notificationPanelRef = useRef(null);
+    const notificationBellRef = useRef(null);
+    useEffect(() => {
+        if (!showNotificationCenter) return;
+        function handleClickOutside(event) {
+            if (notificationPanelRef.current?.contains(event.target)) return;
+            if (notificationBellRef.current?.contains(event.target)) return;
+            setShowNotificationCenter(false);
+        }
+        document.addEventListener("mousedown", handleClickOutside);
+        document.addEventListener("touchstart", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+            document.removeEventListener("touchstart", handleClickOutside);
+        };
+    }, [showNotificationCenter]);
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [selectedComplaint, setSelectedComplaint] = useState(null);
     const [showAddComplaintModal, setShowAddComplaintModal] = useState(false);
@@ -576,6 +592,10 @@ function AdmindashboardShell({ user }) {
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("UNASSIGNED");
     const [moreSubTab, setMoreSubTab] = useState(null);
+    const mainScrollRef = useRef(null);
+    useEffect(() => {
+        mainScrollRef.current?.scrollTo(0, 0);
+    }, [activeTab, moreSubTab]);
 
     // Interactive directories
     const [inquiries, setInquiries] = useState([]);
@@ -1518,6 +1538,7 @@ function AdmindashboardShell({ user }) {
 
                     <div className="flex items-center gap-2">
                         <button
+                            ref={notificationBellRef}
                             onClick={() => {
                                 clearAppBadgeCount();
                                 setShowNotificationCenter(!showNotificationCenter);
@@ -1536,19 +1557,28 @@ function AdmindashboardShell({ user }) {
 
                 {/* NOTIFICATION CENTER DROPDOWN */}
                 {showNotificationCenter && (
-                    <div className="absolute top-[68px] left-0 right-0 z-40 mx-3 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_40px_rgba(4,24,43,0.18)] overflow-hidden animate-in slide-in-from-top-2 duration-200 select-none">
+                    <div ref={notificationPanelRef} className="absolute top-[68px] left-0 right-0 z-40 mx-3 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_40px_rgba(4,24,43,0.18)] overflow-hidden animate-in slide-in-from-top-2 duration-200 select-none">
                         <div className="px-5 py-3.5 flex items-center justify-between border-b border-slate-100">
                             <span className="text-xs font-bold text-slate-900">Notifications</span>
-                            <button
-                                onClick={() => {
-                                    setNotifications([]);
-                                    clearAppBadgeCount();
-                                    setShowNotificationCenter(false);
-                                }}
-                                className="text-[11px] font-semibold text-slate-400 hover:text-slate-600"
-                            >
-                                Clear all
-                            </button>
+                            <div className="flex items-center gap-2.5">
+                                <button
+                                    onClick={() => {
+                                        setNotifications([]);
+                                        clearAppBadgeCount();
+                                        setShowNotificationCenter(false);
+                                    }}
+                                    className="text-[11px] font-semibold text-slate-400 hover:text-slate-600"
+                                >
+                                    Clear all
+                                </button>
+                                <button
+                                    onClick={() => setShowNotificationCenter(false)}
+                                    aria-label="Close notifications"
+                                    className="flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+                                >
+                                    <CloseIcon className="h-3.5 w-3.5" />
+                                </button>
+                            </div>
                         </div>
                         <div className="divide-y divide-slate-50 max-h-[280px] overflow-y-auto">
                             {notifications.map(n => (
@@ -1565,7 +1595,7 @@ function AdmindashboardShell({ user }) {
                 )}
 
                 {/* MAIN CONTENT AREA */}
-                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#eef2f7]">
+                <main ref={mainScrollRef} className="amardip-app-main flex-1 overflow-y-auto bg-[#eef2f7]">
 
                     <>
                     {/* TAB: DASHBOARD */}

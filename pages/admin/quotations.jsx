@@ -88,7 +88,7 @@ function formatRupees(value) {
   return Math.round(Number(value) || 0).toLocaleString("en-IN");
 }
 
-const DEFAULT_PAGE_SIZE = 10;
+const DEFAULT_PAGE_SIZE = 25;
 
 export async function getServerSideProps({ req }) {
   const user = await getUserFromRequest(req);
@@ -111,10 +111,11 @@ export default function QuotationsPage({ user, initialData }) {
   const [quotations, setQuotations] = useState(initialData.quotations);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [total, setTotal] = useState(initialData.total);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const sentinelRef = useRef(null);
   const [canGenerate, setCanGenerate] = useState(initialData.canGenerate);
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState(initialForm);
@@ -137,24 +138,35 @@ export default function QuotationsPage({ user, initialData }) {
   const requestIdRef = useRef(0);
   const isFirstRunRef = useRef(true);
 
-  async function load() {
+  async function fetchPage(pageNum, { append = false } = {}) {
     const requestId = ++requestIdRef.current;
-    setLoading(true);
+    if (append) setLoadingMore(true); else setLoading(true);
     setError("");
     try {
-      const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+      const params = new URLSearchParams({ page: String(pageNum), pageSize: String(DEFAULT_PAGE_SIZE) });
       if (search) params.set("search", search);
       const res = await fetch(`/api/quotations?${params.toString()}`);
       const data = await res.json();
       if (requestId !== requestIdRef.current) return; // a newer request already landed
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to load quotations");
-      setQuotations(data.quotations || []);
+      setQuotations((prev) => (append ? [...prev, ...(data.quotations || [])] : (data.quotations || [])));
       setTotal(data.total || 0);
       setCanGenerate(Boolean(data.canGenerate));
     } catch (err) {
       if (requestId === requestIdRef.current) setError(err.message);
     } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
+      if (requestId === requestIdRef.current) { setLoading(false); setLoadingMore(false); }
+    }
+  }
+
+  // Used by callers that need an immediate, first-page refresh (after
+  // creating or updating a quotation) rather than waiting on the debounced
+  // page-driven effect below.
+  async function load() {
+    if (page !== 1) {
+      setPage(1);
+    } else {
+      await fetchPage(1, { append: false });
     }
   }
 
@@ -165,9 +177,27 @@ export default function QuotationsPage({ user, initialData }) {
       isFirstRunRef.current = false;
       return;
     }
-    const timer = setTimeout(load, 250);
+    const timer = setTimeout(() => fetchPage(page, { append: page > 1 }), 250);
     return () => clearTimeout(timer);
-  }, [search, page, pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [search, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Loads the next 25 once the sentinel at the bottom of the list scrolls
+  // into view — replaces a page-size dropdown + Previous/Next buttons.
+  useEffect(() => {
+    const hasMore = quotations.length < total;
+    if (!hasMore || loading || loadingMore) return;
+    const node = sentinelRef.current;
+    if (!node) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) setPage((prev) => prev + 1);
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [quotations.length, total, loading, loadingMore]);
 
   // Auto-set serial number when creating form opens — uses the real total
   // count, not the current page's length, since the list is now paginated.
@@ -322,24 +352,12 @@ export default function QuotationsPage({ user, initialData }) {
 
       <main className="p-4 space-y-4 max-w-2xl mx-auto">
         {/* Search & filters */}
-        <div className="grid gap-2 sm:grid-cols-2">
-          <input
-            value={search}
-            onChange={(e) => { setPage(1); setSearch(e.target.value); }}
-            placeholder="Search by name, mobile, quotation no…"
-            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
-          />
-          <select
-            value={pageSize}
-            onChange={(e) => { setPage(1); setPageSize(Number(e.target.value)); }}
-            className="h-11 rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
-          >
-            <option value={10}>10 / page</option>
-            <option value={25}>25 / page</option>
-            <option value={50}>50 / page</option>
-            <option value={100}>100 / page</option>
-          </select>
-        </div>
+        <input
+          value={search}
+          onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+          placeholder="Search by name, mobile, quotation no…"
+          className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
+        />
         {user.role === "superadmin" && (
           <Link className="flex h-10 items-center justify-center rounded-2xl border border-[#0a649d]/20 bg-white text-xs font-black text-[#0a649d]" href="/admin/boq-permissions">
             Manage BOQ Permissions
@@ -379,31 +397,18 @@ export default function QuotationsPage({ user, initialData }) {
         )}
 
         {!loading && total > 0 && (
-          <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs font-bold text-slate-500">
-              Page <span className="text-slate-900">{page}</span> of{" "}
-              <span className="text-slate-900">{Math.max(1, Math.ceil(total / pageSize))}</span> -{" "}
-              <span className="text-slate-900">{total}</span> quotations
+          <>
+            <p className="text-center text-xs font-bold text-slate-500">
+              Loaded {quotations.length} of {total} quotations
             </p>
-            <div className="grid grid-cols-2 gap-2 sm:flex">
-              <button
-                type="button"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Previous
-              </button>
-              <button
-                type="button"
-                disabled={page >= Math.ceil(total / pageSize)}
-                onClick={() => setPage((current) => current + 1)}
-                className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Next
-              </button>
+            <div ref={sentinelRef} className="flex items-center justify-center py-2">
+              {loadingMore ? (
+                <span className="text-xs font-bold text-slate-400">Loading more…</span>
+              ) : quotations.length >= total ? (
+                <span className="text-xs font-bold text-slate-300">You&apos;ve reached the end</span>
+              ) : null}
             </div>
-          </div>
+          </>
         )}
       </main>
 
