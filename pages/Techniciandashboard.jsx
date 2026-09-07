@@ -169,11 +169,15 @@ export default function Techniciandashboard({ user }) {
 
     // Every tab/filter switch and job open reuses the same scrollable <main>
     // — without this its scroll position carries over from whatever was
-    // scrolled before, so a new view can silently open mid-scroll.
+    // scrolled before, so a new view can silently open mid-scroll. Keyed on
+    // activeJob's id, not the activeJob object itself — every checklist tap,
+    // GPS check-in, and keystroke in the completion form replaces that
+    // object wholesale (same job, new reference), which previously reran
+    // this effect and yanked the page back to the top on every interaction.
     const mainScrollRef = useRef(null);
     useEffect(() => {
         mainScrollRef.current?.scrollTo(0, 0);
-    }, [activeTab, activeJob, jobsFilter, showReturnMaterials]);
+    }, [activeTab, activeJob?.id, jobsFilter, showReturnMaterials]);
 
     // Signature Canvas Refs & States
     const canvasRef = useRef(null);

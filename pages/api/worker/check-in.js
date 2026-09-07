@@ -3,6 +3,8 @@ import { query } from "@/lib/db";
 import { ensureComplaintsTable } from "@/lib/complaints";
 import { reverseGeocode } from "@/lib/reverseGeocode";
 import { safeSendPush } from "@/lib/pushNotifications";
+import { createCustomerNotification } from "@/lib/customerNotifications";
+import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 
 function formatArrivalTime(date) {
   return date.toLocaleTimeString("en-IN", {
@@ -36,7 +38,8 @@ export default async function handler(req, res) {
     await ensureComplaintsTable();
 
     const check = await query(
-      `SELECT id, complaint_no, customer_name, assigned_technician_user_id, status
+      `SELECT id, complaint_no, customer_name, assigned_technician_user_id, status,
+              complaint_type, customer_id, customer_user_id
          FROM complaints
         WHERE id = $1`,
       [jobDbId]
@@ -75,14 +78,43 @@ export default async function handler(req, res) {
 
     if (isFirstCheckIn) {
       const arrivalTime = formatArrivalTime(new Date(checkedInAt));
+      const adminTab = complaint.complaint_type === "SERVICE_REQUEST" ? "service" : "complaints";
       await safeSendPush(
         { roles: ["superadmin", "admin", "manager", "front_office"] },
         {
           title: "Technician arrived on site",
           body: `${actor.name || actor.username} arrived at ${complaint.customer_name || "the customer site"} for ${complaint.complaint_no || "a job"} at ${arrivalTime}.`,
-          data: { url: "/Admindashboard?tab=complaints", complaintId: jobDbId },
+          data: { url: `/Admindashboard?tab=${adminTab}`, complaintId: jobDbId },
         }
       );
+
+      const customerTab = complaint.complaint_type === "SERVICE_REQUEST" ? "service" : "complaints";
+      const customerUserIds = await resolveComplaintNotificationRecipients({
+        customerUserId: complaint.customer_user_id,
+        customerId: complaint.customer_id,
+      });
+      if (customerUserIds.length > 0) {
+        const message = `${actor.name || actor.username} has arrived at your site for ${complaint.complaint_no || "your job"} at ${arrivalTime}.`;
+        await Promise.all(
+          customerUserIds.map((userId) =>
+            createCustomerNotification({
+              userId,
+              category: "Technician arrived",
+              message,
+              data: { type: "TECHNICIAN_ARRIVED", complaintId: jobDbId },
+            }).catch((error) => console.error("Failed to persist technician-arrived notification:", error))
+          )
+        );
+
+        await safeSendPush(
+          { userIds: customerUserIds },
+          {
+            title: "Technician arrived",
+            body: message,
+            data: { url: `/Customerdashboard?tab=${customerTab}`, complaintId: jobDbId },
+          }
+        );
+      }
     }
 
     return res.status(200).json({

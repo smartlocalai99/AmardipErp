@@ -2,6 +2,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { safeSendPush } from "@/lib/pushNotifications";
 import { createCustomerNotification } from "@/lib/customerNotifications";
+import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 import { getComplaintAssignees } from "@/lib/assignees";
 import { reverseGeocode } from "@/lib/reverseGeocode";
 import { appendServiceCompletionToSheet } from "@/lib/serviceHistorySheetWriter";
@@ -328,19 +329,31 @@ export default async function handler(req, res) {
         data: { url: `/Admindashboard?tab=${adminTab}`, complaintId: jobDbId },
       }
     );
-    if (complaint.customer_user_id) {
+    // Most breakdowns/services are raised by admin on the customer's
+    // behalf, which never sets customer_user_id directly — resolve the
+    // actual portal login(s) via the underlying customer record in that
+    // case, instead of silently notifying no one.
+    const customerUserIds = await resolveComplaintNotificationRecipients({
+      customerUserId: complaint.customer_user_id,
+      customerId: complaint.customer_id,
+    });
+    if (customerUserIds.length > 0) {
       const message = `${complaint.complaint_no || "Your ticket"} has been marked resolved by ${actor.name || actor.username}. Open it to see everything the technician recorded.`;
       // Persisted so it's waiting in the bell icon even if the push above
       // never reaches a live subscription — same pattern as AMC reminders.
-      await createCustomerNotification({
-        userId: complaint.customer_user_id,
-        category: "Service job completed",
-        message,
-        data: { type: "JOB_COMPLETED", complaintId: jobDbId },
-      }).catch((error) => console.error("Failed to persist job-completed notification:", error));
+      await Promise.all(
+        customerUserIds.map((userId) =>
+          createCustomerNotification({
+            userId,
+            category: "Service job completed",
+            message,
+            data: { type: "JOB_COMPLETED", complaintId: jobDbId },
+          }).catch((error) => console.error("Failed to persist job-completed notification:", error))
+        )
+      );
 
       await safeSendPush(
-        { userIds: [complaint.customer_user_id] },
+        { userIds: customerUserIds },
         {
           title: "Service job completed",
           body: message,

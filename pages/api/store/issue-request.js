@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { issueMaterialRequestDirectly } from "@/lib/materialRequests";
+import { safeSendPush } from "@/lib/pushNotifications";
 
 const STORE_ROLES = new Set(["storekeeper", "admin", "superadmin", "manager"]);
 
@@ -18,6 +19,18 @@ export default async function handler(req, res) {
     const { requestId, quantity } = req.body || {};
     if (!requestId) return res.status(400).json({ success: false, message: "requestId is required." });
     const result = await issueMaterialRequestDirectly({ requestId, quantity, actor });
+
+    if (result.workerId) {
+      await safeSendPush(
+        { userIds: [result.workerId] },
+        {
+          title: "Materials issued",
+          body: `Store issued ${result.issuedQuantity} ${result.unit} of ${result.name} for your job.`,
+          data: { url: "/Techniciandashboard?tab=jobs", complaintId: result.complaintId },
+        }
+      );
+    }
+
     return res.status(200).json({ success: true, ...result });
   } catch (err) {
     console.error("Issue material request error:", err);
