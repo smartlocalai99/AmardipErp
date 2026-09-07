@@ -127,10 +127,21 @@ export default async function handler(req, res) {
           s.scheduled_date,
           s.status AS schedule_status,
           s.assigned_technician_name,
-          s.service_type
+          s.service_type,
+          co.checked_in_at,
+          jc.duration_minutes,
+          jc.completed_at
         FROM service_schedules s
         JOIN elevator_service_customers c ON c.id = s.customer_id
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
+        LEFT JOIN complaints co ON co.id = s.linked_complaint_id
+        LEFT JOIN LATERAL (
+          SELECT t.duration_minutes, t.completed_at
+          FROM technician_job_completions t
+          WHERE t.complaint_id = co.id
+          ORDER BY t.created_at DESC
+          LIMIT 1
+        ) jc ON co.id IS NOT NULL
         WHERE s.schedule_month = date_trunc('month', CURRENT_DATE)::date
           AND s.status IN ('SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'MISSED', 'COMPLETED')
       ),
@@ -157,7 +168,10 @@ export default async function handler(req, res) {
           NULL::date AS scheduled_date,
           'TO_BE_SCHEDULED'::text AS schedule_status,
           NULL::text AS assigned_technician_name,
-          'MONTHLY_SERVICE'::text AS service_type
+          'MONTHLY_SERVICE'::text AS service_type,
+          NULL::timestamptz AS checked_in_at,
+          NULL::integer AS duration_minutes,
+          NULL::timestamptz AS completed_at
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
         WHERE ${
@@ -259,6 +273,9 @@ export default async function handler(req, res) {
         scheduleStatus: row.schedule_status,
         assignedTechnicianName: row.assigned_technician_name,
         serviceType: row.service_type,
+        checkedInAt: row.checked_in_at,
+        durationMinutes: row.duration_minutes,
+        completedAt: row.completed_at,
       })),
       summary: {
         scheduled: summaryResult.rows[0]?.scheduled || 0,
