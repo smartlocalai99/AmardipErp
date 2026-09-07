@@ -1,0 +1,22 @@
+import { getUserFromRequest } from "@/lib/auth";
+import { reconcileJobItems } from "@/lib/inventory";
+
+const STORE_ROLES = new Set(["storekeeper", "admin", "superadmin", "manager"]);
+
+export default async function handler(req, res) {
+  if (req.method !== "POST") return res.status(405).json({ success: false, message: "Method not allowed." });
+
+  const actor = await getUserFromRequest(req);
+  if (!actor || !STORE_ROLES.has(actor.role)) {
+    return res.status(403).json({ success: false, message: "Store access required." });
+  }
+
+  try {
+    const { jobId, items, notes } = req.body || {};
+    const result = await reconcileJobItems({ jobReference: jobId, items, notes }, actor);
+    return res.status(200).json({ success: true, ...result });
+  } catch (err) {
+    console.error("Reconcile job items error:", err);
+    return res.status(400).json({ success: false, message: err.message || "Failed to collect items." });
+  }
+}

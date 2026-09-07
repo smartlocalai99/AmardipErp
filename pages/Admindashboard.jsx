@@ -3150,6 +3150,26 @@ function AdmindashboardShell({ user }) {
                                 </>
                             )}
 
+                            {selectedComplaint.materials?.length > 0 && (
+                                <>
+                                    <hr className="border-slate-100" />
+                                    <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 space-y-2 text-xs text-amber-900">
+                                        <span className="block text-[9.5px] font-bold text-amber-800 uppercase tracking-wider leading-none">Materials Used</span>
+                                        <div className="space-y-1.5">
+                                            {selectedComplaint.materials.map((m) => (
+                                                <div key={m.itemId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 bg-white/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                                                    <span className="font-bold text-slate-700">{m.name}</span>
+                                                    <span className="text-[10px] font-semibold text-slate-500">
+                                                        Issued {m.issuedQuantity} {m.unit} · Used {m.usedQuantity} {m.unit} · Returned {m.returnedQuantity} {m.unit}
+                                                        {m.outstandingQuantity > 0 ? ` · Pending ${m.outstandingQuantity} ${m.unit}` : ""}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            )}
+
                             <hr className="border-slate-100" />
 
                             {selectedComplaintIsTerminal && (
@@ -3402,6 +3422,26 @@ function AdmindashboardShell({ user }) {
                                         No job completion report yet — the technician has not closed this job out.
                                     </p>
                                 </div>
+                            )}
+
+                            {selectedSchedule.materials?.length > 0 && (
+                                <>
+                                    <hr className="border-slate-100" />
+                                    <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 space-y-2 text-xs text-amber-900">
+                                        <span className="block text-[9.5px] font-bold text-amber-800 uppercase tracking-wider leading-none">Materials Used</span>
+                                        <div className="space-y-1.5">
+                                            {selectedSchedule.materials.map((m) => (
+                                                <div key={m.itemId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 bg-white/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                                                    <span className="font-bold text-slate-700">{m.name}</span>
+                                                    <span className="text-[10px] font-semibold text-slate-500">
+                                                        Issued {m.issuedQuantity} {m.unit} · Used {m.usedQuantity} {m.unit} · Returned {m.returnedQuantity} {m.unit}
+                                                        {m.outstandingQuantity > 0 ? ` · Pending ${m.outstandingQuantity} ${m.unit}` : ""}
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
                             )}
 
                             {selectedSchedule.history?.length > 0 && (

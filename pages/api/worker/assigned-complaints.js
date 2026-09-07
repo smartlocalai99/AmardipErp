@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { listComplaints } from "@/lib/complaints";
+import { attachMaterialsToComplaints } from "@/lib/complaintMaterials";
 
 export default async function handler(req, res) {
   if (req.method !== "GET") {
@@ -22,6 +23,7 @@ export default async function handler(req, res) {
         status: req.query.status,
       },
     });
+    await attachMaterialsToComplaints(result.rows);
     return res.status(200).json({ success: true, complaints: result.rows, ...result });
   } catch (err) {
     console.error("Worker assigned complaints error:", err);

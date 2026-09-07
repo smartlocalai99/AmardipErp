@@ -227,6 +227,7 @@ function mapComplaintForCustomer(complaint) {
         workReport: jc ? { problem: jc.problemIdentified, workPerformed: jc.workPerformed, sparePartsUsed: jc.sparePartsUsed } : null,
         signatureImage: jc?.signatureImage || null,
         customerRepName: jc?.customerRepName || null,
+        materials: complaint.materials || [],
     };
 }
 
@@ -1500,6 +1501,25 @@ export default function Customerdashboard({
                                                     </a>
                                                 </div>
                                             )}
+                                        </div>
+                                    </>
+                                )}
+
+                                {selectedTrackComplaint.materials?.length > 0 && (
+                                    <>
+                                        <hr className="border-slate-100" />
+                                        <div className="bg-amber-50/50 border border-amber-100 rounded-2xl p-3.5 space-y-2 text-xs text-amber-900">
+                                            <span className="block text-[9.5px] font-bold text-amber-800 uppercase tracking-wider leading-none">Materials Used</span>
+                                            <div className="space-y-1.5">
+                                                {selectedTrackComplaint.materials.map((m) => (
+                                                    <div key={m.itemId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 bg-white/70 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                                                        <span className="font-bold text-slate-700">{m.name}</span>
+                                                        <span className="text-[10px] font-semibold text-slate-500">
+                                                            Used {m.usedQuantity} {m.unit}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
                                     </>
                                 )}

@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { createAuditLog } from "@/lib/auditLog";
 import { createComplaint, listComplaints } from "@/lib/complaints";
+import { attachMaterialsToComplaints } from "@/lib/complaintMaterials";
 import { safeSendPush } from "@/lib/pushNotifications";
 
 const LIST_ROLES = new Set(["superadmin", "admin", "manager", "front_office"]);
@@ -47,6 +48,7 @@ export default async function handler(req, res) {
           assignedTechnicianUserId: req.query.assignedTechnicianUserId,
         },
       });
+      await attachMaterialsToComplaints(result.rows);
       return res.status(200).json({ success: true, complaints: result.rows, ...result });
     } catch (err) {
       console.error("Fetch complaints error:", err);

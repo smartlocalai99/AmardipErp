@@ -343,76 +343,40 @@ export default function Storedashboard({ user }) {
         issueItems(items);
     }
 
-    async function returnItemsNow(items) {
-        if (items.length === 0) {
-            Swal.fire({ icon: "warning", title: "No items selected", text: "Nothing to return." });
-            return;
-        }
-        const res = await fetch("/api/store/return", {
+    // One number per item — how much is physically coming back. Whatever's
+    // left of that item's outstanding balance (maxQuantity - quantity) is
+    // automatically logged as used/installed for the customer, covering
+    // "took 6, used 4, returned 2" in a single confirm instead of two
+    // separate actions.
+    async function confirmScanReturn() {
+        const items = scanResult.returnItems.map(it => ({ itemId: it.itemId, returnQuantity: it.quantity }));
+        const res = await fetch("/api/store/reconcile", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ jobId: scanResult.job.complaintId, items }),
         });
         const data = await res.json();
         if (!data.success) {
-            Swal.fire({ icon: "error", title: "Failed to record return", text: data.message || "Please try again." });
+            Swal.fire({ icon: "error", title: "Failed to collect items", text: data.message || "Please try again." });
             return;
         }
-        Swal.fire({
-            icon: "success",
-            title: "Returned to inventory",
-            html: data.returned.map(i => `${i.quantity} ${i.unit} x ${i.name}`).join("<br/>"),
+        const lines = data.results.map(r => {
+            const parts = [];
+            if (r.returnedQuantity > 0) parts.push(`${r.returnedQuantity} ${r.unit} returned`);
+            if (r.usedQuantity > 0) parts.push(`${r.usedQuantity} ${r.unit} marked used`);
+            return `${r.name}: ${parts.join(", ")}`;
         });
+        Swal.fire({ icon: "success", title: "Collected", html: lines.join("<br/>") });
         setScanResult(null);
         refreshInventory();
         refreshTransactions();
     }
 
-    function confirmScanReturn() {
-        const items = scanResult.returnItems.filter(it => it.quantity > 0).map(it => ({ itemId: it.itemId, quantity: it.quantity }));
-        returnItemsNow(items);
-    }
-
-    // One tap — returns every outstanding issued item at its full
-    // returnable quantity, for a worker handing back everything unused.
+    // Assumes everything outstanding is coming back unused — resets every
+    // row's return quantity to its full amount before the store person
+    // adjusts any that were actually consumed.
     function collectAllReturn() {
-        const items = scanResult.returnItems.map(it => ({ itemId: it.itemId, quantity: it.maxQuantity }));
-        returnItemsNow(items);
-    }
-
-    // For the part(s) the worker kept — installed/replaced for the
-    // customer instead of coming back to the shelf. Closes out that one
-    // line's outstanding balance without restocking it.
-    async function markItemUsed(index) {
-        const item = scanResult.returnItems[index];
-        const res = await fetch("/api/store/mark-used", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ jobId: scanResult.job.complaintId, items: [{ itemId: item.itemId, quantity: item.quantity }] }),
-        });
-        const data = await res.json();
-        if (!data.success) {
-            Swal.fire({ icon: "error", title: "Failed to mark as used", text: data.message || "Please try again." });
-            return;
-        }
-        Swal.fire({ icon: "success", title: "Marked as used", text: `${item.quantity} ${item.unit} x ${item.name} tagged to ${scanResult.job.customerName}.` });
-        setScanResult(prev => {
-            if (!prev) return prev;
-            // Only the amount just marked as used comes off this line — if
-            // less than the full outstanding quantity was used, the rest
-            // still needs to be either returned or used separately.
-            const remainingMax = item.maxQuantity - item.quantity;
-            if (remainingMax <= 0) {
-                return { ...prev, returnItems: prev.returnItems.filter((_, i) => i !== index) };
-            }
-            return {
-                ...prev,
-                returnItems: prev.returnItems.map((it, i) => i === index
-                    ? { ...it, maxQuantity: remainingMax, quantity: Math.min(it.quantity, remainingMax) }
-                    : it),
-            };
-        });
-        refreshTransactions();
+        setScanResult(prev => prev ? { ...prev, returnItems: prev.returnItems.map(it => ({ ...it, quantity: it.maxQuantity })) } : prev);
     }
 
     // Save Stock form
@@ -689,56 +653,58 @@ export default function Storedashboard({ user }) {
                                     Confirm Issue
                                 </button>
 
-                                {/* RETURN: parts already issued but not yet handed back */}
+                                {/* RETURN: parts already issued — enter how many are physically
+                                    coming back; the rest is automatically logged as used/installed */}
                                 {scanResult.returnItems.length > 0 && (
                                     <>
                                         <hr className="border-slate-100" />
                                         <div>
                                             <div className="flex items-center justify-between mb-2 pl-0.5">
-                                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts to Collect Back</h4>
+                                                <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Parts Issued — Collecting Back</h4>
                                                 <button
                                                     type="button"
                                                     onClick={collectAllReturn}
                                                     className="h-7 px-3 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-[10px] font-bold transition active:scale-95"
                                                 >
-                                                    Collect All
+                                                    All Returning
                                                 </button>
                                             </div>
                                             <div className="space-y-2">
-                                                {scanResult.returnItems.map((it, idx) => (
-                                                    <div key={`${it.itemId}-return-${idx}`} className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-100 text-xs space-y-2">
-                                                        <div className="flex justify-between items-center">
-                                                            <div>
-                                                                <span className="font-extrabold text-slate-800">{it.name}</span>
-                                                                <span className="block text-[10px] text-slate-400">Issued, not yet returned · max {it.maxQuantity} {it.unit}</span>
+                                                {scanResult.returnItems.map((it, idx) => {
+                                                    const usedRemainder = it.maxQuantity - it.quantity;
+                                                    return (
+                                                        <div key={`${it.itemId}-return-${idx}`} className="bg-amber-50/60 p-2.5 rounded-xl border border-amber-100 text-xs space-y-1.5">
+                                                            <div className="flex justify-between items-center">
+                                                                <div>
+                                                                    <span className="font-extrabold text-slate-800">{it.name}</span>
+                                                                    <span className="block text-[10px] text-slate-400">Took {it.maxQuantity} {it.unit} · quantity returning below</span>
+                                                                </div>
+                                                                <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm shrink-0">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => adjustReturnItemQty(idx, it.quantity - 1)}
+                                                                        className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                                    >
+                                                                        -
+                                                                    </button>
+                                                                    <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{it.quantity}</span>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => adjustReturnItemQty(idx, it.quantity + 1)}
+                                                                        className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
+                                                                    >
+                                                                        +
+                                                                    </button>
+                                                                </div>
                                                             </div>
-                                                            <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-xl p-1 shadow-sm">
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => adjustReturnItemQty(idx, it.quantity - 1)}
-                                                                    className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-red-50 hover:text-red-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
-                                                                >
-                                                                    -
-                                                                </button>
-                                                                <span className="w-6 text-center font-black text-slate-800 text-xs select-none">{it.quantity}</span>
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => adjustReturnItemQty(idx, it.quantity + 1)}
-                                                                    className="h-6 w-6 rounded-lg flex items-center justify-center font-black text-slate-500 hover:bg-emerald-50 hover:text-emerald-600 active:scale-90 transition text-sm cursor-pointer select-none bg-slate-50"
-                                                                >
-                                                                    +
-                                                                </button>
-                                                            </div>
+                                                            {usedRemainder > 0 && (
+                                                                <p className="text-[10px] font-bold text-amber-700">
+                                                                    {usedRemainder} {it.unit} will be marked as used for {scanResult.job.customerName}
+                                                                </p>
+                                                            )}
                                                         </div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => markItemUsed(idx)}
-                                                            className="w-full h-8 rounded-lg border border-slate-200 bg-white text-slate-600 text-[10px] font-bold hover:bg-slate-50 transition active:scale-95"
-                                                        >
-                                                            Not returning this — mark {it.quantity} {it.unit} as used for {scanResult.job.customerName}
-                                                        </button>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
                                             </div>
                                         </div>
 
@@ -746,7 +712,7 @@ export default function Storedashboard({ user }) {
                                             onClick={confirmScanReturn}
                                             className="h-11 w-full bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition active:scale-95"
                                         >
-                                            Confirm Return
+                                            Confirm Collection
                                         </button>
                                     </>
                                 )}

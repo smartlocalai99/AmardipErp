@@ -249,6 +249,7 @@ export default function Techniciandashboard({ user }) {
             signature: jc?.customerRepName ? { customerName: jc.customerRepName, image: jc.signatureImage || null } : null,
             gpsAddress: jc?.gpsAddress || null,
             completeTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
+            materials: c.materials || [],
         };
     }
 
@@ -1172,6 +1173,19 @@ export default function Techniciandashboard({ user }) {
                                             <ScanIcon className="h-4.5 w-4.5" />
                                             Generate Store Pass QR
                                         </button>
+                                        {activeJob.materials?.length > 0 && (
+                                            <div className="pt-2.5 border-t border-slate-100 space-y-1.5">
+                                                <span className="block text-[9px] font-bold text-amber-700 uppercase tracking-wider">Materials Used</span>
+                                                {activeJob.materials.map((m) => (
+                                                    <div key={m.itemId} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 bg-amber-50/60 border border-amber-100 rounded-lg px-2.5 py-1.5">
+                                                        <span className="font-bold text-slate-700 text-[11px]">{m.name}</span>
+                                                        <span className="text-[10px] font-semibold text-slate-500">
+                                                            Issued {m.issuedQuantity} {m.unit} · Used {m.usedQuantity} {m.unit} · Returned {m.returnedQuantity} {m.unit}
+                                                        </span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* SECTION 2: GPS SITE CHECK-IN */}

@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
 import { getScheduleAssignees } from "@/lib/assignees";
 import { getJobCompletionsForMany } from "@/lib/complaints";
+import { getMaterialsForComplaint } from "@/lib/inventory";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const ALLOWED_STATUSES = ["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
@@ -41,9 +42,11 @@ export default async function handler(req, res) {
     // GPS, work report — lives on technician_job_completions keyed by the
     // complaint this schedule dispatched, not on the schedule itself.
     let jobCompletion = null;
+    let materials = [];
     if (row.linked_complaint_id) {
       const completions = await getJobCompletionsForMany([row.linked_complaint_id]);
       jobCompletion = completions.get(row.linked_complaint_id) || null;
+      materials = await getMaterialsForComplaint(row.linked_complaint_id);
     }
 
     // Prior visits for this same customer, so opening one service card
@@ -76,6 +79,7 @@ export default async function handler(req, res) {
         notes: row.notes,
         assignees,
         jobCompletion,
+        materials,
         history: historyResult.rows.map((v) => ({
           id: v.id,
           serviceDate: v.service_date,
