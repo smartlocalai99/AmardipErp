@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.amardipelevators.customer",
+      "sha256_cert_fingerprints": [
+        "C7:3D:A3:C9:0C:B8:C3:F3:47:1A:4B:DE:EC:A5:FA:98:4D:EA:CD:BF:36:DF:5F:1B:EE:BC:9A:F1:FC:35:3B:3E"
+      ]
+    }
+  }
+]
