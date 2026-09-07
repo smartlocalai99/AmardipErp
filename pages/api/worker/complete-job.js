@@ -259,18 +259,31 @@ export default async function handler(req, res) {
           [visitResult.rows[0].id, linkedSchedule.id]
         );
 
+        // Form Responses 4 has one free-text REMARKS column and no
+        // dedicated fields for these — folded in as text rather than
+        // silently dropped, matching what a technician filling the sheet's
+        // linked Google Form by hand would have written in that same box.
+        const remarksExtras = [
+          workPerformed || problemIdentified || null,
+          statusResolution ? `Status: ${statusResolution}` : null,
+          customerRepName ? `Signed by: ${customerRepName}` : null,
+          gpsAddress ? `Location: ${gpsAddress}` : null,
+        ].filter(Boolean);
+
         sheetRowPayload = {
           customerCode: complaint.customer_code,
           customerName: complaint.customer_name,
+          address: complaint.address,
+          city: complaint.city,
+          mobileNo: complaint.mobile_no,
           hocDate: complaint.hoc_date_snapshot,
-          remarks: workPerformed || problemIdentified || null,
+          customerStatus: complaint.customer_status_snapshot,
+          amcWarrantyDue: complaint.amc_warranty_due_snapshot,
+          remarks: remarksExtras.join(" | ") || null,
           serviceType: "MONTHLY_SERVICE",
           technician1: actor.name || actor.username,
           technician2: juniorTechnician?.name || null,
           checklist,
-          statusResolution: statusResolution || null,
-          customerRepName: customerRepName || null,
-          location: gpsAddress,
         };
       }
 
