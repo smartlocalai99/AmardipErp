@@ -1775,11 +1775,20 @@ function AdmindashboardShell({ user }) {
                             if (d.customers) setScheduleCustomers(d.customers);
                         } catch {}
                     }}
-                                    className="h-10 w-10 shrink-0 rounded-full bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
+                                    className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#0a649d] px-4 text-white shadow-md active:scale-95 transition"
                                 >
-                                    <PlusIcon className="h-5 w-5" />
+                                    <PlusIcon className="h-4 w-4" />
+                                    <span className="text-xs font-black whitespace-nowrap">Assign Service</span>
                                 </button>
                             </div>
+
+                            {/* Any customer can be scheduled here, not only the ones the
+                                sheet/DB heuristic below flags as due — a customer with a
+                                data mismatch (blank mobile, re-coded customer_code) never
+                                surfaces in that list otherwise. */}
+                            <p className="-mt-3 text-[11px] font-semibold text-slate-400">
+                                Don&apos;t see who you&apos;re looking for below? Tap <span className="font-black text-[#0a649d]">Assign Service</span> above to search every customer and schedule them directly.
+                            </p>
 
                             <div className="space-y-3">
                                 {serviceViewMode === "month" && (
