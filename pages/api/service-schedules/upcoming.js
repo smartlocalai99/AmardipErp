@@ -138,7 +138,8 @@ export default async function handler(req, res) {
           s.service_type,
           co.checked_in_at,
           jc.duration_minutes,
-          jc.completed_at
+          jc.completed_at,
+          FALSE AS matched_via_search
         FROM service_schedules s
         JOIN elevator_service_customers c ON c.id = s.customer_id
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
@@ -179,24 +180,82 @@ export default async function handler(req, res) {
           'MONTHLY_SERVICE'::text AS service_type,
           NULL::timestamptz AS checked_in_at,
           NULL::integer AS duration_minutes,
-          NULL::timestamptz AS completed_at
+          NULL::timestamptz AS completed_at,
+          FALSE AS matched_via_search
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
-        WHERE (
-          ${
-            serviceDueCodes.length > 0
-              // Matches by code OR mobile number — staff periodically re-code
-              // a customer in the sheet (e.g. AMC4 -> 23AMCMT5) without
-              // updating the app's own customer_code, which used to make
-              // that customer silently vanish from this list even though
-              // both the sheet and the DB agree they're on an active
-              // contract. Mobile number doesn't get relabeled, so it
-              // recovers those cases.
-              ? `(UPPER(TRIM(c.customer_code)) = ANY($1::text[]) OR regexp_replace(COALESCE(c.mobile_no, ''), '\\D', '', 'g') = ANY($2::text[]))`
-              : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
-          }
-          ${searchCondition ? `OR ${searchCondition}` : ""}
-        )
+        WHERE ${
+          serviceDueCodes.length > 0
+            // Matches by code OR mobile number — staff periodically re-code
+            // a customer in the sheet (e.g. AMC4 -> 23AMCMT5) without
+            // updating the app's own customer_code, which used to make
+            // that customer silently vanish from this list even though
+            // both the sheet and the DB agree they're on an active
+            // contract. Mobile number doesn't get relabeled, so it
+            // recovers those cases.
+            ? `(UPPER(TRIM(c.customer_code)) = ANY($1::text[]) OR regexp_replace(COALESCE(c.mobile_no, ''), '\\D', '', 'g') = ANY($2::text[]))`
+            : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
+        }
+          AND NOT EXISTS (
+            SELECT 1
+            FROM elevator_service_visits v
+            WHERE v.customer_id = c.id
+              AND v.service_date >= date_trunc('month', CURRENT_DATE)::date
+              AND v.service_date < (date_trunc('month', CURRENT_DATE) + interval '1 month')::date
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM service_schedules s
+            WHERE s.customer_id = c.id
+              AND s.schedule_month = date_trunc('month', CURRENT_DATE)::date
+              AND s.status NOT IN ('CANCELLED', 'COMPLETED')
+          )
+      ),
+      -- Search results only: a customer typed by name/code/mobile/city who
+      -- isn't actually flagged "due this month" (blank mobile number, a
+      -- re-coded customer_code the sheet doesn't recognize, or genuinely
+      -- not due yet). Tagged matched_via_search so it can still be found
+      -- and assigned, without inflating the "Unassigned" count above —
+      -- that number is a real due-this-month metric and shouldn't grow
+      -- just because a broad search term happens to match more names.
+      off_list_matches AS (
+        SELECT
+          'TO_BE_SCHEDULED'::text AS row_type,
+          NULL::uuid AS schedule_id,
+          c.id AS customer_id,
+          c.customer_code,
+          c.customer_name,
+          c.mobile_no,
+          c.city,
+          c.address,
+          c.customer_status,
+          c.amc_warranty_due,
+          c.amc_starting_date,
+          c.amc_ending_date,
+          lv.last_service_date,
+          CASE
+            WHEN lv.last_service_date IS NULL THEN NULL
+            ELSE (CURRENT_DATE - lv.last_service_date)::int
+          END AS days_since_last_service,
+          date_trunc('month', CURRENT_DATE)::date AS schedule_month,
+          NULL::date AS scheduled_date,
+          'TO_BE_SCHEDULED'::text AS schedule_status,
+          NULL::text AS assigned_technician_name,
+          'MONTHLY_SERVICE'::text AS service_type,
+          NULL::timestamptz AS checked_in_at,
+          NULL::integer AS duration_minutes,
+          NULL::timestamptz AS completed_at,
+          TRUE AS matched_via_search
+        FROM elevator_service_customers c
+        LEFT JOIN last_visits lv ON lv.customer_id = c.id
+        WHERE ${searchCondition ? searchCondition : "FALSE"}
+          AND NOT (
+            ${
+              serviceDueCodes.length > 0
+                ? `(UPPER(TRIM(c.customer_code)) = ANY($1::text[]) OR regexp_replace(COALESCE(c.mobile_no, ''), '\\D', '', 'g') = ANY($2::text[]))`
+                : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
+            }
+          )
           AND NOT EXISTS (
             SELECT 1
             FROM elevator_service_visits v
@@ -216,6 +275,8 @@ export default async function handler(req, res) {
         SELECT * FROM scheduled_rows
         UNION ALL
         SELECT * FROM to_be_scheduled_rows
+        UNION ALL
+        SELECT * FROM off_list_matches
       ),
       filtered_rows AS (
         SELECT *
@@ -229,7 +290,7 @@ export default async function handler(req, res) {
       ${baseSql}
       SELECT
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED')::int AS scheduled,
-        COUNT(*) FILTER (WHERE row_type = 'TO_BE_SCHEDULED')::int AS to_be_scheduled,
+        COUNT(*) FILTER (WHERE row_type = 'TO_BE_SCHEDULED' AND NOT matched_via_search)::int AS to_be_scheduled,
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND schedule_status != 'COMPLETED')::int AS assigned,
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND schedule_status = 'COMPLETED')::int AS completed,
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND scheduled_date = CURRENT_DATE)::int AS today,
