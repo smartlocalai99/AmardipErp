@@ -3,6 +3,7 @@ import { query } from "@/lib/db";
 import { DataListSkeleton } from "@/components/ui/SkeletonLoaders";
 import { cachedGetJson } from "@/lib/cachedFetch";
 import { clearSessionCache } from "@/lib/adminCache";
+import { getCustomerDueDate } from "@/lib/customerDates";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -110,21 +111,19 @@ function formatInputDate(date) {
 }
 
 function getAmcState(customer) {
-  const rawDate = customer?.amc_warranty_due || customer?.amc_ending_date;
-  if (!rawDate) {
-    return {
-      label: "AMC/Warranty date missing",
-      classes: "border-slate-200 bg-slate-100 text-slate-700",
-    };
-  }
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const dueDate = new Date(`${String(rawDate).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(dueDate.getTime())) {
+  // amc_warranty_due/amc_ending_date are stored as free-text, in either ISO
+  // or DD/MM/YYYY format depending on how the row was imported — a plain
+  // `new Date(rawDate)` chokes on the DD/MM/YYYY ones (most of this
+  // customer base) and always reported "date invalid" even for a
+  // perfectly good date. getCustomerDueDate is the same parser already
+  // trusted everywhere else (AdminCustomersTable, AdminAmcTable).
+  const dueDate = getCustomerDueDate(customer);
+  if (!dueDate) {
     return {
-      label: "AMC/Warranty date invalid",
+      label: "AMC/Warranty date missing",
       classes: "border-slate-200 bg-slate-100 text-slate-700",
     };
   }
@@ -357,6 +356,144 @@ function EditCustomerSheet({ customer, onClose, onSaved }) {
           </button>
           <button type="submit" disabled={saving} className="h-11 flex-1 rounded-xl bg-[#0a649d] text-xs font-black text-white disabled:opacity-50">
             {saving ? "Saving..." : "Save"}
+          </button>
+        </div>
+      </form>
+    </Sheet>
+  );
+}
+
+// Admin's direct escape hatch to schedule/assign any customer to a service
+// visit from their own profile — the "Service" tab's This Month queue only
+// ever surfaces customers the Google Sheet or DB status heuristic flags as
+// due, so a customer with a data mismatch (blank mobile number, a re-coded
+// customer_code, or simply not marked due yet) has no other way to get a
+// job dispatched to them at all. Posts straight to the same
+// /api/service-schedules endpoint the This Month queue's own "Assign
+// Worker" button uses, so behavior (including the technician push
+// notification and customer "service assigned" notification) is identical.
+function AssignServiceSheet({ customer, onClose }) {
+  const [technicians, setTechnicians] = useState([]);
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [preferredTime, setPreferredTime] = useState("");
+  const [technicianIdSenior, setTechnicianIdSenior] = useState("");
+  const [technicianIdJunior, setTechnicianIdJunior] = useState("");
+  const [priority, setPriority] = useState("NORMAL");
+  const [notes, setNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await fetch("/api/users");
+        const data = await response.json();
+        if (active && data.success) {
+          setTechnicians((data.users || []).filter((candidate) => candidate.role === "worker"));
+        }
+      } catch {
+        // Assignment can still proceed schedule-only (no technician) if this fails.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    setMessage("");
+
+    try {
+      const assignedTechnicianUserIds = [technicianIdSenior, technicianIdJunior].filter(Boolean);
+      const response = await fetch("/api/service-schedules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerId: customer.id,
+          scheduledDate,
+          preferredTime,
+          assignedTechnicianUserIds,
+          priority,
+          notes,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || "Failed to assign service");
+      }
+
+      setMessage(
+        assignedTechnicianUserIds.length > 0
+          ? "Service assigned and dispatched to the technician."
+          : "Added to this month's service plan."
+      );
+    } catch (err) {
+      setError(err.message || "Failed to assign service");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Sheet title="Assign to Service" eyebrow={displayValue(customer.customer_code)} onClose={onClose}>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {error && <div className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</div>}
+        {message && <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-xs font-bold text-emerald-700">{message}</div>}
+
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-400">Scheduled date</span>
+            <input type="date" value={scheduledDate} onChange={(event) => setScheduledDate(event.target.value)} className="amardip-field w-full text-sm" />
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-400">Preferred time</span>
+            <input type="time" value={preferredTime} onChange={(event) => setPreferredTime(event.target.value)} className="amardip-field w-full text-sm" />
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-400">Technician</span>
+            <select value={technicianIdSenior} onChange={(event) => setTechnicianIdSenior(event.target.value)} className="amardip-field w-full text-sm">
+              <option value="">Unassigned for now</option>
+              {technicians.map((tech) => (
+                <option key={tech.id} value={tech.id}>{tech.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-400">Junior technician (optional)</span>
+            <select value={technicianIdJunior} onChange={(event) => setTechnicianIdJunior(event.target.value)} className="amardip-field w-full text-sm">
+              <option value="">None</option>
+              {technicians.filter((tech) => String(tech.id) !== String(technicianIdSenior)).map((tech) => (
+                <option key={tech.id} value={tech.id}>{tech.name}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-400">Priority</span>
+            <select value={priority} onChange={(event) => setPriority(event.target.value)} className="amardip-field w-full text-sm">
+              <option value="NORMAL">Normal</option>
+              <option value="LOW">Low</option>
+              <option value="HIGH">High</option>
+              <option value="EMERGENCY">Emergency</option>
+            </select>
+          </label>
+          <label className="sm:col-span-2">
+            <span className="mb-1 block text-[10px] font-black uppercase tracking-wider text-slate-400">Notes</span>
+            <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} className="amardip-field min-h-24 w-full resize-y text-sm" />
+          </label>
+        </div>
+
+        <div className="sticky bottom-0 -mx-4 flex gap-2 border-t border-slate-100 bg-white p-4">
+          <button type="button" onClick={onClose} className="h-11 flex-1 rounded-xl border border-slate-200 bg-white text-xs font-black text-slate-700">
+            Close
+          </button>
+          <button type="submit" disabled={saving} className="h-11 flex-1 rounded-xl bg-[#0a649d] text-xs font-black text-white disabled:opacity-50">
+            {saving ? "Assigning..." : "Assign to Service"}
           </button>
         </div>
       </form>
@@ -808,14 +945,16 @@ export default function CustomerDetailPage({ user, customer }) {
 
           <div className="hidden shrink-0 items-center gap-2 sm:flex">
             <ActionButton onClick={() => setActiveSheet("edit")} tone="blue">Edit Customer</ActionButton>
+            <ActionButton onClick={() => setActiveSheet("assignService")} tone="blue">Assign to Service</ActionButton>
             <ActionButton onClick={() => setActiveSheet("renew")}>Renew AMC</ActionButton>
             <ActionButton onClick={() => setActiveSheet("history")}>History</ActionButton>
             <StatusBadge status={currentCustomer.customer_status} />
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2 sm:hidden">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:hidden">
           <ActionButton onClick={() => setActiveSheet("edit")} tone="blue">Edit</ActionButton>
+          <ActionButton onClick={() => setActiveSheet("assignService")} tone="blue">Assign to Service</ActionButton>
           <ActionButton onClick={() => setActiveSheet("renew")}>Renew</ActionButton>
           <ActionButton onClick={() => setActiveSheet("history")}>History</ActionButton>
         </div>
@@ -1032,6 +1171,12 @@ export default function CustomerDetailPage({ user, customer }) {
           customer={currentCustomer}
           onClose={() => setActiveSheet("")}
           onSaved={handleCustomerSaved}
+        />
+      )}
+      {activeSheet === "assignService" && (
+        <AssignServiceSheet
+          customer={currentCustomer}
+          onClose={() => setActiveSheet("")}
         />
       )}
       {activeSheet === "renew" && (
