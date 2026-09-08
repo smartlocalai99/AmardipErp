@@ -7,12 +7,19 @@ const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const SCHEDULED_STATUSES = new Set(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "MISSED"]);
 const VALID_MODES = new Set(["all", "scheduled", "to_be_scheduled", "today"]);
 
-function addSearchFilter(whereParts, params, search) {
+// Returns the ILIKE fragment (or null if there's no search term) instead of
+// pushing it straight onto whereParts — the same fragment also needs to run
+// a second time, inside to_be_scheduled_rows below, so a customer who
+// doesn't pass the "due this month" heuristic (blank mobile number, a
+// re-coded customer_code the sheet doesn't recognize, or simply not due
+// yet) can still be found by typing their name, instead of a search that
+// only ever narrows a list they were never going to appear in.
+function buildSearchCondition(params, search) {
   const cleanSearch = String(search || "").trim();
-  if (!cleanSearch) return;
+  if (!cleanSearch) return null;
 
   params.push(`%${cleanSearch}%`);
-  whereParts.push(`
+  return `
     concat_ws(
       ' ',
       customer_code,
@@ -21,7 +28,7 @@ function addSearchFilter(whereParts, params, search) {
       city,
       address
     ) ILIKE $${params.length}
-  `);
+  `;
 }
 
 export default async function handler(req, res) {
@@ -78,7 +85,8 @@ export default async function handler(req, res) {
     const params = [serviceDueCodes, serviceDueMobiles];
     const whereParts = [];
 
-    addSearchFilter(whereParts, params, req.query.search);
+    const searchCondition = buildSearchCondition(params, req.query.search);
+    if (searchCondition) whereParts.push(searchCondition);
 
     if (mode === "scheduled") {
       whereParts.push("row_type = 'SCHEDULED'");
@@ -174,18 +182,21 @@ export default async function handler(req, res) {
           NULL::timestamptz AS completed_at
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
-        WHERE ${
-          serviceDueCodes.length > 0
-            // Matches by code OR mobile number — staff periodically re-code
-            // a customer in the sheet (e.g. AMC4 -> 23AMCMT5) without
-            // updating the app's own customer_code, which used to make
-            // that customer silently vanish from this list even though
-            // both the sheet and the DB agree they're on an active
-            // contract. Mobile number doesn't get relabeled, so it
-            // recovers those cases.
-            ? `(UPPER(TRIM(c.customer_code)) = ANY($1::text[]) OR regexp_replace(COALESCE(c.mobile_no, ''), '\\D', '', 'g') = ANY($2::text[]))`
-            : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
-        }
+        WHERE (
+          ${
+            serviceDueCodes.length > 0
+              // Matches by code OR mobile number — staff periodically re-code
+              // a customer in the sheet (e.g. AMC4 -> 23AMCMT5) without
+              // updating the app's own customer_code, which used to make
+              // that customer silently vanish from this list even though
+              // both the sheet and the DB agree they're on an active
+              // contract. Mobile number doesn't get relabeled, so it
+              // recovers those cases.
+              ? `(UPPER(TRIM(c.customer_code)) = ANY($1::text[]) OR regexp_replace(COALESCE(c.mobile_no, ''), '\\D', '', 'g') = ANY($2::text[]))`
+              : "UPPER(TRIM(COALESCE(c.customer_status, ''))) IN ('AMC', 'EMC', '1M', '2M', 'WARRANTY')"
+          }
+          ${searchCondition ? `OR ${searchCondition}` : ""}
+        )
           AND NOT EXISTS (
             SELECT 1
             FROM elevator_service_visits v
