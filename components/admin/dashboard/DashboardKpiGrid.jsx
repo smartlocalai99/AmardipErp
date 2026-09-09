@@ -235,7 +235,7 @@ export default function DashboardKpiGrid({
               <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M5 7v12h14V7M8 7V4h8v3M8 12h8M8 16h5" />
             </svg>
           }
-          accent="bg-emerald-50 text-emerald-600"
+          accent="bg-amber-100 text-amber-700"
           onClick={openProjects}
           enabled={isLive("quotations")}
         />

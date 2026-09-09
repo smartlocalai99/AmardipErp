@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { ensureQuotationTables } from "@/lib/quotations";
+import { listOngoingProjectsFromSheet } from "@/lib/googleSheets";
 import { isBoqAdmin } from "@/lib/quotationPermissions";
 
 export default async function handler(req, res) {
@@ -32,6 +33,12 @@ export default async function handler(req, res) {
   `, [frontOffice]);
 
   const row = result.rows[0] || {};
+  let ongoingProjects = Number(row.ongoing_projects || 0);
+  try {
+    ongoingProjects = (await listOngoingProjectsFromSheet()).length;
+  } catch (error) {
+    console.error("Ongoing sheet stats read failed:", error);
+  }
   return res.status(200).json({
     success: true,
     canGenerate: hasBoqPermission,
@@ -39,7 +46,7 @@ export default async function handler(req, res) {
     generatedQuotations: row.generated_quotations || 0,
     sentQuotations: row.sent_quotations || 0,
     acceptedQuotations: row.accepted_quotations || 0,
-    ongoingProjects: row.ongoing_projects || 0,
+    ongoingProjects,
     ...(frontOffice ? {} : { draftQuotations: row.draft_quotations || 0 }),
   });
 }
