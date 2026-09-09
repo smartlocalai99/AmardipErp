@@ -1,5 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
 import { getScheduleAssignees } from "@/lib/assignees";
 import { getJobCompletionsForMany } from "@/lib/complaints";
@@ -43,15 +43,10 @@ export default async function handler(req, res) {
     // complaint this schedule dispatched, not on the schedule itself.
     let jobCompletion = null;
     let materials = [];
-    let checkedInAt = null;
     if (row.linked_complaint_id) {
       const completions = await getJobCompletionsForMany([row.linked_complaint_id]);
       jobCompletion = completions.get(row.linked_complaint_id) || null;
       materials = await getMaterialsForComplaint(row.linked_complaint_id);
-      // Independent of jobCompletion — that only exists once the whole job
-      // is submitted, but arrival happens well before that.
-      const linkedComplaint = await query(`SELECT checked_in_at FROM complaints WHERE id = $1`, [row.linked_complaint_id]);
-      checkedInAt = linkedComplaint.rows[0]?.checked_in_at || null;
     }
 
     // Prior visits for this same customer, so opening one service card
@@ -85,7 +80,6 @@ export default async function handler(req, res) {
         assignees,
         jobCompletion,
         materials,
-        checkedInAt,
         history: historyResult.rows.map((v) => ({
           id: v.id,
           serviceDate: v.service_date,
@@ -116,25 +110,21 @@ export default async function handler(req, res) {
     // job dangling — still ASSIGNED, still fully visible and actionable in
     // the worker's job list — because nothing ever told the linked
     // complaint it was cancelled.
-    await query("BEGIN");
-    try {
+    const deleted = await withTransaction(async () => {
       const scheduleResult = await query(
         `DELETE FROM service_schedules WHERE id = $1 RETURNING linked_complaint_id`,
         [id]
       );
       if (scheduleResult.rowCount === 0) {
-        await query("ROLLBACK");
-        return res.status(404).json({ success: false, message: "Not found" });
+        return false;
       }
       const linkedComplaintId = scheduleResult.rows[0].linked_complaint_id;
       if (linkedComplaintId) {
         await query(`DELETE FROM complaints WHERE id = $1`, [linkedComplaintId]);
       }
-      await query("COMMIT");
-    } catch (err) {
-      await query("ROLLBACK");
-      throw err;
-    }
+      return true;
+    });
+    if (!deleted) return res.status(404).json({ success: false, message: "Not found" });
     return res.status(200).json({ success: true });
   }
 

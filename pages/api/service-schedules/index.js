@@ -1,16 +1,15 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { query } from "@/lib/db";
+import { query, withTransaction } from "@/lib/db";
 import {
   ALLOWED_PRIORITIES,
   cleanNumber,
   ensureServiceSchedulesTable,
 } from "@/lib/serviceSchedules";
-import { createComplaint, assignComplaintToWorker } from "@/lib/complaints";
-import { setScheduleAssignees, getScheduleAssigneesForMany } from "@/lib/assignees";
+import { createComplaint, assignComplaintToWorker, ensureComplaintsTable } from "@/lib/complaints";
+import { setScheduleAssignees, getScheduleAssigneesForMany, ensureAssigneeTables } from "@/lib/assignees";
 import { createAuditLog } from "@/lib/auditLog";
 import { safeSendPush } from "@/lib/pushNotifications";
 import { createCustomerNotification } from "@/lib/customerNotifications";
-import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 
@@ -167,104 +166,105 @@ export default async function handler(req, res) {
     const status = technicianName || technicianUserId ? "ASSIGNED" : "SCHEDULED";
     const cleanNotes = String(notes || "").trim();
 
+    await ensureComplaintsTable();
+    await ensureAssigneeTables();
+
     let schedule;
     let dispatchedJob = null;
 
-    await query("BEGIN");
     try {
-      const insertResult = await query(
-        `
-        INSERT INTO service_schedules (
-          customer_id,
-          schedule_month,
-          scheduled_date,
-          preferred_time,
-          status,
-          priority,
-          service_type,
-          assigned_technician_user_id,
-          assigned_technician_name,
-          notes,
-          created_by_user_id
-        )
-        VALUES (
-          $1,
-          date_trunc('month', CURRENT_DATE)::date,
-          NULLIF($2, '')::date,
-          NULLIF($3, ''),
-          $4,
-          $5,
-          'MONTHLY_SERVICE',
-          $6,
-          NULLIF($7, ''),
-          NULLIF($8, ''),
-          $9
-        )
-        RETURNING *
-        `,
-        [
-          customerId,
-          scheduledDate || "",
-          String(preferredTime || "").trim(),
-          status,
-          cleanPriority,
-          technicianUserId,
-          technicianName,
-          cleanNotes,
-          user.id,
-        ]
-      );
-
-      schedule = insertResult.rows[0];
-
-      // Picking real technicians doesn't just note it on the plan — it
-      // dispatches an actual job (assignable to more than one worker) to
-      // their apps, the same way any other ticket does, so "schedule
-      // someone for today" actually reaches the field.
-      if (technicianUserIds.length > 0) {
-        const visitLabel = scheduledDate
-          ? `Scheduled monthly service visit on ${scheduledDate}${preferredTime ? ` (${preferredTime})` : ""}.`
-          : "Scheduled monthly service visit.";
-
-        const complaint = await createComplaint({
-          actor: user,
-          input: {
+      await withTransaction(async () => {
+        const insertResult = await query(
+          `
+          INSERT INTO service_schedules (
+            customer_id,
+            schedule_month,
+            scheduled_date,
+            preferred_time,
+            status,
+            priority,
+            service_type,
+            assigned_technician_user_id,
+            assigned_technician_name,
+            notes,
+            created_by_user_id
+          )
+          VALUES (
+            $1,
+            date_trunc('month', CURRENT_DATE)::date,
+            NULLIF($2, '')::date,
+            NULLIF($3, ''),
+            $4,
+            $5,
+            'MONTHLY_SERVICE',
+            $6,
+            NULLIF($7, ''),
+            NULLIF($8, ''),
+            $9
+          )
+          RETURNING *
+          `,
+          [
             customerId,
-            complaintType: "SERVICE_REQUEST",
-            priority: cleanPriority,
-            description: visitLabel,
-            officeNotes: cleanNotes || null,
-          },
-        });
-
-        dispatchedJob = await assignComplaintToWorker({
-          complaintId: complaint.id,
-          workerUserIds: technicianUserIds,
-          actor: user,
-          assignmentNotes: cleanNotes || null,
-        });
-
-        // assignedTechnicianName above came from the request body (which
-        // the admin UI never sends when dispatching via the multi-assignee
-        // picker) — backfill it here from the actual dispatched assignees so
-        // every reader of this single-column field (the Service tab list
-        // included) shows who's really on the job instead of "Unassigned".
-        const assigneeNames = (dispatchedJob.assignees || []).map((a) => a.name).filter(Boolean).join(" & ");
-
-        await query(
-          `UPDATE service_schedules SET linked_complaint_id = $1, assigned_technician_name = NULLIF($2, '') WHERE id = $3`,
-          [dispatchedJob.id, assigneeNames, schedule.id]
+            scheduledDate || "",
+            String(preferredTime || "").trim(),
+            status,
+            cleanPriority,
+            technicianUserId,
+            technicianName,
+            cleanNotes,
+            user.id,
+          ]
         );
-        schedule.linked_complaint_id = dispatchedJob.id;
-        schedule.assigned_technician_name = assigneeNames || null;
-        await setScheduleAssignees(schedule.id, technicianUserIds);
-        schedule.assignees = dispatchedJob.assignees;
-      }
 
-      await query("COMMIT");
+        schedule = insertResult.rows[0];
+
+        // Picking real technicians doesn't just note it on the plan — it
+        // dispatches an actual job (assignable to more than one worker) to
+        // their apps, the same way any other ticket does, so "schedule
+        // someone for today" actually reaches the field.
+        if (technicianUserIds.length > 0) {
+          const visitLabel = scheduledDate
+            ? `Scheduled monthly service visit on ${scheduledDate}${preferredTime ? ` (${preferredTime})` : ""}.`
+            : "Scheduled monthly service visit.";
+
+          const complaint = await createComplaint({
+            actor: user,
+            input: {
+              customerId,
+              complaintType: "SERVICE_REQUEST",
+              priority: cleanPriority,
+              description: visitLabel,
+              officeNotes: cleanNotes || null,
+            },
+          });
+
+          dispatchedJob = await assignComplaintToWorker({
+            complaintId: complaint.id,
+            workerUserIds: technicianUserIds,
+            actor: user,
+            assignmentNotes: cleanNotes || null,
+          });
+
+          // assignedTechnicianName above came from the request body (which
+          // the admin UI never sends when dispatching via the multi-assignee
+          // picker) — backfill it here from the actual dispatched assignees so
+          // every reader of this single-column field (the Service tab list
+          // included) shows who's really on the job instead of "Unassigned".
+          const assigneeNames = (dispatchedJob.assignees || []).map((a) => a.name).filter(Boolean).join(" & ");
+
+          await query(
+            `UPDATE service_schedules SET linked_complaint_id = $1, assigned_technician_name = NULLIF($2, '') WHERE id = $3`,
+            [dispatchedJob.id, assigneeNames, schedule.id]
+          );
+          schedule.linked_complaint_id = dispatchedJob.id;
+          schedule.assigned_technician_name = assigneeNames || null;
+          await setScheduleAssignees(schedule.id, technicianUserIds);
+          schedule.assignees = dispatchedJob.assignees;
+        }
+
+      });
     } catch (error) {
-      await query("ROLLBACK");
-
       if (error.code === "23505") {
         return res.status(409).json({
           success: false,
@@ -294,26 +294,18 @@ export default async function handler(req, res) {
         }
       );
 
-      // Dispatched by admin on the customer's behalf — customerUserId is
-      // rarely set directly, so resolve the actual portal login(s) via the
-      // underlying customer record instead of silently notifying no one.
-      const customerUserIds = await resolveComplaintNotificationRecipients(dispatchedJob);
-      if (customerUserIds.length > 0) {
+      if (dispatchedJob.customerUserId) {
         const technicianNames = (dispatchedJob.assignees || []).map((a) => a.name).join(" & ") || dispatchedJob.assignedTechnicianName;
         const message = `Your monthly service visit (${dispatchedJob.complaintNo}) has been assigned to ${technicianNames || "a technician"}.`;
-        await Promise.all(
-          customerUserIds.map((userId) =>
-            createCustomerNotification({
-              userId,
-              category: "Service visit assigned",
-              message,
-              data: { type: "SERVICE_VISIT_ASSIGNED", complaintId: dispatchedJob.id },
-            }).catch((error) => console.error("Failed to persist service-visit-assigned notification:", error))
-          )
-        );
+        await createCustomerNotification({
+          userId: dispatchedJob.customerUserId,
+          category: "Service visit assigned",
+          message,
+          data: { type: "SERVICE_VISIT_ASSIGNED", complaintId: dispatchedJob.id },
+        }).catch((error) => console.error("Failed to persist service-visit-assigned notification:", error));
 
         await safeSendPush(
-          { userIds: customerUserIds },
+          { userIds: [dispatchedJob.customerUserId] },
           {
             title: "Service technician assigned",
             body: message,

@@ -1,36 +1,36 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- Amardip Elevators — Performance Indexes
--- Run this once in Neon SQL editor (or let /api/admin/apply-indexes do it).
--- All statements are idempotent: safe to re-run.
+-- Optional maintenance after reviewing EXPLAIN plans and storage usage.
+-- Reuse the original schema index names: IF NOT EXISTS only checks the name,
+-- so giving an existing index a new name would allocate a duplicate copy.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── elevator_service_customers ──────────────────────────────────────────────
--- Used in WHERE UPPER(TRIM(customer_status)) = 'AMC' etc. (stats, reports, upcoming)
-CREATE INDEX IF NOT EXISTS idx_esc_customer_status
+-- Existing index supports raw status equality. UPPER(TRIM(...)) expressions
+-- are not covered by this plain-column index.
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_status
   ON elevator_service_customers (customer_status);
 
 -- Used in ORDER BY and lookup by code
-CREATE INDEX IF NOT EXISTS idx_esc_customer_code
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_code
   ON elevator_service_customers (customer_code);
 
--- Used in phone-based customer lookup for complaints (regexp match fallback)
-CREATE INDEX IF NOT EXISTS idx_esc_mobile_no
+-- Exact phone lookup; regexp-normalized matching requires a different plan.
+CREATE INDEX IF NOT EXISTS idx_elevator_customers_mobile
   ON elevator_service_customers (mobile_no);
 
--- Used in ORDER BY record_no ASC
-CREATE INDEX IF NOT EXISTS idx_esc_record_no
-  ON elevator_service_customers (record_no);
+-- record_no is already indexed by elevator_service_customers_record_no_key.
 
 -- ── elevator_service_visits ─────────────────────────────────────────────────
 -- Heavy: all upcoming/report queries filter service_date >= start-of-month
-CREATE INDEX IF NOT EXISTS idx_esv_service_date
-  ON elevator_service_visits (service_date DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_service_visits_service_date
+  ON elevator_service_visits (service_date);
 
 -- JOIN key: service_visits JOIN customers ON customer_id
-CREATE INDEX IF NOT EXISTS idx_esv_customer_id
+CREATE INDEX IF NOT EXISTS idx_service_visits_customer_id
   ON elevator_service_visits (customer_id);
 
--- Composite used in NOT EXISTS (customer_id AND date range) — eliminates sequential scan
+-- Candidate for NOT EXISTS (customer_id AND date range); measure its benefit.
 CREATE INDEX IF NOT EXISTS idx_esv_customer_id_date
   ON elevator_service_visits (customer_id, service_date DESC NULLS LAST);
 
@@ -51,9 +51,7 @@ CREATE INDEX IF NOT EXISTS idx_ss_customer_month_status
 CREATE INDEX IF NOT EXISTS idx_users_role
   ON users (role);
 
--- Login and session lookup
-CREATE INDEX IF NOT EXISTS idx_users_username
-  ON users (username);
+-- username is already indexed by the users_username_key unique constraint.
 
 -- ── complaints (already handled by ensureComplaintsTable — listed for reference)
 -- idx_complaints_status, idx_complaints_created_at, idx_complaints_assigned_worker

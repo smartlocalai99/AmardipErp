@@ -17,7 +17,9 @@ export default async function handler(req, res) {
       await query(
         `INSERT INTO push_subscriptions (user_id, endpoint, p256dh, auth, updated_at)
          VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (endpoint) DO UPDATE SET user_id = $1, p256dh = $3, auth = $4, updated_at = NOW()`,
+         ON CONFLICT (endpoint) DO UPDATE SET user_id = EXCLUDED.user_id, p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth, updated_at = NOW()
+         WHERE (push_subscriptions.user_id, push_subscriptions.p256dh, push_subscriptions.auth)
+           IS DISTINCT FROM (EXCLUDED.user_id, EXCLUDED.p256dh, EXCLUDED.auth)`,
         [actor.id, subscription.endpoint, subscription.keys.p256dh, subscription.keys.auth]
       );
       return res.status(200).json({ success: true });

@@ -7,13 +7,13 @@ CREATE TABLE IF NOT EXISTS inventory_items (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_inventory_items_name ON inventory_items(name);
+-- The UNIQUE(name) constraint already provides its lookup index.
 
 CREATE TABLE IF NOT EXISTS inventory_transactions (
   id SERIAL PRIMARY KEY,
   item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
   complaint_id UUID REFERENCES complaints(id) ON DELETE SET NULL,
-  type TEXT NOT NULL CHECK (type IN ('receipt', 'issue', 'return', 'adjustment')),
+  type TEXT NOT NULL CHECK (type IN ('receipt', 'issue', 'return', 'adjustment', 'used')),
   quantity_delta NUMERIC(12,2) NOT NULL,
   balance_after NUMERIC(12,2) NOT NULL,
   performed_by INTEGER REFERENCES users(id) ON DELETE SET NULL,

@@ -2,8 +2,6 @@ import { cachedGetJson } from "@/lib/cachedFetch";
 import { clearSessionCache } from "@/lib/adminCache";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 
-const DASHBOARD_TTL_MS = 5 * 60 * 1000;
-
 const AdminAppDataContext = createContext(null);
 
 const initialState = {
@@ -22,8 +20,8 @@ export function AdminAppDataProvider({ user, children }) {
   const userCacheKey = user?.id || user?.username || user?.role || "anonymous";
 
   const loadAdminData = useCallback(async ({ forceRefresh = false } = {}) => {
-    if (fetchRef.current && !forceRefresh) {
-      return fetchRef.current;
+    if (fetchRef.current?.userCacheKey === userCacheKey && !forceRefresh) {
+      return fetchRef.current.promise;
     }
 
     setState((current) => ({ ...current, error: "" }));
@@ -32,19 +30,19 @@ export function AdminAppDataProvider({ user, children }) {
       setState((current) => ({ ...current, loading: true }));
     };
 
-    // Customer/service/upcoming-service counts drive the admin's real-time
-    // decisions (who to call, what's due) so they always hit the network —
-    // no localStorage TTL cache. Module availability changes rarely, so that
-    // one alone stays cached.
-    const fetchFreshJson = async (url) => {
-      markNetworkLoading();
-      const response = await fetch(url, { cache: "no-store" });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || "Request failed");
-      return data;
-    };
+    // Keep operational counts live while sharing simultaneous requests.
+    // Only module availability, which changes rarely, uses a TTL cache.
+    const fetchFreshJson = (url) => cachedGetJson(url, {
+      ttlMs: 0,
+      forceRefresh,
+      user: userCacheKey,
+      fetchOptions: { cache: "no-store" },
+      onNetworkStart: markNetworkLoading,
+    });
 
-    fetchRef.current = Promise.all([
+    const request = { userCacheKey, promise: null };
+    fetchRef.current = request;
+    request.promise = Promise.all([
       fetchFreshJson("/api/elevator-customers/stats"),
       fetchFreshJson("/api/elevator-service-visits/stats"),
       fetchFreshJson("/api/service-schedules/upcoming?page=1&pageSize=5"),
@@ -67,22 +65,24 @@ export function AdminAppDataProvider({ user, children }) {
           lastFetchedAt: Date.now(),
         };
 
-        setState(nextState);
+        if (fetchRef.current === request) setState(nextState);
         return nextState;
       })
       .catch((error) => {
-        setState((current) => ({
-          ...current,
-          loading: false,
-          error: error.message || "Failed to load admin data",
-        }));
+        if (fetchRef.current === request) {
+          setState((current) => ({
+            ...current,
+            loading: false,
+            error: error.message || "Failed to load admin data",
+          }));
+        }
         throw error;
       })
       .finally(() => {
-        fetchRef.current = null;
+        if (fetchRef.current === request) fetchRef.current = null;
       });
 
-    return fetchRef.current;
+    return request.promise;
   }, [userCacheKey]);
 
   useEffect(() => {

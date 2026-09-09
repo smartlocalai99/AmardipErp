@@ -6,7 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node --env-file-if-exists=.env.local --test scripts/*.test.mjs",
+    "db:capacity": "node scripts/check-db-capacity.mjs"
   },
   "dependencies": {
     "@simplewebauthn/browser": "^13.3.0",

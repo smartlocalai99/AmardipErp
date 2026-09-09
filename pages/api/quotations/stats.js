@@ -26,17 +26,20 @@ export default async function handler(req, res) {
       COUNT(*) FILTER (WHERE status = 'DRAFT')::int AS draft_quotations,
       COUNT(*) FILTER (WHERE status IN ('BOQ_GENERATED', 'CALCULATED'))::int AS generated_quotations,
       COUNT(*) FILTER (WHERE status = 'SENT')::int AS sent_quotations,
-      COUNT(*) FILTER (WHERE status = 'ACCEPTED')::int AS accepted_quotations
+      COUNT(*) FILTER (WHERE status = 'ACCEPTED')::int AS accepted_quotations,
+      (SELECT COUNT(*)::int FROM quotation_projects WHERE status = 'ONGOING') AS ongoing_projects
     FROM quotation_requests
   `, [frontOffice]);
 
   const row = result.rows[0] || {};
   return res.status(200).json({
     success: true,
+    canGenerate: hasBoqPermission,
     totalQuotations: row.total_quotations || 0,
     generatedQuotations: row.generated_quotations || 0,
     sentQuotations: row.sent_quotations || 0,
     acceptedQuotations: row.accepted_quotations || 0,
+    ongoingProjects: row.ongoing_projects || 0,
     ...(frontOffice ? {} : { draftQuotations: row.draft_quotations || 0 }),
   });
 }

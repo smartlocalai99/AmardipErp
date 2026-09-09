@@ -3,8 +3,7 @@ import { listQuotations } from "@/lib/quotations";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { WhatsAppIcon } from "@/components/ui/WhatsAppButton";
-import PdfCanvasViewer from "@/components/ui/PdfCanvasViewer";
+import { useRouter } from "next/router";
 
 const typeOptions = {
   noOfFloors: ["G+1", "G+2", "G+3", "G+4", "G+5"],
@@ -108,6 +107,7 @@ export async function getServerSideProps({ req }) {
 }
 
 export default function QuotationsPage({ user, initialData }) {
+  const router = useRouter();
   const [quotations, setQuotations] = useState(initialData.quotations);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -125,7 +125,11 @@ export default function QuotationsPage({ user, initialData }) {
   // quotationView holds the full quotation object to show in the View Quotation full-screen card
   const [quotationView, setQuotationView] = useState(null);
   const [boqView, setBoqView] = useState(null);
-  const [autoPreviewPdf, setAutoPreviewPdf] = useState(false);
+  const [activeTab, setActiveTab] = useState(router.query.tab === "projects" ? "projects" : "quotations");
+  const [projects, setProjects] = useState([]);
+  const [projectsTotal, setProjectsTotal] = useState(0);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const [projectQuotation, setProjectQuotation] = useState(null);
   const fieldRefs = useRef({});
   // Guards against double-tap double-submits: React state updates (and the
   // `disabled` attribute they drive) land on the next render, which is too
@@ -159,6 +163,24 @@ export default function QuotationsPage({ user, initialData }) {
     }
   }
 
+  async function fetchProjects() {
+    setProjectsLoading(true);
+    setError("");
+    try {
+      const params = new URLSearchParams({ page: "1", pageSize: String(DEFAULT_PAGE_SIZE) });
+      if (search) params.set("search", search);
+      const res = await fetch(`/api/quotations/projects?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to load ongoing projects");
+      setProjects(data.projects || []);
+      setProjectsTotal(data.total || 0);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
   // Used by callers that need an immediate, first-page refresh (after
   // creating or updating a quotation) rather than waiting on the debounced
   // page-driven effect below.
@@ -181,6 +203,12 @@ export default function QuotationsPage({ user, initialData }) {
     return () => clearTimeout(timer);
   }, [search, page]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (activeTab !== "projects") return undefined;
+    const timer = setTimeout(() => fetchProjects(), 0);
+    return () => clearTimeout(timer);
+  }, [activeTab, search]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Loads the next 25 once the sentinel at the bottom of the list scrolls
   // into view — replaces a page-size dropdown + Previous/Next buttons.
   useEffect(() => {
@@ -202,9 +230,9 @@ export default function QuotationsPage({ user, initialData }) {
   // Auto-set serial number when creating form opens — uses the real total
   // count, not the current page's length, since the list is now paginated.
   useEffect(() => {
-    if (showCreate) {
-      setForm((prev) => ({ ...prev, serialNo: String(total + 1) }));
-    }
+    if (!showCreate) return undefined;
+    const timer = setTimeout(() => setForm((prev) => ({ ...prev, serialNo: String(total + 1) })), 0);
+    return () => clearTimeout(timer);
   }, [showCreate]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function updateForm(key, value) {
@@ -297,28 +325,19 @@ export default function QuotationsPage({ user, initialData }) {
     }
   }
 
-  const frontOffice = user.role === "front_office";
-
   // Open BOQ is its own simple screen — just the quotation number and the
   // full sheet row for that one quotation, nothing else.
   if (boqView) {
     return <BoqOnlyView quotation={boqView} onBack={() => setBoqView(null)} />;
   }
 
-  // Full-screen View Quotation — the price quotation shared with the
-  // customer, plus Add Customer onboarding.
+  // Full-screen view of the customer-facing quotation document.
   if (quotationView) {
     return (
       <QuotationViewCard
         quotation={quotationView}
-        canGenerate={canGenerate}
-        autoPreviewPdf={autoPreviewPdf}
-        onBack={() => { setQuotationView(null); setAutoPreviewPdf(false); }}
+        onBack={() => setQuotationView(null)}
         onOpenBoq={() => setBoqView(quotationView)}
-        onOnboarded={(updatedQuotation) => {
-          setQuotationView(updatedQuotation);
-          load();
-        }}
       />
     );
   }
@@ -358,6 +377,21 @@ export default function QuotationsPage({ user, initialData }) {
           placeholder="Search by name, mobile, quotation no…"
           className="h-11 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] transition"
         />
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-slate-200 p-1">
+          {[{ key: "quotations", label: "Quotations" }, { key: "projects", label: "Ongoing Projects" }].map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => {
+                setActiveTab(tab.key);
+                router.replace({ pathname: router.pathname, query: tab.key === "projects" ? { tab: "projects" } : {} }, undefined, { shallow: true });
+              }}
+              className={`h-10 rounded-xl text-xs font-black transition ${activeTab === tab.key ? "bg-white text-[#0a649d] shadow-sm" : "text-slate-500"}`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
         {user.role === "superadmin" && (
           <Link className="flex h-10 items-center justify-center rounded-2xl border border-[#0a649d]/20 bg-white text-xs font-black text-[#0a649d]" href="/admin/boq-permissions">
             Manage BOQ Permissions
@@ -366,7 +400,20 @@ export default function QuotationsPage({ user, initialData }) {
 
         {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
 
-        {loading ? (
+        {activeTab === "projects" ? (
+          projectsLoading ? (
+            <p className="rounded-3xl bg-white p-8 text-center text-xs font-bold text-slate-400">Loading ongoing projects…</p>
+          ) : projects.length === 0 ? (
+            <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
+              <p className="text-base font-black text-slate-900">No ongoing projects</p>
+              <p className="mt-1 text-xs font-bold text-slate-400">Projects onboarded from accepted quotations will appear here.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {projects.map((project) => <ProjectCard key={project.id} project={project} />)}
+            </div>
+          )
+        ) : loading ? (
           <p className="rounded-3xl bg-white p-8 text-center text-xs font-bold text-slate-400">Loading quotations…</p>
         ) : quotations.length === 0 ? (
           <div className="rounded-3xl bg-white p-8 text-center shadow-sm">
@@ -389,11 +436,15 @@ export default function QuotationsPage({ user, initialData }) {
                 busy={submitting === `price-${q.id}`}
                 onRefreshPrice={() => refreshPriceFromSheet(q.id)}
                 onViewQuotation={() => setQuotationView(q)}
-                onShareQuotation={() => { setQuotationView(q); setAutoPreviewPdf(true); }}
+                onOnboardProject={() => setProjectQuotation(q)}
                 onOpenBoq={() => setBoqView(q)}
               />
             ))}
           </div>
+        )}
+
+        {activeTab === "projects" && !projectsLoading && projectsTotal > 0 && (
+          <p className="text-center text-xs font-bold text-slate-500">Showing {projects.length} of {projectsTotal} ongoing projects</p>
         )}
 
         {!loading && total > 0 && (
@@ -488,6 +539,19 @@ export default function QuotationsPage({ user, initialData }) {
         </Modal>
       )}
 
+      {projectQuotation && (
+        <ProjectOnboardingModal
+          quotation={projectQuotation}
+          onClose={() => setProjectQuotation(null)}
+          onSuccess={() => {
+            setProjectQuotation(null);
+            setActiveTab("projects");
+            load();
+            fetchProjects();
+          }}
+        />
+      )}
+
     </div>
   );
 }
@@ -568,124 +632,10 @@ function BoqOnlyView({ quotation, onBack }) {
 
 // ─── Full-screen View Quotation Card ────────────────────────────────────────
 // This is the customer-facing price quotation. "Open BOQ" is its own simple
-// screen (see BoqOnlyView) with the full underlying sheet row, and "Add
-// Customer" onboards the quotation into the real customer master once the
-// customer has accepted on a call.
-function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpenBoq, autoPreviewPdf = false }) {
-  const [shareStatus, setShareStatus] = useState("");
-  const [onboarding, setOnboarding] = useState(false);
-  const [onboardError, setOnboardError] = useState("");
-  const [onboardedCustomer, setOnboardedCustomer] = useState(null);
-  const alreadyOnboarded = quotation.status === "CONVERTED_TO_CUSTOMER";
-  const onboardInFlightRef = useRef(false);
-
-  const docRef = useRef(null);
-  const [generatingPdf, setGeneratingPdf] = useState(false);
-  const [pdfError, setPdfError] = useState("");
-  const [pdfFile, setPdfFile] = useState(null);
-  const [previewUrl, setPreviewUrl] = useState("");
-  const [showPreview, setShowPreview] = useState(false);
-
-  useEffect(() => {
-    if (autoPreviewPdf) handlePreviewPdf();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function handlePreviewPdf() {
-    setPdfError("");
-    setGeneratingPdf(true);
-    try {
-      const [{ default: html2canvas }, { default: JsPDF }] = await Promise.all([
-        import("html2canvas-pro"), // html2canvas can't parse Tailwind v4's oklch()/lab() colors; this fork can
-        import("jspdf"),
-      ]);
-
-      const canvas = await html2canvas(docRef.current, { scale: 2, backgroundColor: "#ffffff", useCORS: true });
-      const imageData = canvas.toDataURL("image/png");
-
-      const pdf = new JsPDF({ unit: "pt", format: "a4" });
-      const pageWidth = pdf.internal.pageSize.getWidth();
-      const pageHeight = pdf.internal.pageSize.getHeight();
-      const imageHeight = (canvas.height * pageWidth) / canvas.width;
-
-      // The quotation document is almost always taller than one A4 page —
-      // draw the same full-height image on each page at a progressively
-      // negative y-offset so every page reveals the next slice, instead of
-      // the whole thing being drawn once and everything past the first
-      // page's height silently clipped off.
-      let heightLeft = imageHeight;
-      let position = 0;
-      pdf.addImage(imageData, "PNG", 0, position, pageWidth, imageHeight);
-      heightLeft -= pageHeight;
-      while (heightLeft > 0) {
-        position -= pageHeight;
-        pdf.addPage();
-        pdf.addImage(imageData, "PNG", 0, position, pageWidth, imageHeight);
-        heightLeft -= pageHeight;
-      }
-
-      const blob = pdf.output("blob");
-      const file = new File([blob], `${quotation.quotationNo}.pdf`, { type: "application/pdf" });
-
-      if (previewUrl) URL.revokeObjectURL(previewUrl);
-      setPdfFile(file);
-      setPreviewUrl(URL.createObjectURL(blob));
-      setShowPreview(true);
-    } catch (err) {
-      setPdfError(err.message || "Could not generate the PDF. Please try again.");
-    } finally {
-      setGeneratingPdf(false);
-    }
-  }
-
-  async function handleShareFilePdf() {
-    if (!pdfFile) return;
-    const shareText = `Lift quotation ${quotation.quotationNo} for ${quotation.customerName} - Final Price ₹${formatRupees(quotation.finalPrice)}`;
-
-    if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
-      try {
-        await navigator.share({ files: [pdfFile], title: quotation.quotationNo, text: shareText });
-        setShareStatus("Shared.");
-      } catch {
-        // Cancelled by the user — nothing to report.
-      }
-      return;
-    }
-
-    // This browser can't hand a file to the OS share sheet (common on
-    // desktop browsers) — download it instead so it can be attached manually.
-    handleDownloadPdf();
-    setShareStatus("This browser can't share files directly. PDF downloaded — attach it in WhatsApp manually.");
-  }
-
-  function handleDownloadPdf() {
-    if (!previewUrl) return;
-    const link = document.createElement("a");
-    link.href = previewUrl;
-    link.download = `${quotation.quotationNo}.pdf`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  }
-
-  async function handleOnboardCustomer() {
-    if (onboardInFlightRef.current) return; // blocks a fast mobile double-tap
-    onboardInFlightRef.current = true;
-    setOnboarding(true);
-    setOnboardError("");
-    try {
-      const res = await fetch(`/api/quotations/${quotation.id}/onboard-customer`, { method: "POST" });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Failed to onboard customer");
-      setOnboardedCustomer(data.customer);
-      onOnboarded?.(data.quotation);
-    } catch (err) {
-      setOnboardError(err.message || "Failed to onboard customer");
-    } finally {
-      setOnboarding(false);
-      onboardInFlightRef.current = false;
-    }
-  }
+// screen (see BoqOnlyView) with the full underlying sheet row.
+// The quotation document remains available for review; project onboarding is
+// handled from the quotation list so financial inputs stay explicit.
+function QuotationViewCard({ quotation, onBack }) {
 
   const specs = [
     ["Wall Width", quotation.wellWidth],
@@ -721,8 +671,7 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpen
       </div>
 
       <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
-        {/* Quotation Document Card — snapshotted into the shared PDF */}
-        <div ref={docRef} className="rounded-3xl bg-white shadow-sm overflow-hidden print:shadow-none print:rounded-none" style={{ boxShadow: "0 4px 24px rgba(15,23,42,0.10)" }}>
+        <div className="rounded-3xl bg-white shadow-sm overflow-hidden" style={{ boxShadow: "0 4px 24px rgba(15,23,42,0.10)" }}>
           {/* Company header */}
           <div className="px-6 pt-6 pb-5 border-b border-slate-100" style={{ background: "linear-gradient(135deg, #04182b 0%, #073354 60%, #0a649d 100%)" }}>
             <div className="flex items-start justify-between gap-4">
@@ -816,148 +765,13 @@ function QuotationViewCard({ quotation, canGenerate, onBack, onOnboarded, onOpen
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div className="mt-4 space-y-2.5 pb-8 print:hidden">
-          {pdfError && (
-            <p className="rounded-xl bg-red-50 border border-red-100 p-3 text-xs font-bold text-red-700 text-center">{pdfError}</p>
-          )}
-          <button
-            onClick={handlePreviewPdf}
-            disabled={generatingPdf}
-            className="w-full h-13 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md disabled:opacity-60"
-            style={{ background: "linear-gradient(135deg, #073354, #0a649d)" }}
-          >
-            {generatingPdf ? (
-              <Spinner />
-            ) : (
-              <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-              </svg>
-            )}
-            {generatingPdf ? "Preparing PDF…" : "Preview PDF"}
-          </button>
-          <Link
-            href="/admin/quotations"
-            className="w-full h-12 rounded-2xl border border-slate-200 bg-white text-sm font-black text-slate-500 flex items-center justify-center gap-2 active:scale-98 transition"
-          >
-            All Quotations
-          </Link>
-
-          {canGenerate && (
-            <div className="pt-2 space-y-3">
-              <button
-                type="button"
-                onClick={onOpenBoq}
-                className="w-full h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md"
-              >
-                <svg className="h-4.5 w-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
-                </svg>
-                Open BOQ
-              </button>
-
-              <div className="border-t border-slate-200 pt-4">
-                <p className="text-[10px] font-black uppercase tracking-wider text-slate-400">Customer accepted on a call?</p>
-              </div>
-
-              {alreadyOnboarded || onboardedCustomer ? (
-                <div className="rounded-2xl border border-emerald-100 bg-emerald-50 p-4">
-                  <p className="text-sm font-black text-emerald-800">Customer onboarded</p>
-                  <p className="mt-1 text-xs font-semibold text-emerald-700">
-                    Added to the customer master with a 1-year AMC starting today.
-                  </p>
-                  <Link
-                    href={`/admin/customers/${onboardedCustomer?.id || quotation.convertedCustomerId}`}
-                    className="mt-3 flex h-10 items-center justify-center rounded-xl bg-emerald-600 text-xs font-black text-white active:scale-95 transition"
-                  >
-                    View Customer Profile
-                  </Link>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                  <p className="text-xs font-black text-slate-800">Ready to onboard this customer?</p>
-                  <p className="mt-1 text-[11px] font-semibold text-slate-500">
-                    Adds them to the customer master and starts a 1-year AMC today.
-                  </p>
-                  {onboardError && (
-                    <p className="mt-2 rounded-xl border border-red-100 bg-red-50 p-2.5 text-xs font-bold text-red-700">{onboardError}</p>
-                  )}
-                  <button
-                    type="button"
-                    disabled={onboarding}
-                    onClick={handleOnboardCustomer}
-                    className="mt-3 h-11 w-full flex items-center justify-center gap-2 rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-70 active:scale-98 transition"
-                  >
-                    {onboarding && <Spinner />}
-                    {onboarding ? "Adding Customer…" : "Add Customer"}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </main>
-
-      {showPreview && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-slate-950/80 print:hidden">
-          <div className="flex items-center justify-between bg-[#0a649d] px-4 py-3 text-white">
-            <div>
-              <p className="text-[9px] font-black uppercase tracking-widest text-white/60">PDF Preview</p>
-              <p className="text-sm font-black">{quotation.quotationNo}.pdf</p>
-            </div>
-            <button
-              onClick={() => setShowPreview(false)}
-              className="h-9 w-9 rounded-full bg-white/15 flex items-center justify-center active:bg-white/25 transition"
-              aria-label="Close preview"
-            >
-              <svg className="h-4.5 w-4.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          <div className="flex-1 bg-slate-200">
-            {previewUrl && <PdfCanvasViewer url={previewUrl} className="h-full w-full" />}
-          </div>
-
-          <div className="space-y-2.5 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
-            {shareStatus && (
-              <p className="rounded-xl bg-emerald-50 border border-emerald-100 p-2.5 text-xs font-bold text-emerald-700 text-center">{shareStatus}</p>
-            )}
-            <p className="text-center text-[11px] font-semibold text-slate-500">
-              This is exactly what the customer will receive. Share it only when you&apos;re ready.
-            </p>
-            <button
-              onClick={handleShareFilePdf}
-              className="w-full h-13 rounded-2xl text-sm font-black text-white flex items-center justify-center gap-2.5 active:scale-98 transition shadow-md"
-              style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
-            >
-              <WhatsAppIcon className="h-5 w-5" />
-              Share to WhatsApp
-            </button>
-            <button
-              onClick={handleDownloadPdf}
-              className="w-full h-11 rounded-2xl border-2 border-slate-200 bg-white text-sm font-black text-slate-700 active:scale-98 transition"
-            >
-              Download PDF
-            </button>
-          </div>
-        </div>
-      )}
-
-      <style jsx global>{`
-        @media print {
-          .print\\:hidden { display: none !important; }
-          body { background: white !important; }
-        }
-      `}</style>
     </div>
   );
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onShareQuotation, onOpenBoq }) {
+function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onOnboardProject, onOpenBoq }) {
   const shareEnabled = quotation.status !== "DRAFT";
 
   return (
@@ -982,7 +796,7 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
       <p className="mt-2 text-[11px] text-slate-400 truncate">{quotation.doorType} · {quotation.cabinType}</p>
       <div className="mt-3 border-t border-slate-100 pt-3">
         <p className="text-sm font-black text-slate-900">{quotation.finalPrice ? `₹${formatRupees(quotation.finalPrice)}` : "—"}</p>
-        <div className="mt-3 grid grid-cols-2 gap-2">
+        <div className="mt-3 grid grid-cols-3 gap-2">
           {canGenerate && quotation.status === "DRAFT" && (
             <button
               onClick={onRefreshPrice}
@@ -1001,27 +815,94 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
               View Quotation
             </button>
           )}
-          {shareEnabled && (
-            <button
-              onClick={onShareQuotation}
-              className="h-10 flex items-center justify-center gap-1.5 rounded-xl text-xs font-bold text-white active:scale-95 transition"
-              style={{ background: "linear-gradient(135deg, #075E54, #128C7E)" }}
-            >
-              <WhatsAppIcon className="h-3.5 w-3.5" />
-              Share Quotation
-            </button>
-          )}
           {canGenerate && shareEnabled && (
             <button
               onClick={onOpenBoq}
-              className="col-span-2 h-10 rounded-xl bg-[#0a649d] text-xs font-black text-white active:scale-95 transition shadow-sm"
+              className="h-10 rounded-xl bg-[#0a649d] text-[11px] font-black text-white active:scale-95 transition shadow-sm"
             >
               Open BOQ
+            </button>
+          )}
+          {canGenerate && shareEnabled && quotation.status !== "CONVERTED_TO_PROJECT" && (
+            <button
+              onClick={onOnboardProject}
+              className="h-10 rounded-xl bg-emerald-600 text-[11px] font-black text-white active:scale-95 transition shadow-sm"
+            >
+              Onboard Project
             </button>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function ProjectCard({ project }) {
+  return (
+    <div className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-black text-slate-900">{project.customerName}</p>
+          <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.quotationNo} · {project.mobileNo}</p>
+        </div>
+        <span className="rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">ONGOING</span>
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-[11px]">
+        <div><p className="font-bold text-slate-400">Agreed</p><p className="mt-0.5 font-black text-slate-900">₹{formatRupees(project.agreedAmount)}</p></div>
+        <div><p className="font-bold text-slate-400">Advance</p><p className="mt-0.5 font-black text-slate-900">₹{formatRupees(project.advanceAmount)}</p></div>
+        <div><p className="font-bold text-slate-400">Balance</p><p className="mt-0.5 font-black text-emerald-700">₹{formatRupees(project.balanceAmount)}</p></div>
+      </div>
+      <p className="mt-3 text-[10px] font-bold text-slate-400">Onboarded {project.onboardedAt ? new Date(project.onboardedAt).toLocaleDateString("en-IN") : "—"}</p>
+    </div>
+  );
+}
+
+function ProjectOnboardingModal({ quotation, onClose, onSuccess }) {
+  const [agreedAmount, setAgreedAmount] = useState("");
+  const [advanceAmount, setAdvanceAmount] = useState("");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const agreed = Number(agreedAmount);
+    const advance = Number(advanceAmount);
+    if (!agreedAmount || !Number.isFinite(agreed) || agreed <= 0) return setError("Enter the agreed amount.");
+    if (!advanceAmount || !Number.isFinite(advance) || advance < 0) return setError("Enter the advance amount.");
+    if (advance > agreed) return setError("Advance cannot be greater than agreed amount.");
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/onboard-project`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agreedAmount: agreed, advanceAmount: advance }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to onboard project");
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title="Onboard Project" onClose={() => !submitting && onClose()}>
+      <div className="space-y-4">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-900">{quotation.customerName}</p>
+          <p className="mt-0.5 text-xs font-bold text-slate-500">{quotation.quotationNo}</p>
+        </div>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Agreed Amount *</span><input type="number" min="0" value={agreedAmount} onChange={(e) => setAgreedAmount(e.target.value)} placeholder="Enter agreed amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Advance *</span><input type="number" min="0" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="Enter advance amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={submitting} className="h-12 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-700 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={submit} disabled={submitting} className="h-12 rounded-2xl bg-emerald-600 text-sm font-black text-white disabled:opacity-50">{submitting ? "Onboarding…" : "Onboard Project"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

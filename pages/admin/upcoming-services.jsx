@@ -3,7 +3,7 @@ import { DataListSkeleton, MetricSkeletonGrid } from "@/components/ui/SkeletonLo
 import { cachedGetJson } from "@/lib/cachedFetch";
 import { clearSessionCache } from "@/lib/adminCache";
 import { useRouter } from "next/router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 function displayValue(value) {
   return value === null || value === undefined || value === "" ? "-" : value;
@@ -62,17 +62,35 @@ function SummaryCard({ label, value, tone }) {
   );
 }
 
-// Infinite-scroll end marker — an IntersectionObserver on this node loads
-// the next page instead of a page-size dropdown + Previous/Next buttons.
-function InfiniteScrollSentinel({ sentinelRef, hasMore, loadingMore, hasItems }) {
-  if (!hasItems) return null;
+function Pager({ pagination, page, setPage }) {
+  if (!pagination) return null;
+
   return (
-    <div ref={sentinelRef} className="flex items-center justify-center py-5">
-      {loadingMore ? (
-        <span className="text-xs font-bold text-slate-400">Loading more…</span>
-      ) : !hasMore ? (
-        <span className="text-xs font-bold text-slate-300">You&apos;ve reached the end</span>
-      ) : null}
+    <div className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs font-bold text-slate-500">
+        Page <span className="text-slate-900">{pagination.page}</span> of{" "}
+        <span className="text-slate-900">{pagination.totalPages}</span> -{" "}
+        <span className="text-slate-900">{pagination.total}</span> services
+      </p>
+
+      <div className="grid grid-cols-2 gap-2 sm:flex">
+        <button
+          type="button"
+          disabled={!pagination.hasPrev}
+          onClick={() => setPage(Math.max(1, page - 1))}
+          className="h-10 rounded-xl border border-slate-200 bg-white px-4 text-xs font-black text-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          disabled={!pagination.hasNext}
+          onClick={() => setPage(page + 1)}
+          className="h-10 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Next
+        </button>
+      </div>
     </div>
   );
 }
@@ -140,13 +158,11 @@ export default function UpcomingServicesPage({ user }) {
   const [search, setSearch] = useState("");
   const [mode, setMode] = useState("all");
   const [status, setStatus] = useState("ALL");
-  const PAGE_SIZE = 25;
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [loading, setLoading] = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
-  const sentinelRef = useRef(null);
   const [selectedRow, setSelectedRow] = useState(null);
   const [technicians, setTechnicians] = useState([]);
   const [scheduleForm, setScheduleForm] = useState({
@@ -181,6 +197,16 @@ export default function UpcomingServicesPage({ user }) {
     };
   }, []);
 
+  const visibleFrom = useMemo(() => {
+    if (!pagination || pagination.total === 0) return 0;
+    return (pagination.page - 1) * pagination.pageSize + 1;
+  }, [pagination]);
+
+  const visibleTo = useMemo(() => {
+    if (!pagination) return 0;
+    return Math.min(pagination.page * pagination.pageSize, pagination.total);
+  }, [pagination]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
       setPage(1);
@@ -192,16 +218,15 @@ export default function UpcomingServicesPage({ user }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    const isFirstPage = page === 1;
 
     async function loadUpcomingServices() {
-      if (isFirstPage) setLoading(true); else setLoadingMore(true);
+      setLoading(true);
       setError("");
 
       try {
         const params = new URLSearchParams({
           page: String(page),
-          pageSize: String(PAGE_SIZE),
+          pageSize: String(pageSize),
           mode,
           status,
         });
@@ -211,17 +236,16 @@ export default function UpcomingServicesPage({ user }) {
         const data = await cachedGetJson(`/api/service-schedules/upcoming?${params.toString()}`, {
           cacheKey: `upcoming_services_${params.toString()}`,
           ttlMs: 5 * 60 * 1000,
-          forceRefresh: refreshKey > 0,
           user: userCacheKey,
           fetchOptions: { signal: controller.signal },
-          onNetworkStart: () => { if (isFirstPage) setLoading(true); else setLoadingMore(true); },
+          onNetworkStart: () => setLoading(true),
         });
 
         if (!data.success) {
           throw new Error(data.message || "Failed to load upcoming services");
         }
 
-        setRows((prev) => (isFirstPage ? (data.rows || []) : [...prev, ...(data.rows || [])]));
+        setRows(data.rows || []);
         setSummary(data.summary || { scheduled: 0, toBeScheduled: 0, total: 0 });
         setPagination(data.pagination || null);
       } catch (err) {
@@ -230,31 +254,13 @@ export default function UpcomingServicesPage({ user }) {
         }
       } finally {
         setLoading(false);
-        setLoadingMore(false);
       }
     }
 
     loadUpcomingServices();
 
     return () => controller.abort();
-  }, [page, search, mode, status, refreshKey, userCacheKey]);
-
-  // Loads the next 25 once the sentinel at the bottom of the list scrolls
-  // into view — replaces a page-size dropdown + Previous/Next buttons.
-  useEffect(() => {
-    if (!pagination?.hasNext || loading || loadingMore) return;
-    const node = sentinelRef.current;
-    if (!node) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) setPage((prev) => prev + 1);
-      },
-      { rootMargin: "200px" }
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [pagination?.hasNext, loading, loadingMore]);
+  }, [page, pageSize, search, mode, status, refreshKey, userCacheKey]);
 
   function openSchedule(row) {
     setSelectedRow(row);
@@ -387,12 +393,12 @@ export default function UpcomingServicesPage({ user }) {
               <CountSkeleton />
             ) : (
               <p className="mt-1 text-xs font-semibold text-slate-500">
-                Loaded {rows.length} of {pagination?.total || 0} monthly service records
+                Showing {visibleFrom} - {visibleTo} of {pagination?.total || 0} monthly service records
               </p>
             )}
           </div>
 
-          <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-4 grid gap-2 md:grid-cols-2 lg:grid-cols-5">
             <input
               type="text"
               value={searchInput}
@@ -427,6 +433,19 @@ export default function UpcomingServicesPage({ user }) {
               <option value="IN_PROGRESS">IN_PROGRESS</option>
               <option value="MISSED">MISSED</option>
               <option value="TO_BE_SCHEDULED">TO_BE_SCHEDULED</option>
+            </select>
+            <select
+              value={pageSize}
+              onChange={(event) => {
+                setPage(1);
+                setPageSize(Number(event.target.value));
+              }}
+              className="amardip-field text-sm"
+            >
+              <option value={10}>10 / page</option>
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+              <option value={100}>100 / page</option>
             </select>
           </div>
         </section>
@@ -556,12 +575,7 @@ export default function UpcomingServicesPage({ user }) {
               </div>
             </section>
 
-            <InfiniteScrollSentinel
-              sentinelRef={sentinelRef}
-              hasMore={Boolean(pagination?.hasNext)}
-              loadingMore={loadingMore}
-              hasItems={rows.length > 0}
-            />
+            <Pager pagination={pagination} page={page} setPage={setPage} />
           </>
         )}
       </main>

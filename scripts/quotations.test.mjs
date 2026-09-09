@@ -3,6 +3,7 @@ import {
   buildQuotationNo,
   calculateQuotationCost,
   normalizeQuotationInput,
+  validateProjectAmounts,
   QUOTATION_STATUSES,
 } from "../lib/quotations.js";
 import {
@@ -88,5 +89,21 @@ assert.equal(canViewQuotation({ role: "front_office" }, "DRAFT"), false);
 assert.equal(canViewQuotation({ role: "front_office" }, "BOQ_GENERATED"), true);
 assert.equal(isPermissionManageRole({ role: "superadmin" }), true);
 assert.equal(isPermissionManageRole({ role: "admin" }), false);
+
+assert.deepEqual(validateProjectAmounts({ agreedAmount: "250000", advanceAmount: "75000" }), {
+  agreedAmount: 250000,
+  advanceAmount: 75000,
+  balanceAmount: 175000,
+});
+
+assert.throws(
+  () => validateProjectAmounts({ agreedAmount: "", advanceAmount: "75000" }),
+  /Agreed amount is required/
+);
+
+assert.throws(
+  () => validateProjectAmounts({ agreedAmount: "250000", advanceAmount: "300000" }),
+  /Advance amount cannot be greater than agreed amount/
+);
 
 console.log("quotations tests passed");

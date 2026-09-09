@@ -210,6 +210,7 @@ export default function DashboardKpiGrid({
   function openUpcomingServices() { setActiveTab?.("service"); }
   function openReports() { setMoreSubTab?.("reports"); }
   function openQuotations() { router.push("/admin/quotations"); }
+  function openProjects() { router.push("/admin/quotations?tab=projects"); }
 
   return (
     <div>
@@ -221,6 +222,20 @@ export default function DashboardKpiGrid({
         card={quotationCard}
         quotationStats={quotationStats}
         onClick={openQuotations}
+        enabled={isLive("quotations")}
+      />
+
+      <KpiCard
+        title="Ongoing Projects"
+        value={quotationStats?.ongoingProjects ?? 0}
+        body="Converted quotations"
+        icon={
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M5 7v12h14V7M8 7V4h8v3M8 12h8M8 16h5" />
+          </svg>
+        }
+        accent="bg-emerald-50 text-emerald-600"
+        onClick={openProjects}
         enabled={isLive("quotations")}
       />
 

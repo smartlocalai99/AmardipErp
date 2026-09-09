@@ -5,6 +5,7 @@ import AdminCustomersTable from "@/components/admin/customers/AdminCustomersTabl
 import AdminAmcTable from "@/components/admin/amc/AdminAmcTable";
 import ServiceVisitsTable from "@/components/admin/service/ServiceVisitsTable";
 import { clearSessionCache } from "@/lib/adminCache";
+import { cachedGetJson } from "@/lib/cachedFetch";
 import { MetricSkeletonGrid } from "@/components/ui/SkeletonLoaders";
 import ModuleComingSoon from "@/components/ui/ModuleComingSoon";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
@@ -240,17 +241,6 @@ function PlusIcon({ className = "h-5 w-5" }) {
     );
 }
 
-// "1h 24m" / "45m" — how long a technician was actually on site, from GPS
-// check-in to job completion.
-function formatJobDuration(minutes) {
-    if (!Number.isFinite(minutes) || minutes < 0) return null;
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hrs === 0) return `${mins}m`;
-    if (mins === 0) return `${hrs}h`;
-    return `${hrs}h ${mins}m`;
-}
-
 function AmcStatStrip({ stats, loading, selectedMode, onSelect }) {
     const cards = [
         {
@@ -422,22 +412,6 @@ function AdmindashboardShell({ user }) {
     const [showOnboardModal, setShowOnboardModal] = useState(false);
     const [showResetModal, setShowResetModal] = useState(false);
     const [showNotificationCenter, setShowNotificationCenter] = useState(false);
-    const notificationPanelRef = useRef(null);
-    const notificationBellRef = useRef(null);
-    useEffect(() => {
-        if (!showNotificationCenter) return;
-        function handleClickOutside(event) {
-            if (notificationPanelRef.current?.contains(event.target)) return;
-            if (notificationBellRef.current?.contains(event.target)) return;
-            setShowNotificationCenter(false);
-        }
-        document.addEventListener("mousedown", handleClickOutside);
-        document.addEventListener("touchstart", handleClickOutside);
-        return () => {
-            document.removeEventListener("mousedown", handleClickOutside);
-            document.removeEventListener("touchstart", handleClickOutside);
-        };
-    }, [showNotificationCenter]);
     const [showScheduleModal, setShowScheduleModal] = useState(false);
     const [selectedComplaint, setSelectedComplaint] = useState(null);
     const [showAddComplaintModal, setShowAddComplaintModal] = useState(false);
@@ -454,16 +428,20 @@ function AdmindashboardShell({ user }) {
             const timer = setTimeout(() => setSpareSearchResults([]), 0);
             return () => clearTimeout(timer);
         }
+        const controller = new AbortController();
         const timer = setTimeout(async () => {
             try {
-                const res = await fetch(`/api/inventory?search=${encodeURIComponent(q)}`);
+                const res = await fetch(`/api/inventory?search=${encodeURIComponent(q)}`, { signal: controller.signal });
                 const data = await res.json();
-                if (data.success) setSpareSearchResults(data.items);
+                if (!controller.signal.aborted && data.success) setSpareSearchResults(data.items);
             } catch {
-                setSpareSearchResults([]);
+                if (!controller.signal.aborted) setSpareSearchResults([]);
             }
         }, 350);
-        return () => clearTimeout(timer);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
     }, [spareQuery]);
 
     function addAllocatedItem(item) {
@@ -497,6 +475,7 @@ function AdmindashboardShell({ user }) {
         complaintType: "BREAKDOWN",
         priority: "NORMAL",
         description: "",
+        officeNotes: "",
     });
     const [customerNameQuery, setCustomerNameQuery] = useState("");
     const [customerNameResults, setCustomerNameResults] = useState([]);
@@ -592,10 +571,6 @@ function AdmindashboardShell({ user }) {
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("UNASSIGNED");
     const [moreSubTab, setMoreSubTab] = useState(null);
-    const mainScrollRef = useRef(null);
-    useEffect(() => {
-        mainScrollRef.current?.scrollTo(0, 0);
-    }, [activeTab, moreSubTab]);
 
     // Interactive directories
     const [inquiries, setInquiries] = useState([]);
@@ -617,11 +592,6 @@ function AdmindashboardShell({ user }) {
     const [warrantyAmounts, setWarrantyAmounts] = useState({});
     const [sendingWarrantyCustomerId, setSendingWarrantyCustomerId] = useState(null);
     const [warrantySendFeedback, setWarrantySendFeedback] = useState({});
-    const [outOfWarrantyCandidates, setOutOfWarrantyCandidates] = useState([]);
-    const [outOfWarrantyLoading, setOutOfWarrantyLoading] = useState(false);
-    const [outOfWarrantyAmounts, setOutOfWarrantyAmounts] = useState({});
-    const [sendingOutOfWarrantyCustomerId, setSendingOutOfWarrantyCustomerId] = useState(null);
-    const [outOfWarrantySendFeedback, setOutOfWarrantySendFeedback] = useState({});
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -706,7 +676,7 @@ function AdmindashboardShell({ user }) {
             return; // the provider already fetched once on its own mount
         }
         if (activeTab !== "dashboard") return;
-        adminAppData.refreshAdminData();
+        adminAppData.refreshAdminData().catch(() => {});
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTab]);
     const moduleIsLive = (key) => moduleAvailability?.[key]?.enabled !== false;
@@ -766,9 +736,26 @@ function AdmindashboardShell({ user }) {
 
     // Recent Complaints
     const [complaints, setComplaints] = useState([]);
+    const complaintsRequestRef = useRef(null);
 
-    async function fetchComplaints() {
+    async function fetchComplaintStats(signal) {
+        try {
+            const data = await cachedGetJson("/api/complaints/stats", {
+                ttlMs: 0,
+                user,
+                fetchOptions: { signal, cache: "no-store" },
+            });
+            if (!signal?.aborted && data.success) setComplaintStats(data);
+        } catch {
+            // The complaint list remains usable if totals cannot be loaded.
+        }
+    }
+
+    async function fetchComplaints({ refreshStats = true } = {}) {
         if (!["superadmin", "admin", "manager", "front_office"].includes(user?.role)) return;
+        complaintsRequestRef.current?.abort();
+        const controller = new AbortController();
+        complaintsRequestRef.current = controller;
         setComplaintsLoading(true);
         setComplaintError("");
         try {
@@ -781,39 +768,52 @@ function AdmindashboardShell({ user }) {
             else if (statusFilter === "COMPLETED") params.set("status", "RESOLVED");
             else if (statusFilter !== "all") params.set("status", statusFilter);
 
-            const [listRes, statsRes] = await Promise.all([
-                fetch(`/api/complaints?${params.toString()}`),
-                fetch("/api/complaints/stats"),
+            const [listRes] = await Promise.all([
+                fetch(`/api/complaints?${params.toString()}`, { signal: controller.signal }),
+                refreshStats ? fetchComplaintStats(controller.signal) : null,
             ]);
             const listData = await listRes.json();
-            const statsData = await statsRes.json();
+            if (controller.signal.aborted) return;
             if (!listRes.ok || !listData.success) throw new Error(listData.message || "Failed to load complaints");
             setComplaints(listData.complaints || []);
-            if (statsRes.ok && statsData.success) setComplaintStats(statsData);
         } catch (err) {
-            setComplaintError(err.message || "Failed to load complaints");
+            if (!controller.signal.aborted) setComplaintError(err.message || "Failed to load complaints");
         } finally {
-            setComplaintsLoading(false);
+            if (!controller.signal.aborted) setComplaintsLoading(false);
+            if (complaintsRequestRef.current === controller) complaintsRequestRef.current = null;
         }
     }
 
     useEffect(() => {
         if (activeTab !== "complaints" && activeTab !== "dashboard") return;
-        const timer = setTimeout(() => fetchComplaints(), 250);
-        return () => clearTimeout(timer);
+        const timer = setTimeout(() => fetchComplaints({ refreshStats: false }), 250);
+        return () => {
+            clearTimeout(timer);
+            complaintsRequestRef.current?.abort();
+        };
     }, [activeTab, searchQuery, statusFilter, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Global totals do not change when the list's search/filter changes.
+    // Refresh on tab entry and after mutations instead of on every search.
+    useEffect(() => {
+        if (activeTab !== "complaints" && activeTab !== "dashboard") return;
+        const controller = new AbortController();
+        const timer = setTimeout(() => fetchComplaintStats(controller.signal), 0);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [activeTab, user?.id, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function fetchQuotationDashboardData() {
         if (["customer", "worker", "storekeeper"].includes(user?.role)) return;
         try {
-            const [statsRes, listRes] = await Promise.all([
-                fetch("/api/quotations/stats"),
-                fetch("/api/quotations?page=1&pageSize=1"),
-            ]);
+            const statsRes = await fetch("/api/quotations/stats");
             const statsData = await statsRes.json();
-            const listData = await listRes.json();
-            if (statsRes.ok && statsData.success) setQuotationStats(statsData);
-            if (listRes.ok && listData.success) setHasBoqPermission(Boolean(listData.canGenerate));
+            if (statsRes.ok && statsData.success) {
+                setQuotationStats(statsData);
+                setHasBoqPermission(Boolean(statsData.canGenerate));
+            }
         } catch (err) {
             console.error("Failed to load quotation dashboard data:", err);
         }
@@ -867,21 +867,6 @@ function AdmindashboardShell({ user }) {
             return [{ id: row.customerId, customer_name: row.customerName, city: row.city }, ...current];
         });
         setShowScheduleModal(true);
-        if (scheduleCustomers.length === 0) {
-            try {
-                const r = await fetch("/api/elevator-customers?pageSize=500");
-                const d = await r.json();
-                if (d.customers) {
-                    setScheduleCustomers((current) => {
-                        const merged = [...current];
-                        d.customers.forEach((c) => {
-                            if (!merged.some((existing) => String(existing.id) === String(c.id))) merged.push(c);
-                        });
-                        return merged;
-                    });
-                }
-            } catch {}
-        }
     }
 
     async function deleteScheduleAndRefresh(id) {
@@ -982,49 +967,6 @@ function AdmindashboardShell({ user }) {
         }
     }
 
-    async function fetchOutOfWarrantyCandidates() {
-        setOutOfWarrantyLoading(true);
-        try {
-            const res = await fetch("/api/elevator-customers/out-of-warranty", { cache: "no-store" });
-            const data = await res.json();
-            setOutOfWarrantyCandidates(data.success ? data.candidates : []);
-        } catch {
-            setOutOfWarrantyCandidates([]);
-        } finally {
-            setOutOfWarrantyLoading(false);
-        }
-    }
-
-    // AMC amount is optional here (unlike the expiring-soon letter) — this
-    // customer has already lapsed, so the notice is a plain "you're
-    // uncovered" reminder, not necessarily a fixed renewal quote yet.
-    async function sendOutOfWarrantyLetterFor(candidate) {
-        if (sendingOutOfWarrantyCustomerId) return;
-        const amcAmount = outOfWarrantyAmounts[candidate.id];
-
-        setSendingOutOfWarrantyCustomerId(candidate.id);
-        setOutOfWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: null }));
-        try {
-            const res = await fetch("/api/elevator-customers/send-out-of-warranty", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ customerId: candidate.id, amcAmount: amcAmount || undefined }),
-            });
-            const data = await res.json();
-            if (data.success) {
-                setOutOfWarrantyCandidates((prev) => prev.map((c) =>
-                    c.id === candidate.id ? { ...c, sentAt: new Date().toISOString(), amcAmount: amcAmount || null } : c
-                ));
-            } else {
-                setOutOfWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: data.message || "Failed to send" } }));
-            }
-        } catch {
-            setOutOfWarrantySendFeedback((prev) => ({ ...prev, [candidate.id]: { error: "Failed to send out-of-warranty letter" } }));
-        } finally {
-            setSendingOutOfWarrantyCustomerId(null);
-        }
-    }
-
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "month") return;
         const timer = setTimeout(() => fetchUpcomingServiceRows(serviceSearch), 250);
@@ -1044,12 +986,6 @@ function AdmindashboardShell({ user }) {
         return () => clearTimeout(timer);
     }, [activeTab, moreSubTab]);
 
-    useEffect(() => {
-        if (activeTab !== "more" || moreSubTab !== "out_of_warranty") return;
-        const timer = setTimeout(() => fetchOutOfWarrantyCandidates(), 0);
-        return () => clearTimeout(timer);
-    }, [activeTab, moreSubTab]);
-
     async function handleCreateComplaint(e) {
         e.preventDefault();
         setComplaintError("");
@@ -1061,26 +997,6 @@ function AdmindashboardShell({ user }) {
             });
             const data = await res.json();
             if (!res.ok || !data.success) throw new Error(data.message || "Failed to create complaint");
-
-            // Assigning workers/allocating spares at creation reuses the same
-            // endpoint the detail modal's "Save Assignment" already uses —
-            // no separate open-then-assign step needed for a ticket raised
-            // with a technician already in mind.
-            if (modalTechIds.length > 0 || allocatedItems.length > 0) {
-                try {
-                    await fetch(`/api/complaints/${data.complaint.id}/assign`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            assignedTechnicianUserIds: modalTechIds.map(Number),
-                            allocatedItems: allocatedItems.map(item => ({ itemId: item.itemId, quantity: item.quantity })),
-                        }),
-                    });
-                } catch (assignErr) {
-                    console.error("Failed to assign newly created complaint:", assignErr);
-                }
-            }
-
             setShowAddComplaintModal(false);
             setNewComplaintData({
                 customerId: "",
@@ -1091,13 +1007,10 @@ function AdmindashboardShell({ user }) {
                 complaintType: "BREAKDOWN",
                 priority: "NORMAL",
                 description: "",
+                officeNotes: "",
             });
             setCustomerNameQuery("");
             setCustomerNameResults([]);
-            setModalTechIds([]);
-            setAllocatedItems([]);
-            setSpareQuery("");
-            setSpareSearchResults([]);
             await fetchComplaints();
         } catch (err) {
             setComplaintError(err.message || "Failed to create complaint");
@@ -1452,29 +1365,18 @@ function AdmindashboardShell({ user }) {
             // "Services This Month" (the default view) keeps showing the
             // customer as "TO BE SCHEDULED" until the next manual reload.
             await fetchUpcomingServiceRows(serviceSearch);
+        } catch {}
 
-            setNewSchedule({
-                customerId: "",
-                customerName: "",
-                customerLocked: false,
-                scheduledDate: "",
-                technicianIdSenior: "",
-                technicianIdJunior: "",
-                notes: "",
-            });
-            setShowScheduleModal(false);
-        } catch (err) {
-            // This used to fail silently (empty catch) and clear the form
-            // regardless of outcome — an admin had no way to tell a
-            // schedule attempt had failed at all, let alone why. Most
-            // common cause: this customer already has a schedule this
-            // month (one customer can only be scheduled once per month).
-            Swal.fire({
-                icon: "error",
-                title: "Could not schedule",
-                text: err.message || "Failed to schedule this service visit.",
-            });
-        }
+        setNewSchedule({
+            customerId: "",
+            customerName: "",
+            customerLocked: false,
+            scheduledDate: "",
+            technicianIdSenior: "",
+            technicianIdJunior: "",
+            notes: "",
+        });
+        setShowScheduleModal(false);
     }
 
     async function openScheduleDetail(id) {
@@ -1538,7 +1440,6 @@ function AdmindashboardShell({ user }) {
 
                     <div className="flex items-center gap-2">
                         <button
-                            ref={notificationBellRef}
                             onClick={() => {
                                 clearAppBadgeCount();
                                 setShowNotificationCenter(!showNotificationCenter);
@@ -1557,28 +1458,19 @@ function AdmindashboardShell({ user }) {
 
                 {/* NOTIFICATION CENTER DROPDOWN */}
                 {showNotificationCenter && (
-                    <div ref={notificationPanelRef} className="absolute top-[68px] left-0 right-0 z-40 mx-3 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_40px_rgba(4,24,43,0.18)] overflow-hidden animate-in slide-in-from-top-2 duration-200 select-none">
+                    <div className="absolute top-[68px] left-0 right-0 z-40 mx-3 bg-white rounded-3xl border border-slate-100 shadow-[0_8px_40px_rgba(4,24,43,0.18)] overflow-hidden animate-in slide-in-from-top-2 duration-200 select-none">
                         <div className="px-5 py-3.5 flex items-center justify-between border-b border-slate-100">
                             <span className="text-xs font-bold text-slate-900">Notifications</span>
-                            <div className="flex items-center gap-2.5">
-                                <button
-                                    onClick={() => {
-                                        setNotifications([]);
-                                        clearAppBadgeCount();
-                                        setShowNotificationCenter(false);
-                                    }}
-                                    className="text-[11px] font-semibold text-slate-400 hover:text-slate-600"
-                                >
-                                    Clear all
-                                </button>
-                                <button
-                                    onClick={() => setShowNotificationCenter(false)}
-                                    aria-label="Close notifications"
-                                    className="flex h-6 w-6 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
-                                >
-                                    <CloseIcon className="h-3.5 w-3.5" />
-                                </button>
-                            </div>
+                            <button
+                                onClick={() => {
+                                    setNotifications([]);
+                                    clearAppBadgeCount();
+                                    setShowNotificationCenter(false);
+                                }}
+                                className="text-[11px] font-semibold text-slate-400 hover:text-slate-600"
+                            >
+                                Clear all
+                            </button>
                         </div>
                         <div className="divide-y divide-slate-50 max-h-[280px] overflow-y-auto">
                             {notifications.map(n => (
@@ -1595,7 +1487,7 @@ function AdmindashboardShell({ user }) {
                 )}
 
                 {/* MAIN CONTENT AREA */}
-                <main ref={mainScrollRef} className="amardip-app-main flex-1 overflow-y-auto bg-[#eef2f7]">
+                <main className="amardip-app-main flex-1 overflow-y-auto bg-[#eef2f7]">
 
                     <>
                     {/* TAB: DASHBOARD */}
@@ -1629,13 +1521,7 @@ function AdmindashboardShell({ user }) {
                                 </div>
                                 <button
                                     type="button"
-                                    onClick={() => {
-                                        setModalTechIds([]);
-                                        setAllocatedItems([]);
-                                        setSpareQuery("");
-                                        setSpareSearchResults([]);
-                                        setShowAddComplaintModal(true);
-                                    }}
+                                    onClick={() => setShowAddComplaintModal(true)}
                                     className="h-10 px-4 rounded-2xl bg-[#0a649d] text-white text-xs font-black shadow-sm active:scale-95"
                                 >
                                     Add
@@ -1679,66 +1565,33 @@ function AdmindashboardShell({ user }) {
                                     <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real breakdowns...</p>
                                 ) : complaints.length === 0 ? (
                                     <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No breakdowns found. Use Add to create the first ticket.</p>
-                                ) : complaints.map(c => {
-                                    const duration = formatJobDuration(c.jobCompletion?.durationMinutes);
-                                    const isCompleted = ["RESOLVED", "CLOSED"].includes(c.status);
-                                    return (
+                                ) : complaints.map(c => (
                                     <button
                                         key={c.id}
                                         type="button"
                                         onClick={() => openComplaintDetails(c)}
-                                        className="w-full overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] text-left shadow-sm active:scale-[0.99] transition"
+                                        className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99]"
                                     >
-                                        <div className="p-4 flex flex-col gap-2.5">
-                                            <div className="flex items-start justify-between gap-2">
-                                                <div className="min-w-0">
-                                                    <p className="truncate text-sm font-black text-slate-900">{c.customerName}</p>
-                                                    <p className="mt-0.5 text-[10.5px] font-bold text-[#0a649d]">{formatComplaintDate(c.createdAt)}</p>
+                                        <div className="flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <span className="text-sm font-black text-slate-900">{c.complaintNo}</span>
+                                                    <span className={`rounded border px-2 py-0.5 text-[9px] font-black ${c.priority === "EMERGENCY" ? "bg-red-50 border-red-100 text-red-700" : "bg-slate-50 border-slate-100 text-slate-600"}`}>{c.priority}</span>
                                                 </div>
-                                                <div className="flex shrink-0 flex-col items-end gap-1">
-                                                    <span className={`rounded-xl border px-2.5 py-1 text-[9.5px] font-black uppercase whitespace-nowrap ${complaintStatusClass(c.status)}`}>{c.status?.replaceAll("_", " ")}</span>
-                                                    {c.priority === "EMERGENCY" && (
-                                                        <span className="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-[9px] font-black text-red-700">EMERGENCY</span>
-                                                    )}
-                                                </div>
+                                                <p className="mt-1 text-xs font-bold text-slate-700">{c.customerName}</p>
+                                                <p className="mt-0.5 text-[10px] text-slate-400">{c.mobileNo || "-"} · {c.city || "-"}</p>
                                             </div>
-
-                                            <p className="text-[11px] font-semibold text-slate-500">{c.mobileNo || "-"} · {c.city || "-"}</p>
-
-                                            {(c.checkedInAt || (isCompleted && c.resolvedAt) || duration) && (
-                                                <div className="flex flex-wrap gap-1.5">
-                                                    {c.checkedInAt && (
-                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
-                                                            Arrived {new Date(c.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
-                                                        </span>
-                                                    )}
-                                                    {isCompleted && c.resolvedAt && (
-                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-emerald-700">
-                                                            Completed {new Date(c.resolvedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
-                                                        </span>
-                                                    )}
-                                                    {duration && (
-                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
-                                                            Time on site: {duration}
-                                                        </span>
-                                                    )}
-                                                </div>
-                                            )}
-
-                                            {c.description && (
-                                                <p className="line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{c.description}</p>
-                                            )}
-
-                                            <p className="text-[10px] font-bold text-slate-500">
-                                                {c.assignees?.length ? `Technician: ${c.assignees.map((a) => a.name).join(" & ")}` : "Unassigned"}
-                                            </p>
+                                            <span className={`rounded-xl border px-2.5 py-1 text-[10px] font-black ${complaintStatusClass(c.status)}`}>{c.status?.replaceAll("_", " ")}</span>
                                         </div>
-                                        <div className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white">
-                                            Tap to View Details &rarr;
+                                        <p className="mt-3 line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{c.description}</p>
+                                        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px] font-bold text-slate-400">
+                                            <span>{formatComplaintDate(c.createdAt)}</span>
+                                            <span className="truncate pl-2">
+                                                {c.assignees?.length ? `Worker${c.assignees.length > 1 ? "s" : ""}: ${c.assignees.map((a) => a.name).join(", ")}` : "Unassigned"}
+                                            </span>
                                         </div>
                                     </button>
-                                    );
-                                })}
+                                ))}
                             </div>
                         </div>
                     )}
@@ -1775,20 +1628,11 @@ function AdmindashboardShell({ user }) {
                             if (d.customers) setScheduleCustomers(d.customers);
                         } catch {}
                     }}
-                                    className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#0a649d] px-4 text-white shadow-md active:scale-95 transition"
+                                    className="h-10 w-10 shrink-0 rounded-full bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
                                 >
-                                    <PlusIcon className="h-4 w-4" />
-                                    <span className="text-xs font-black whitespace-nowrap">Assign Service</span>
+                                    <PlusIcon className="h-5 w-5" />
                                 </button>
                             </div>
-
-                            {/* Any customer can be scheduled here, not only the ones the
-                                sheet/DB heuristic below flags as due — a customer with a
-                                data mismatch (blank mobile, re-coded customer_code) never
-                                surfaces in that list otherwise. */}
-                            <p className="-mt-3 text-[11px] font-semibold text-slate-400">
-                                Don&apos;t see who you&apos;re looking for below? Tap <span className="font-black text-[#0a649d]">Assign Service</span> above to search every customer and schedule them directly.
-                            </p>
 
                             <div className="space-y-3">
                                 {serviceViewMode === "month" && (
@@ -1861,25 +1705,27 @@ function AdmindashboardShell({ user }) {
                                         const key = `${row.rowType}-${row.scheduleId || row.customerId}`;
                                         if (row.rowType === "TO_BE_SCHEDULED") {
                                             return (
-                                                <div key={key} className="overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] shadow-sm">
-                                                    <div className="p-4 flex flex-col gap-2.5">
-                                                        <div className="flex items-start justify-between gap-2">
-                                                            <p className="truncate text-sm font-black text-slate-900">{row.customerName || "—"}</p>
-                                                            <span className="shrink-0 rounded-xl px-2.5 py-1 text-[9.5px] font-black uppercase bg-amber-100 text-amber-800">
-                                                                To Be Scheduled
-                                                            </span>
+                                                <div key={key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                                                    <div className="flex justify-between items-start gap-3">
+                                                        <div className="min-w-0">
+                                                            <h3 className="text-sm font-extrabold text-slate-900 truncate">{row.customerName || "—"}</h3>
+                                                            <p className="text-[10px] text-slate-400 mt-0.5">{row.city || row.mobileNo || "-"}</p>
                                                         </div>
-                                                        <p className="text-[11px] font-semibold text-slate-500">{row.mobileNo || "-"} · {row.city || "-"}</p>
-                                                        <p className="text-[10px] font-bold text-slate-500">
-                                                            {row.lastServiceDate ? `Last visit: ${new Date(row.lastServiceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : "No service history"}
-                                                        </p>
+                                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded shrink-0 bg-amber-100 text-amber-800">
+                                                            TO BE SCHEDULED
+                                                        </span>
                                                     </div>
-                                                    <button
-                                                        onClick={() => openAssignForCustomer(row)}
-                                                        className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white active:scale-[0.99] transition"
-                                                    >
-                                                        Assign Worker
-                                                    </button>
+                                                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                                                        <span className="text-slate-400 font-semibold">
+                                                            {row.lastServiceDate ? `Last visit: ${new Date(row.lastServiceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : "No service history"}
+                                                        </span>
+                                                        <button
+                                                            onClick={() => openAssignForCustomer(row)}
+                                                            className="h-8 rounded-lg bg-[#0a649d] px-3 text-[10px] font-bold text-white active:scale-95 transition"
+                                                        >
+                                                            Assign Worker
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             );
                                         }
@@ -1891,66 +1737,42 @@ function AdmindashboardShell({ user }) {
                                             if (s === "ASSIGNED") return "bg-sky-100 text-sky-800";
                                             return "bg-blue-100 text-blue-800";
                                         };
-                                        const rowDuration = formatJobDuration(row.durationMinutes);
 
                                         return (
                                             <div
                                                 key={key}
                                                 onClick={() => openScheduleDetail(row.scheduleId)}
-                                                className="overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] shadow-sm cursor-pointer active:scale-[0.99] transition"
+                                                className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer active:scale-[0.99] transition"
                                             >
-                                                <div className="p-4 flex flex-col gap-2.5">
-                                                    <div className="flex items-start justify-between gap-2">
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-black text-slate-900">{row.customerName || "—"}</p>
-                                                            <p className="mt-0.5 text-[10.5px] font-bold text-[#0a649d]">
-                                                                {row.scheduledDate
-                                                                    ? new Date(row.scheduledDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
-                                                                    : "Date TBD"}
-                                                            </p>
-                                                        </div>
-                                                        <div className="flex shrink-0 items-center gap-1.5">
-                                                            <span className={`rounded-xl px-2.5 py-1 text-[9.5px] font-black uppercase whitespace-nowrap ${statusBadge(row.scheduleStatus)}`}>
-                                                                {row.scheduleStatus?.replace("_", " ")}
-                                                            </span>
-                                                            <button
-                                                                onClick={(e) => { e.stopPropagation(); deleteScheduleAndRefresh(row.scheduleId); }}
-                                                                className="h-7 w-7 flex items-center justify-center rounded-lg bg-white/70 border border-[#cfe8f7] text-red-500 hover:bg-red-50 transition cursor-pointer"
-                                                                title="Delete"
-                                                            >
-                                                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                                </svg>
-                                                            </button>
-                                                        </div>
+                                                <div className="flex justify-between items-start gap-3">
+                                                    <div className="min-w-0">
+                                                        <h3 className="text-sm font-extrabold text-slate-900 truncate">{row.customerName || "—"}</h3>
+                                                        <p className="text-[10px] text-slate-400 mt-0.5">
+                                                            Engineer: <span className="font-semibold text-slate-600">{row.assignedTechnicianName || "Unassigned"}</span>
+                                                        </p>
+                                                        {row.city && <p className="text-[10px] text-slate-400">{row.city}</p>}
                                                     </div>
-
-                                                    <p className="text-[11px] font-semibold text-slate-500">
-                                                        {row.city ? `${row.city} · ` : ""}Engineer: <span className="font-bold text-slate-700">{row.assignedTechnicianName || "Unassigned"}</span>
-                                                    </p>
-
-                                                    {(row.checkedInAt || (row.scheduleStatus === "COMPLETED" && row.completedAt) || rowDuration) && (
-                                                        <div className="flex flex-wrap gap-1.5">
-                                                            {row.checkedInAt && (
-                                                                <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
-                                                                    Arrived {new Date(row.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
-                                                                </span>
-                                                            )}
-                                                            {row.scheduleStatus === "COMPLETED" && row.completedAt && (
-                                                                <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-emerald-700">
-                                                                    Completed {new Date(row.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
-                                                                </span>
-                                                            )}
-                                                            {rowDuration && (
-                                                                <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
-                                                                    Time on site: {rowDuration}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )}
+                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded shrink-0 ${statusBadge(row.scheduleStatus)}`}>
+                                                        {row.scheduleStatus?.replace("_", " ")}
+                                                    </span>
                                                 </div>
-                                                <div className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white">
-                                                    Tap to View Details &rarr;
+                                                <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                                                    <span className="text-slate-400 font-semibold">
+                                                        {row.scheduledDate
+                                                            ? new Date(row.scheduledDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
+                                                            : "Date TBD"}
+                                                    </span>
+                                                    <div className="flex items-center gap-2">
+                                                        <button
+                                                            onClick={(e) => { e.stopPropagation(); deleteScheduleAndRefresh(row.scheduleId); }}
+                                                            className="h-7 w-7 flex items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 transition cursor-pointer"
+                                                            title="Delete"
+                                                        >
+                                                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                            </svg>
+                                                        </button>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
@@ -2122,93 +1944,6 @@ function AdmindashboardShell({ user }) {
                                         bucket="warranty"
                                         returnTo="/Admindashboard?tab=more&subtab=warranty"
                                     />
-                                </div>
-                            ) : moreSubTab === "out_of_warranty" ? (
-                                <div className="space-y-4">
-                                    <div className="flex items-center gap-3">
-                                        <button
-                                            onClick={() => openTab("dashboard")}
-                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
-                                        >
-                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
-                                        </button>
-                                        <div>
-                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Out of Warranty</h1>
-                                            <p className="text-[10px] text-slate-500 mt-0.5">Past their handover warranty, still not on AMC.</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="rounded-2xl border border-red-200 bg-red-50 p-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="h-10 w-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0">
-                                                <BellIcon className="h-5 w-5 text-red-600" />
-                                            </div>
-                                            <div className="flex-1 min-w-0">
-                                                <p className="text-sm font-black text-red-900">
-                                                    {outOfWarrantyLoading
-                                                        ? "Checking who's out of warranty…"
-                                                        : `${outOfWarrantyCandidates.filter((c) => !c.sentAt).length} of ${outOfWarrantyCandidates.length} out-of-warranty customers still need a letter`}
-                                                </p>
-                                                <p className="text-[11px] font-semibold text-red-700 mt-0.5">
-                                                    AMC amount is optional here — send with or without one. Once sent, a customer never gets this letter again.
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {outOfWarrantyCandidates.length > 0 && (
-                                            <div className="mt-3 space-y-2">
-                                                {outOfWarrantyCandidates.map((c) => (
-                                                    <div key={c.id} className="rounded-2xl bg-white p-3">
-                                                        <div className="flex items-center justify-between gap-2">
-                                                            <div className="min-w-0">
-                                                                <span className="block text-xs font-black text-slate-800 truncate">{c.customerName}</span>
-                                                                <span className="block text-[10px] text-slate-400 font-semibold">{c.mobileNo || "No mobile on file"}</span>
-                                                            </div>
-                                                            <span className="text-[10px] text-slate-400 font-semibold shrink-0 pl-2">
-                                                                Expired {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                                                            </span>
-                                                        </div>
-                                                        {c.sentAt ? (
-                                                            <div className="mt-2 flex items-center justify-between gap-2 rounded-xl bg-emerald-50 border border-emerald-100 px-3 py-2">
-                                                                <span className="text-[10px] font-black text-emerald-700">
-                                                                    ✓ Notice Sent{c.amcAmount ? ` · Rs. ${Number(c.amcAmount).toLocaleString("en-IN")}` : ""}
-                                                                </span>
-                                                                <span className="text-[9px] font-bold text-emerald-600 shrink-0">
-                                                                    {new Date(c.sentAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
-                                                                </span>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="mt-2 flex items-center gap-2">
-                                                                <div className="relative flex-1">
-                                                                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">Rs.</span>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="1"
-                                                                        inputMode="numeric"
-                                                                        placeholder="AMC amount (optional)"
-                                                                        value={outOfWarrantyAmounts[c.id] || ""}
-                                                                        onChange={(e) => setOutOfWarrantyAmounts((prev) => ({ ...prev, [c.id]: e.target.value }))}
-                                                                        className="h-9 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-xs font-bold outline-none focus:border-[#0a649d]"
-                                                                    />
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    disabled={sendingOutOfWarrantyCustomerId === c.id}
-                                                                    onClick={() => sendOutOfWarrantyLetterFor(c)}
-                                                                    className="h-9 shrink-0 rounded-xl bg-red-600 px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
-                                                                >
-                                                                    {sendingOutOfWarrantyCustomerId === c.id ? "Sending…" : "Send Notice"}
-                                                                </button>
-                                                            </div>
-                                                        )}
-                                                        {outOfWarrantySendFeedback[c.id]?.error && (
-                                                            <p className="mt-1.5 text-[10px] font-bold text-red-700">{outOfWarrantySendFeedback[c.id].error}</p>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
                                 </div>
                             ) : moreSubTab === "amc" ? (
                                 <div className="space-y-4">
@@ -2927,11 +2662,11 @@ function AdmindashboardShell({ user }) {
                                                         className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm"
                                                     >
                                                         <div className="flex items-center justify-between gap-2">
-                                                            <span className="truncate text-[11px] font-black text-slate-900">{c.customerName || "Customer"}</span>
+                                                            <span className="truncate text-[11px] font-black text-slate-900">{c.complaintNo}</span>
                                                             <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${complaintStatusClass(c.status)}`}>{c.status}</span>
                                                         </div>
                                                         <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">
-                                                            {c.complaintType ? c.complaintType.replaceAll("_", " ") : "Ticket"}
+                                                            {c.customerName || "Customer"} · {c.complaintType ? c.complaintType.replaceAll("_", " ") : "Ticket"}
                                                         </p>
                                                         {c.createdAt && (
                                                             <p className="mt-0.5 text-[9px] font-bold text-slate-400">{formatDeviceDate(c.createdAt)}</p>
@@ -3384,64 +3119,13 @@ function AdmindashboardShell({ user }) {
                                 placeholder="Breakdown description"
                                 className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
                             />
-
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Assign Workers (optional)</label>
-                                <WorkerMultiPicker
-                                    workers={technicians}
-                                    selectedIds={modalTechIds}
-                                    onChange={setModalTechIds}
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Spares to Allocate (optional)</label>
-                                <div className="relative">
-                                    <input
-                                        type="text"
-                                        value={spareQuery}
-                                        onChange={(e) => setSpareQuery(e.target.value)}
-                                        placeholder="Search inventory item..."
-                                        className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base bg-white outline-none focus:border-[#0a649d] transition"
-                                    />
-                                    {spareSearchResults.length > 0 && (
-                                        <div className="absolute z-10 mt-1 w-full max-h-40 overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg">
-                                            {spareSearchResults.map(item => (
-                                                <button
-                                                    type="button"
-                                                    key={item.id}
-                                                    onClick={() => addAllocatedItem(item)}
-                                                    className="block w-full px-3.5 py-2 text-left text-xs font-semibold text-slate-700 hover:bg-slate-50 border-b border-slate-50 last:border-b-0"
-                                                >
-                                                    {item.name} <span className="text-slate-400">({item.stockQuantity} {item.unit} in stock)</span>
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="mt-2 grid grid-cols-[auto_5rem_1fr] items-center gap-2">
-                                    <span className="text-[10px] font-bold text-slate-400 uppercase">Qty</span>
-                                    <input
-                                        type="number"
-                                        min={1}
-                                        value={spareQuantity}
-                                        onChange={(e) => setSpareQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                                        className="h-9 w-20 px-2 rounded-lg border border-slate-200 text-sm bg-white outline-none focus:border-[#0a649d]"
-                                    />
-                                    <span className="min-w-0 text-[10px] leading-snug text-slate-400">Search and tap an item above to add it at this quantity.</span>
-                                </div>
-                                {allocatedItems.length > 0 && (
-                                    <div className="mt-2.5 space-y-1.5">
-                                        {allocatedItems.map(item => (
-                                            <div key={item.itemId} className="flex min-w-0 items-center justify-between gap-2 rounded-lg bg-slate-50 border border-slate-100 px-3 py-1.5">
-                                                <span className="min-w-0 break-words text-xs font-semibold text-slate-700">{item.name} × {item.quantity} {item.unit}</span>
-                                                <button type="button" onClick={() => removeAllocatedItem(item.itemId)} className="shrink-0 text-red-500 text-xs font-bold">Remove</button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-
+                            <textarea
+                                value={newComplaintData.officeNotes}
+                                onChange={(e) => setNewComplaintData({ ...newComplaintData, officeNotes: e.target.value })}
+                                rows={3}
+                                placeholder="Office notes optional"
+                                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm outline-none focus:border-[#0a649d]"
+                            />
                             <div className="flex gap-2 border-t border-slate-100 pt-3">
                                 <button
                                     type="button"
@@ -3469,7 +3153,7 @@ function AdmindashboardShell({ user }) {
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>
                                 <h2 className="text-base font-bold">Breakdown Ticket</h2>
-                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.customerName}</p>
+                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.complaintNo}</p>
                             </div>
                             <button
                                 onClick={() => setSelectedComplaint(null)}
@@ -3483,11 +3167,6 @@ function AdmindashboardShell({ user }) {
                             <div>
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
                                 <p className="text-sm font-extrabold text-slate-800">{selectedComplaint.customerName}</p>
-                                {selectedComplaint.checkedInAt && (
-                                    <p className="mt-0.5 text-[10px] font-bold text-emerald-600">
-                                        Technician arrived {new Date(selectedComplaint.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
-                                    </p>
-                                )}
                                 <p className="mt-0.5 text-xs text-slate-500">{selectedComplaint.mobileNo || "-"} · {selectedComplaint.city || "-"}</p>
                                 {selectedComplaint.address && <p className="mt-1 text-xs text-slate-400">{selectedComplaint.address}</p>}
                             </div>
@@ -3523,12 +3202,7 @@ function AdmindashboardShell({ user }) {
                                 <>
                                     <hr className="border-slate-100" />
                                     <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
-                                        <div className="flex items-center justify-between">
-                                            <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
-                                            {formatJobDuration(selectedComplaint.jobCompletion.durationMinutes) && (
-                                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9.5px] font-bold text-emerald-700">Time on site: {formatJobDuration(selectedComplaint.jobCompletion.durationMinutes)}</span>
-                                            )}
-                                        </div>
+                                        <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
                                         <div>
                                             <span className="block text-[9px] font-semibold text-slate-400 uppercase">Details / Comments</span>
                                             <p className="font-extrabold text-slate-800">{selectedComplaint.jobCompletion.workPerformed || selectedComplaint.jobCompletion.problemIdentified || "N/A"}</p>
@@ -3723,11 +3397,6 @@ function AdmindashboardShell({ user }) {
                             <div>
                                 <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
                                 <p className="text-sm font-extrabold text-slate-800">{selectedSchedule.customerName || "—"}</p>
-                                {selectedSchedule.checkedInAt && (
-                                    <p className="mt-0.5 text-[10px] font-bold text-emerald-600">
-                                        Technician arrived {new Date(selectedSchedule.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
-                                    </p>
-                                )}
                                 {selectedSchedule.address && <p className="text-[10px] text-slate-400 mt-0.5">{selectedSchedule.address}{selectedSchedule.city ? `, ${selectedSchedule.city}` : ""}</p>}
                                 {selectedSchedule.mobileNo && <p className="text-[10px] text-slate-400">{selectedSchedule.mobileNo}</p>}
                                 {selectedSchedule.customerStatus && (
@@ -3795,12 +3464,7 @@ function AdmindashboardShell({ user }) {
 
                                     <hr className="border-slate-100" />
                                     <div className="bg-emerald-50/50 border border-emerald-100 rounded-2xl p-3.5 space-y-2.5 text-xs text-emerald-900 leading-normal">
-                                        <div className="flex items-center justify-between">
-                                            <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
-                                            {formatJobDuration(selectedSchedule.jobCompletion.durationMinutes) && (
-                                                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[9.5px] font-bold text-emerald-700">Time on site: {formatJobDuration(selectedSchedule.jobCompletion.durationMinutes)}</span>
-                                            )}
-                                        </div>
+                                        <span className="block text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider leading-none">Job Completion Report</span>
                                         <div>
                                             <span className="block text-[9px] font-semibold text-slate-400 uppercase">Problem Identified</span>
                                             <p className="font-extrabold text-slate-800">{selectedSchedule.jobCompletion.problemIdentified || "N/A"}</p>

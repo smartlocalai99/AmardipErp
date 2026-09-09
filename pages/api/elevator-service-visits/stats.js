@@ -32,7 +32,17 @@ export default async function handler(req, res) {
     await ensureServiceSchedulesTable();
 
     const result = await query(`
-      WITH technician_names AS (
+      WITH visit_totals AS (
+        SELECT
+          COUNT(*)::int AS total_service_visits,
+          COUNT(*) FILTER (WHERE customer_id IS NOT NULL)::int AS linked_service_visits,
+          COUNT(*) FILTER (WHERE customer_id IS NULL)::int AS unlinked_service_visits,
+          MAX(service_date) AS last_service_date,
+          COUNT(*) FILTER (WHERE service_type ILIKE '%breakdown%')::int AS total_breakdowns,
+          COUNT(*) FILTER (WHERE service_type ILIKE '%month%' OR service_type ILIKE '%monthly%')::int AS total_monthly_services,
+          COUNT(*) FILTER (WHERE payment_amount IS NOT NULL)::int AS total_payments_collected
+        FROM elevator_service_visits
+      ), technician_names AS (
         SELECT NULLIF(TRIM(technician_1), '') AS name
         FROM elevator_service_visits
         WHERE NULLIF(TRIM(technician_1), '') IS NOT NULL
@@ -42,13 +52,7 @@ export default async function handler(req, res) {
         WHERE NULLIF(TRIM(technician_2), '') IS NOT NULL
       )
       SELECT
-        (SELECT COUNT(*)::int FROM elevator_service_visits) AS total_service_visits,
-        (SELECT COUNT(*) FILTER (WHERE customer_id IS NOT NULL)::int FROM elevator_service_visits) AS linked_service_visits,
-        (SELECT COUNT(*) FILTER (WHERE customer_id IS NULL)::int FROM elevator_service_visits) AS unlinked_service_visits,
-        (SELECT MAX(service_date) FROM elevator_service_visits) AS last_service_date,
-        (SELECT COUNT(*) FILTER (WHERE service_type ILIKE '%breakdown%')::int FROM elevator_service_visits) AS total_breakdowns,
-        (SELECT COUNT(*) FILTER (WHERE service_type ILIKE '%month%' OR service_type ILIKE '%monthly%')::int FROM elevator_service_visits) AS total_monthly_services,
-        (SELECT COUNT(*) FILTER (WHERE payment_amount IS NOT NULL)::int FROM elevator_service_visits) AS total_payments_collected,
+        visit_totals.*,
         (SELECT COUNT(*)::int FROM technician_names) AS unique_technicians,
         date_trunc('month', CURRENT_DATE)::date AS current_month_start,
         (date_trunc('month', CURRENT_DATE) + interval '1 month' - interval '1 day')::date AS current_month_end,
@@ -77,6 +81,7 @@ export default async function handler(req, res) {
                 AND s.status NOT IN ('CANCELLED', 'COMPLETED')
             )
         ) AS to_be_scheduled_services
+      FROM visit_totals
     `);
 
     const row = result.rows[0] || {};
