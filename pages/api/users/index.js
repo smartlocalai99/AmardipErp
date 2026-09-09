@@ -21,11 +21,8 @@ export default async function handler(req, res) {
 
         // Staff directory only — customer accounts aren't shown here.
         // password_plain is the actual login PIN/password in the clear; it's
-        // only included for superadmin plus the specific named admins who
-        // asked to see the full staff directory (amarnath, dileep, kethan),
-        // matching the one place in the UI that displays it.
-        const canViewCredentials = requester.role === "superadmin"
-            || ["amarnath", "dileep", "kethan"].includes(requester.username);
+        // included for every admin-level role, matching the UI gate.
+        const canViewCredentials = ["superadmin", "admin", "manager"].includes(requester.role);
         const columns = canViewCredentials
             ? "id, username, name, role, phone, designation, created_at, last_login_device, last_login_at, password_plain"
             : "id, username, name, role, phone, designation, created_at, last_login_device, last_login_at";

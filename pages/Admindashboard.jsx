@@ -1403,9 +1403,9 @@ function AdmindashboardShell({ user }) {
         }
     }
 
-    // Full staff directory with plaintext logins — superadmin, plus the
-    // specific named admins who asked to see it (amarnath, dileep, kethan).
-    const canViewStaffCredentials = user?.role === "superadmin" || ["amarnath", "dileep", "kethan"].includes(user?.username);
+    // Full staff directory with plaintext logins — every admin-level role,
+    // not a fixed username list.
+    const canViewStaffCredentials = ["superadmin", "admin", "manager"].includes(user?.role);
 
     const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
 
