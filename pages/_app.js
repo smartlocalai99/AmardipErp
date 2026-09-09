@@ -4,6 +4,7 @@ import { useRouter } from "next/router";
 import { getPortalScope } from "@/lib/pwaScope";
 import SplashScreen from "@/components/SplashScreen";
 import "@/styles/globals.css";
+import "@/styles/phase-icons.css";
 
 // How long the splash stays up at minimum, so a fast load doesn't just
 // flash it for 20ms — and how long a route change has to take before the

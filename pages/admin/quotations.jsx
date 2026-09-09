@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { listQuotations } from "@/lib/quotations";
-import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS } from "@/lib/projectChecklist";
+import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
+import PhaseIcon from "@/components/PhaseIcon";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -908,11 +909,15 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
 function ProjectCard({ project, onStartProject, onOpenChecklist }) {
   const canStart = project.source !== "google_sheet";
   const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
-  const completedCount = (project.checklistCompletions || []).length;
+  const completedKeys = new Set((project.checklistCompletions || []).map((c) => c.itemKey));
+  const completedCount = completedKeys.size;
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
   const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
   const isComplete = completedCount >= totalSteps;
   const isStarted = canStart && Boolean(project.startedAt);
+  const activePhaseIndex = PROJECT_CHECKLIST_PHASES.findIndex((phase) => !phase.items.every((item) => completedKeys.has(item)));
+  const currentPhase = PROJECT_CHECKLIST_PHASES[activePhaseIndex === -1 ? PROJECT_CHECKLIST_PHASES.length - 1 : activePhaseIndex];
+  const currentPhaseIconKey = PHASE_ICON_KEYS[activePhaseIndex === -1 ? PHASE_ICON_KEYS.length - 1 : activePhaseIndex];
 
   return (
     <div
@@ -923,22 +928,38 @@ function ProjectCard({ project, onStartProject, onOpenChecklist }) {
           : "border-slate-200 bg-white"
       }`}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-sm font-black text-slate-900">{project.customerName}</p>
-          <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "City not listed"} · {project.mobileNo || "Number not listed"}</p>
+      {isStarted ? (
+        <div className="flex items-center gap-3.5">
+          <div className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl ${isComplete ? "bg-emerald-100/70" : "bg-white"}`}>
+            <PhaseIcon phase={currentPhaseIconKey} state={isComplete ? "done" : "active"} size={56} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <p className="truncate text-sm font-black text-slate-900">{project.customerName}</p>
+              <span className={`shrink-0 rounded-xl px-2.5 py-1 text-[10px] font-black whitespace-nowrap ${isComplete ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-[#0a649d]"}`}>
+                {isComplete ? "COMPLETE" : `${percent}%`}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-[11px] font-bold text-slate-500">
+              {isComplete ? "All phases complete" : currentPhase.phase}
+            </p>
+            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+              <div
+                className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
         </div>
-        <span className={`shrink-0 rounded-xl px-2.5 py-1 text-[10px] font-black whitespace-nowrap ${isStarted ? (isComplete ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-[#0a649d]") : "bg-emerald-50 text-emerald-700"}`}>
-          {isStarted ? (isComplete ? "COMPLETE" : `IN PROGRESS · ${percent}%`) : "ONGOING"}
-        </span>
-      </div>
-
-      {isStarted && (
-        <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
-          <div
-            className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
-            style={{ width: `${percent}%` }}
-          />
+      ) : (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-black text-slate-900">{project.customerName}</p>
+            <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "City not listed"} · {project.mobileNo || "Number not listed"}</p>
+          </div>
+          <span className="shrink-0 rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700 whitespace-nowrap">
+            ONGOING
+          </span>
         </div>
       )}
 
@@ -1119,13 +1140,26 @@ function ProjectChecklistModal({ project, onClose }) {
           <p className="mt-2 text-[9.5px] font-semibold text-slate-400">Marked done by the crew on site — view only here.</p>
         </div>
 
-        {PROJECT_CHECKLIST_PHASES.map((phase) => {
+        {PROJECT_CHECKLIST_PHASES.map((phase, phaseIndex) => {
           const phaseDone = phase.items.filter((item) => completedByKey.has(item)).length;
+          const phaseState = phaseDone >= phase.items.length ? "done" : phase.items.includes(nextItemKey) ? "active" : "locked";
           return (
             <div key={phase.phase}>
-              <div className="mb-1.5 flex items-center justify-between px-1">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">{phase.phase}</h3>
-                <span className="text-[10px] font-black text-slate-400">{phaseDone}/{phase.items.length}</span>
+              <div className="mb-2 flex items-center gap-3 px-1">
+                <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${
+                  phaseState === "done" ? "bg-emerald-50" : phaseState === "active" ? "bg-sky-50" : "bg-slate-50"
+                }`}>
+                  <PhaseIcon phase={PHASE_ICON_KEYS[phaseIndex]} state={phaseState} size={36} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h3 className="truncate text-xs font-black text-slate-700">{phase.phase}</h3>
+                  <p className="text-[10px] font-bold text-slate-400">{phaseDone}/{phase.items.length} steps</p>
+                </div>
+                {phaseState === "active" && (
+                  <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
+                    Next
+                  </span>
+                )}
               </div>
               <div className="space-y-1">
                 {phase.items.map((item) => {
@@ -1160,8 +1194,8 @@ function ProjectChecklistModal({ project, onClose }) {
                         </span>
                         {checked && (
                           <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
-                            {completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician"}
-                            {completion.completedAt && ` · ${new Date(completion.completedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+                            {completion.completedByName || (completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician")}
+                            {completion.completedAt && ` · ${new Date(completion.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}`}
                           </span>
                         )}
                       </span>

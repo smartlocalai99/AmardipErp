@@ -3,6 +3,7 @@ import { isProjectAssignee, getProjectSheetLogSummary } from "@/lib/quotations";
 import { isValidChecklistItem } from "@/lib/projectChecklist";
 import { setProjectChecklistItem } from "@/lib/projectChecklistStore";
 import { appendErectionSheetCompletion } from "@/lib/erectionSheet";
+import { safeSendPush } from "@/lib/pushNotifications";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ success: false, message: "Method not allowed." });
@@ -33,24 +34,34 @@ export default async function handler(req, res) {
       actor,
     });
 
-    // Only log a sheet row for marking a step done — un-checking one has no
-    // "form submission" equivalent. Best-effort: a Sheets hiccup must never
-    // fail the checklist update itself, which is already saved above.
+    // Only log/notify for marking a step done — un-checking one has no
+    // "form submission" equivalent, and there's nothing worth alerting
+    // admins about. Best-effort throughout: neither a Sheets hiccup nor a
+    // push failure should fail the checklist update itself, already saved.
     if (completed) {
-      try {
-        const summary = await getProjectSheetLogSummary(req.query.id);
-        if (summary) {
-          await appendErectionSheetCompletion({
-            customerName: summary.customerName,
-            city: summary.city,
-            crewNames: summary.crewNames,
-            completedItem: itemKey,
-            actorUsername: actor.username,
-          });
-        }
-      } catch (err) {
-        console.error("Failed to log completion to Erection Sheet:", err);
+      const summary = await getProjectSheetLogSummary(req.query.id).catch((err) => {
+        console.error("Failed to load project summary for sheet log / notification:", err);
+        return null;
+      });
+
+      if (summary) {
+        await appendErectionSheetCompletion({
+          customerName: summary.customerName,
+          city: summary.city,
+          crewNames: summary.crewNames,
+          completedItem: itemKey,
+          actorUsername: actor.username,
+        }).catch((err) => console.error("Failed to log completion to Erection Sheet:", err));
       }
+
+      await safeSendPush(
+        { roles: ["superadmin", "admin", "manager", "front_office"] },
+        {
+          title: "Checklist step completed",
+          body: `${actor.name || actor.username} marked "${itemKey}" done${summary?.customerName ? ` for ${summary.customerName}` : ""}.`,
+          data: { url: "/admin/quotations?tab=projects", projectId: req.query.id },
+        }
+      ).catch((err) => console.error("Failed to notify admins of checklist completion:", err));
     }
 
     // Only the checklist changed — the rest of the project (name, crew,

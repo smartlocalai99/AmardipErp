@@ -138,6 +138,49 @@ function QuotationBanner({ card, quotationStats, onClick, enabled = true }) {
   );
 }
 
+function OngoingProjectsBanner({ count, onClick, enabled = true }) {
+  return (
+    <button
+      type="button"
+      onClick={enabled ? onClick : undefined}
+      className={`mb-3 w-full overflow-hidden rounded-[26px] bg-gradient-to-br from-violet-600 via-violet-700 to-purple-900 p-4 text-left text-white shadow-[0_14px_30px_rgba(109,40,217,0.28)] ${
+        enabled ? "active:scale-[0.98] transition-transform duration-100" : "opacity-60"
+      }`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
+          <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M5 7v12h14V7M8 7V4h8v3M8 12h8M8 16h5" />
+          </svg>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-black leading-tight">Ongoing Projects</p>
+              <p className="mt-1 text-xs font-semibold leading-relaxed text-white/78">
+                Track active installations and crew checklists
+              </p>
+            </div>
+            <ChevronRightIcon className="mt-1 h-5 w-5 shrink-0 text-white/75" />
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <span className="rounded-full bg-white/14 px-2.5 py-1 text-[10px] font-black text-white ring-1 ring-white/20">
+              {count} Active
+            </span>
+          </div>
+
+          <div className="mt-4">
+            <span className="flex h-10 w-full items-center justify-center rounded-2xl bg-white px-4 text-xs font-black text-violet-700 shadow-sm">
+              View Projects
+            </span>
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 function ComplaintsBanner({ newCount, onClick, enabled = true }) {
   return (
     <button
@@ -225,21 +268,11 @@ export default function DashboardKpiGrid({
         enabled={isLive("quotations")}
       />
 
-      <div className="mb-4">
-        <KpiCard
-          title="Ongoing Projects"
-          value={quotationStats?.ongoingProjects ?? 0}
-          body="Converted quotations"
-          icon={
-            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M3 7h18M5 7v12h14V7M8 7V4h8v3M8 12h8M8 16h5" />
-            </svg>
-          }
-          accent="bg-amber-100 text-amber-700"
-          onClick={openProjects}
-          enabled={isLive("quotations")}
-        />
-      </div>
+      <OngoingProjectsBanner
+        count={quotationStats?.ongoingProjects ?? 0}
+        onClick={openProjects}
+        enabled={isLive("quotations")}
+      />
 
       <ComplaintsBanner
         newCount={complaintStats?.unassignedComplaints ?? 0}
