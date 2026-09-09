@@ -1,7 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { isProjectAssignee } from "@/lib/quotations";
+import { isProjectAssignee, getProjectSheetLogSummary } from "@/lib/quotations";
 import { isValidChecklistItem } from "@/lib/projectChecklist";
 import { setProjectChecklistItem } from "@/lib/projectChecklistStore";
+import { appendErectionSheetCompletion } from "@/lib/erectionSheet";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ success: false, message: "Method not allowed." });
@@ -31,6 +32,27 @@ export default async function handler(req, res) {
       completed: Boolean(completed),
       actor,
     });
+
+    // Only log a sheet row for marking a step done — un-checking one has no
+    // "form submission" equivalent. Best-effort: a Sheets hiccup must never
+    // fail the checklist update itself, which is already saved above.
+    if (completed) {
+      try {
+        const summary = await getProjectSheetLogSummary(req.query.id);
+        if (summary) {
+          await appendErectionSheetCompletion({
+            customerName: summary.customerName,
+            city: summary.city,
+            crewNames: summary.crewNames,
+            completedItem: itemKey,
+            actorUsername: actor.username,
+          });
+        }
+      } catch (err) {
+        console.error("Failed to log completion to Erection Sheet:", err);
+      }
+    }
+
     // Only the checklist changed — the rest of the project (name, crew,
     // amounts) didn't, so the client merges this into what it already has
     // instead of us re-fetching and re-sending the whole project again.
