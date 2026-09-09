@@ -29,13 +29,14 @@ assert.deepEqual(
   buildAdminKpiCounts({
     customerStats: { totalCustomers: 308, activeAmc: 113 },
     serviceStats: { scheduledUpcomingServices: 1, upcomingServicesTotal: 68 },
+    complaintStats: { openComplaints: 7 },
     technicians,
   }),
   {
     totalCustomers: 308,
     activeAMC: 113,
     todayService: 1,
-    openComplaints: 0,
+    openComplaints: 7,
     pendingInstallations: 0,
     upcomingMaintenance: 68,
     totalTechnicians: 1,

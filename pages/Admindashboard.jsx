@@ -1094,7 +1094,7 @@ function AdmindashboardShell({ user }) {
 
     const liveKpiCounts = useMemo(
         () => ({
-            ...buildAdminKpiCounts({ customerStats, serviceStats, technicians }),
+            ...buildAdminKpiCounts({ customerStats, serviceStats, complaintStats, technicians }),
             openComplaints: complaintStats?.openComplaints || 0,
         }),
         [customerStats, serviceStats, technicians, complaintStats]

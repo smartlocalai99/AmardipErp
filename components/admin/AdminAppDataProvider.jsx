@@ -42,7 +42,7 @@ export function AdminAppDataProvider({ user, children }) {
 
     const request = { userCacheKey, promise: null };
     fetchRef.current = request;
-    request.promise = Promise.all([
+    request.promise = Promise.allSettled([
       fetchFreshJson("/api/elevator-customers/stats"),
       fetchFreshJson("/api/elevator-service-visits/stats"),
       fetchFreshJson("/api/service-schedules/upcoming?page=1&pageSize=5"),
@@ -54,14 +54,20 @@ export function AdminAppDataProvider({ user, children }) {
         onNetworkStart: markNetworkLoading,
       }),
     ])
-      .then(([customerData, serviceData, upcomingData, availabilityData]) => {
+      .then(([customerResult, serviceResult, upcomingResult, availabilityResult]) => {
+        const customerData = customerResult.status === "fulfilled" ? customerResult.value : null;
+        const serviceData = serviceResult.status === "fulfilled" ? serviceResult.value : null;
+        const upcomingData = upcomingResult.status === "fulfilled" ? upcomingResult.value : null;
+        const availabilityData = availabilityResult.status === "fulfilled" ? availabilityResult.value : null;
+        const failedRequests = [customerResult, serviceResult, upcomingResult, availabilityResult]
+          .filter((result) => result.status === "rejected");
         const nextState = {
           customerStats: customerData?.stats || null,
           serviceStats: serviceData?.stats || null,
           upcomingPreview: upcomingData || null,
           moduleAvailability: availabilityData?.modules || null,
           loading: false,
-          error: "",
+          error: failedRequests.length === 4 ? "Failed to load admin dashboard data" : "",
           lastFetchedAt: Date.now(),
         };
 
