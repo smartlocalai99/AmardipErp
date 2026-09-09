@@ -334,6 +334,9 @@ function TicketCard({ ticket, onOpen }) {
                 {ticket.assignedTech && (
                     <p className="text-xs font-bold text-slate-700">Technician: {ticket.assignedTech}</p>
                 )}
+                {ticket.isCompleted && ticket.customerRepName && (
+                    <p className="text-xs font-bold text-emerald-700">Signed by: {ticket.customerRepName}</p>
+                )}
                 {(arrivedLabel || completedLabel || duration) && (
                     <div className="flex flex-wrap gap-1.5">
                         {arrivedLabel && (

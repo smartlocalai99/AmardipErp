@@ -266,9 +266,9 @@ export default function UpcomingServicesPage({ user }) {
     setSelectedRow(row);
     setScheduleError("");
     setScheduleForm({
-      scheduledDate: todayIso(),
-      preferredTime: "",
-      assignedTechnicianUserId: "",
+      scheduledDate: row.scheduledDate || todayIso(),
+      preferredTime: row.preferredTime || "",
+      assignedTechnicianUserId: row.assignedTechnicianUserId || "",
       priority: "NORMAL",
       notes: "",
     });
@@ -286,12 +286,18 @@ export default function UpcomingServicesPage({ user }) {
         (tech) => String(tech.id) === String(scheduleForm.assignedTechnicianUserId)
       );
 
-      const response = await fetch("/api/service-schedules", {
-        method: "POST",
+      const isEditing = Boolean(selectedRow.scheduleId);
+      const response = await fetch(isEditing ? `/api/service-schedules/${selectedRow.scheduleId}` : "/api/service-schedules", {
+        method: isEditing ? "PATCH" : "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
+        body: JSON.stringify(isEditing ? {
+          scheduledDate: scheduleForm.scheduledDate,
+          preferredTime: scheduleForm.preferredTime,
+          assignedTechnicianUserId: scheduleForm.assignedTechnicianUserId || null,
+          assignedTechnicianName: selectedTechnician?.name || "",
+        } : {
           customerId: selectedRow.customerId,
           scheduledDate: scheduleForm.scheduledDate,
           preferredTime: scheduleForm.preferredTime,
@@ -520,7 +526,7 @@ export default function UpcomingServicesPage({ user }) {
                         Schedule Service
                       </button>
                     ) : (
-                      <span className="text-[10px] font-black uppercase text-slate-400">Already Scheduled</span>
+                      <button type="button" onClick={() => openSchedule(row)} className="h-9 rounded-xl border border-[#0a649d]/20 bg-white px-4 text-xs font-black text-[#0a649d] active:scale-95">Edit</button>
                     )}
                   </div>
                 </article>
@@ -565,7 +571,7 @@ export default function UpcomingServicesPage({ user }) {
                               Schedule
                             </button>
                           ) : (
-                            <span className="text-[10px] font-black uppercase text-slate-400">Already Scheduled</span>
+                            <button type="button" onClick={() => openSchedule(row)} className="h-9 rounded-xl border border-[#0a649d]/20 bg-white px-4 text-xs font-black text-[#0a649d] active:scale-95">Edit</button>
                           )}
                         </td>
                       </tr>
@@ -593,7 +599,7 @@ export default function UpcomingServicesPage({ user }) {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-wider text-[#0a649d]">
-                  Schedule Service
+                  {selectedRow.rowType === "TO_BE_SCHEDULED" ? "Schedule Service" : "Edit Scheduled Service"}
                 </p>
                 <h2 className="mt-1 text-lg font-black text-slate-900">
                   {displayValue(selectedRow.customerName)}
@@ -676,7 +682,7 @@ export default function UpcomingServicesPage({ user }) {
               disabled={scheduleBusy}
               className="mt-4 h-11 w-full rounded-2xl bg-[#0a649d] text-sm font-black text-white active:scale-95 disabled:opacity-60"
             >
-              {scheduleBusy ? "Scheduling..." : "Save Schedule"}
+              {scheduleBusy ? "Saving..." : selectedRow.rowType === "TO_BE_SCHEDULED" ? "Save Schedule" : "Save Changes"}
             </button>
           </form>
         </div>

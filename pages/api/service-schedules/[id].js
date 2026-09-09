@@ -1,7 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query, withTransaction } from "@/lib/db";
 import { ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
-import { getScheduleAssignees } from "@/lib/assignees";
+import { getScheduleAssignees, setScheduleAssignees } from "@/lib/assignees";
+import { assignComplaintToWorker } from "@/lib/complaints";
 import { getJobCompletionsForMany } from "@/lib/complaints";
 import { getMaterialsForComplaint } from "@/lib/inventory";
 
@@ -92,7 +93,49 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "PATCH") {
-    const { status } = req.body || {};
+    const {
+      status,
+      scheduledDate,
+      preferredTime,
+      assignedTechnicianUserId,
+      assignedTechnicianUserIds,
+      assignedTechnicianName,
+    } = req.body || {};
+    const hasScheduleEdit = scheduledDate !== undefined || preferredTime !== undefined || assignedTechnicianUserId !== undefined || assignedTechnicianUserIds !== undefined || assignedTechnicianName !== undefined;
+    if (hasScheduleEdit) {
+      const ids = [
+        ...(Array.isArray(assignedTechnicianUserIds) ? assignedTechnicianUserIds : []),
+        ...(assignedTechnicianUserId ? [assignedTechnicianUserId] : []),
+      ].map(Number).filter(Boolean);
+      const uniqueIds = [...new Set(ids)];
+      const technicianResult = uniqueIds.length
+        ? await query("SELECT id, name, username FROM users WHERE id = ANY($1) AND role = 'worker'", [uniqueIds])
+        : { rows: [] };
+      if (technicianResult.rows.length !== uniqueIds.length) return res.status(400).json({ success: false, message: "One or more technicians were not found." });
+      const technicianName = String(assignedTechnicianName || technicianResult.rows.map((worker) => worker.name || worker.username).join(" & ")).trim();
+      const existing = await query("SELECT * FROM service_schedules WHERE id = $1 LIMIT 1", [id]);
+      if (!existing.rowCount) return res.status(404).json({ success: false, message: "Not found" });
+      if (["COMPLETED", "CANCELLED"].includes(existing.rows[0].status)) return res.status(409).json({ success: false, message: "Completed or cancelled services cannot be edited." });
+
+      const updated = await query(
+        `UPDATE service_schedules
+            SET scheduled_date = CASE WHEN $1::text IS NULL THEN scheduled_date ELSE NULLIF($1, '')::date END,
+                preferred_time = CASE WHEN $2::text IS NULL THEN preferred_time ELSE NULLIF($2, '') END,
+                assigned_technician_user_id = $3,
+                assigned_technician_name = NULLIF($4, ''),
+                status = CASE WHEN cardinality($5::int[]) > 0 THEN 'ASSIGNED' ELSE 'SCHEDULED' END,
+                updated_at = NOW()
+          WHERE id = $6
+          RETURNING *`,
+        [scheduledDate === undefined ? null : String(scheduledDate), preferredTime === undefined ? null : String(preferredTime), uniqueIds[0] || null, technicianName, uniqueIds, id]
+      );
+      await setScheduleAssignees(id, uniqueIds);
+      const linkedComplaintId = updated.rows[0].linked_complaint_id;
+      if (linkedComplaintId && uniqueIds.length) {
+        await assignComplaintToWorker({ complaintId: linkedComplaintId, workerUserIds: uniqueIds, actor: user, assignmentNotes: null });
+      }
+      return res.status(200).json({ success: true, schedule: updated.rows[0], assignees: await getScheduleAssignees(id) });
+    }
     if (!status || !ALLOWED_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, message: "Invalid status" });
     }

@@ -373,9 +373,10 @@ export default function Techniciandashboard({ user }) {
     }
 
     useEffect(() => {
-        fetchAssignedComplaints();
+        const timer = setTimeout(() => fetchAssignedComplaints(), 0);
         // Subscribe to push notifications (non-blocking — worker can still decline)
         subscribeToPush().catch(() => {});
+        return () => clearTimeout(timer);
     }, []);
 
     useEffect(() => {
@@ -461,7 +462,7 @@ export default function Techniciandashboard({ user }) {
             // this was purely local state and the backend never learned about
             // it until the whole job was completed, so admin had no arrival
             // notification and there was no timestamp to measure visit duration from.
-            fetch("/api/worker/check-in", {
+            await fetch("/api/worker/check-in", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -470,7 +471,7 @@ export default function Techniciandashboard({ user }) {
                     gpsLongitude: coords.longitude,
                     gpsAccuracyMeters: coords.accuracy,
                 }),
-            }).catch(() => {});
+            });
         } catch (err) {
             setGpsError(
                 err.code === 1
