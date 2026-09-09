@@ -7,7 +7,8 @@ import { getStaffProfile } from "@/lib/staffProfile";
 import Image from "next/image";
 import QRCode from "qrcode";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
-import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
+import { acknowledgeTicketNotification } from "@/lib/appBadge";
+import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS } from "@/lib/projectChecklist";
 import Swal from "sweetalert2";
 
 // The 11-item lift inspection checklist a technician fills in on-site,
@@ -88,10 +89,14 @@ function InventoryIcon({ className = "h-5 w-5" }) {
     );
 }
 
-function BellIcon({ className = "h-5 w-5" }) {
+// A shaft with floor dividers and the car — matches the same elevator
+// motif used elsewhere for this feature, not a generic icon.
+function ProjectsIcon({ className = "h-5 w-5" }) {
     return (
-        <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5" className={className}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}>
+            <rect x="6" y="3" width="12" height="18" rx="1.5" />
+            <path strokeLinecap="round" d="M6 9h12M6 15h12" />
+            <rect x="10" y="10.5" width="4" height="3" rx="0.5" fill="currentColor" stroke="none" />
         </svg>
     );
 }
@@ -155,10 +160,187 @@ function LogoutIcon({ className = "h-5 w-5" }) {
     );
 }
 
+function BackIcon({ className = "h-5 w-5" }) {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+        </svg>
+    );
+}
+
+// The technician-side counterpart to the admin installation checklist —
+// same 52 steps, same phase grouping, but a project list first (a worker
+// can be crewed on more than one at once) and larger touch targets since
+// this gets used on site, often one-handed.
+function TechnicianProjectsView({ projects, loading, checklistProject, onOpenProject, onBack, onProjectUpdated }) {
+    const [pendingKey, setPendingKey] = useState("");
+    const [error, setError] = useState("");
+
+    if (checklistProject) {
+        const completions = checklistProject.checklistCompletions || [];
+        const completedKeys = new Set(completions.map((c) => c.itemKey));
+        const completedCount = completedKeys.size;
+        const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
+        const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
+        const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
+        const isComplete = completedCount >= totalSteps;
+
+        async function toggle(itemKey, nextCompleted) {
+            setPendingKey(itemKey);
+            setError("");
+            try {
+                const res = await fetch(`/api/worker/projects/${checklistProject.id}/checklist`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ itemKey, completed: nextCompleted }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || "Failed to update step");
+                onProjectUpdated(data.project);
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setPendingKey("");
+            }
+        }
+
+        return (
+            <div className="p-4 space-y-5 animate-in fade-in duration-200">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={onBack}
+                        className="h-9 w-9 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                    >
+                        <BackIcon className="h-4.5 w-4.5" />
+                    </button>
+                    <div className="min-w-0">
+                        <h1 className="truncate text-lg font-black tracking-tight text-slate-900">{checklistProject.customerName}</h1>
+                        <p className="text-xs text-slate-500">{checklistProject.quotationNo}</p>
+                    </div>
+                </div>
+
+                <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className={`text-xs font-black ${isComplete ? "text-emerald-700" : "text-[#0a649d]"}`}>
+                            {isComplete ? "All steps complete" : `${completedCount}/${totalSteps} steps done`}
+                        </span>
+                        <span className="text-xs font-black text-slate-500">{percent}%</span>
+                    </div>
+                    <div className="mt-2 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div
+                            className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
+                            style={{ width: `${percent}%` }}
+                        />
+                    </div>
+                </div>
+
+                {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+
+                {PROJECT_CHECKLIST_PHASES.map((phase) => {
+                    const phaseDone = phase.items.filter((item) => completedKeys.has(item)).length;
+                    return (
+                        <div key={phase.phase}>
+                            <div className="mb-1.5 flex items-center justify-between px-1">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">{phase.phase}</h3>
+                                <span className="text-[10px] font-black text-slate-400">{phaseDone}/{phase.items.length}</span>
+                            </div>
+                            <div className="space-y-1.5">
+                                {phase.items.map((item) => {
+                                    const checked = completedKeys.has(item);
+                                    const isNext = item === nextItemKey;
+                                    return (
+                                        <label
+                                            key={item}
+                                            className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3.5 transition ${
+                                                checked
+                                                    ? "border-emerald-100 bg-emerald-50/60"
+                                                    : isNext
+                                                    ? "border-[#0a649d] bg-sky-50/60"
+                                                    : "border-slate-100 bg-white"
+                                            }`}
+                                        >
+                                            <input
+                                                type="checkbox"
+                                                checked={checked}
+                                                disabled={pendingKey === item}
+                                                onChange={() => toggle(item, !checked)}
+                                                className="mt-0.5 h-5 w-5 shrink-0 accent-[#0a649d] disabled:opacity-50"
+                                            />
+                                            <span className="min-w-0 flex-1 text-xs font-bold leading-snug">
+                                                <span className={checked ? "text-emerald-800" : "text-slate-700"}>{item}</span>
+                                            </span>
+                                            {isNext && !checked && (
+                                                <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
+                                                    Next
+                                                </span>
+                                            )}
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-4 space-y-6 animate-in fade-in duration-200">
+            <div>
+                <h1 className="text-2xl font-black tracking-tight text-slate-900">My Projects</h1>
+                <p className="text-xs text-slate-500 mt-0.5">Installations you're crewed on — track your own progress on site.</p>
+            </div>
+
+            {loading ? (
+                <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading your projects...</p>
+            ) : projects.length === 0 ? (
+                <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50 p-8 text-center">
+                    <p className="text-sm font-black text-slate-700">No projects assigned yet</p>
+                    <p className="mt-1 text-xs font-semibold text-slate-400">The office will assign you here once you're put on an installation crew.</p>
+                </div>
+            ) : (
+                <div className="space-y-3">
+                    {projects.map((project) => {
+                        const completedCount = (project.checklistCompletions || []).length;
+                        const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
+                        const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
+                        const isComplete = completedCount >= totalSteps;
+                        return (
+                            <button
+                                key={project.id}
+                                onClick={() => onOpenProject(project)}
+                                className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99] transition"
+                            >
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <p className="truncate text-sm font-black text-slate-900">{project.customerName}</p>
+                                        <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "Site"}</p>
+                                    </div>
+                                    <span className={`shrink-0 rounded-xl px-2.5 py-1 text-[10px] font-black whitespace-nowrap ${isComplete ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-[#0a649d]"}`}>
+                                        {isComplete ? "COMPLETE" : `${percent}%`}
+                                    </span>
+                                </div>
+                                <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                                    <div
+                                        className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
+                                        style={{ width: `${percent}%` }}
+                                    />
+                                </div>
+                                <p className="mt-2 text-[10px] font-bold text-slate-400">{completedCount}/{totalSteps} steps done</p>
+                            </button>
+                        );
+                    })}
+                </div>
+            )}
+        </div>
+    );
+}
+
 export default function Techniciandashboard({ user }) {
     const router = useRouter();
 
-    const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, jobs, inventory, notifications, profile
+    const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, jobs, inventory, projects, profile
     const [activeJob, setActiveJob] = useState(null); // active job workspace
     const [jobsFilter, setJobsFilter] = useState("assigned"); // assigned, completed
 
@@ -168,11 +350,9 @@ export default function Techniciandashboard({ user }) {
     const [showReturnMaterials, setShowReturnMaterials] = useState(false);
 
     // Installation projects this technician is crewed on — fetched once the
-    // Profile tab is opened so the "My Projects" card only shows up (and the
-    // count on it is accurate) once we actually know whether they have any.
+    // Projects tab is opened.
     const [myProjects, setMyProjects] = useState([]);
     const [myProjectsLoading, setMyProjectsLoading] = useState(true);
-    const [showMyProjects, setShowMyProjects] = useState(false);
     const [checklistProject, setChecklistProject] = useState(null);
 
     // Every tab/filter switch and job open reuses the same scrollable <main>
@@ -185,7 +365,7 @@ export default function Techniciandashboard({ user }) {
     const mainScrollRef = useRef(null);
     useEffect(() => {
         mainScrollRef.current?.scrollTo(0, 0);
-    }, [activeTab, activeJob?.id, jobsFilter, showReturnMaterials]);
+    }, [activeTab, activeJob?.id, jobsFilter, showReturnMaterials, checklistProject?.id]);
 
     // Signature Canvas Refs & States
     const canvasRef = useRef(null);
@@ -230,7 +410,7 @@ export default function Techniciandashboard({ user }) {
     }, [materialRequestQuery]);
 
     useEffect(() => {
-        if (activeTab !== "profile") return;
+        if (activeTab !== "projects") return;
         let active = true;
         (async () => {
             try {
@@ -309,11 +489,6 @@ export default function Techniciandashboard({ user }) {
     const recognitionRef = useRef(null);
     const finalTranscriptRef = useRef("");
     const [submittingJob, setSubmittingJob] = useState(false);
-
-    // Notification List
-    const [notifications, setNotifications] = useState([
-        { id: 1, type: "info", title: "Safety Gear Reminder", message: "Wear safety harness and helmet during overhead shaft testing.", time: "Today", read: true }
-    ]);
 
     function mapAssignedComplaintToJob(c) {
         // Only the primary (senior) technician submits the job report — a
@@ -409,7 +584,7 @@ export default function Techniciandashboard({ user }) {
     useEffect(() => {
         if (!router.isReady) return;
         const tab = typeof router.query.tab === "string" ? router.query.tab : "";
-        if (!["dashboard", "jobs", "notifications", "profile"].includes(tab)) return;
+        if (!["dashboard", "jobs", "projects", "profile"].includes(tab)) return;
         const timer = setTimeout(() => {
             setActiveTab(tab);
             setActiveJob(null);
@@ -883,8 +1058,6 @@ export default function Techniciandashboard({ user }) {
     const todayJobsCount = jobs.filter(j => j.status !== "Completed").length;
     const completedJobsCount = jobs.filter(j => j.status === "Completed").length;
     const emergencyJobsCount = jobs.filter(j => j.status !== "Completed" && j.priority === "Emergency").length;
-    const activeAssignedJobs = jobs.filter(j => j.status !== "Completed");
-    const unreadNotificationsCount = notifications.filter(n => !n.read).length;
 
     // Every job that's ever had materials issued against it — stays listed
     // even after the store fully reconciles it, so "used/returned" numbers
@@ -937,15 +1110,10 @@ export default function Techniciandashboard({ user }) {
                     </div>
 
                     <button
-                        onClick={() => { setActiveTab("notifications"); setActiveJob(null); }}
+                        onClick={() => { setActiveTab("projects"); setActiveJob(null); }}
                         className="relative h-10 w-10 bg-white/10 hover:bg-white/18 active:scale-95 transition flex items-center justify-center rounded-full"
                     >
-                        <BellIcon className="h-5.5 w-5.5 text-white" />
-                        {unreadNotificationsCount > 0 && (
-                            <span className="absolute -top-0.5 -right-0.5 h-4.5 w-4.5 rounded-full bg-red-500 border-2 border-[#0a649d] flex items-center justify-center text-[9px] font-black text-white">
-                                {unreadNotificationsCount}
-                            </span>
-                        )}
+                        <ProjectsIcon className="h-5.5 w-5.5 text-white" />
                     </button>
                 </header>
 
@@ -1806,77 +1974,19 @@ export default function Techniciandashboard({ user }) {
                         </div>
                     )}
 
-                    {/* VIEW: NOTIFICATIONS TAB */}
-                    {activeTab === "notifications" && (
-                        <div className="p-4 space-y-6 animate-in fade-in duration-200">
-                            <div className="flex justify-between items-center">
-                                <div>
-                                    <h1 className="text-2xl font-black tracking-tight text-slate-900">Notifications</h1>
-                                    <p className="text-xs text-slate-500 mt-0.5">Urgent dispatches and inventory status.</p>
-                                </div>
-                                <button 
-                                    onClick={() => {
-                                        setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-                                        clearAppBadgeCount();
-                                    }}
-                                    className="text-[10.5px] font-black text-[#0a649d] hover:underline bg-transparent border-0 cursor-pointer"
-                                >
-                                    Mark all read
-                                </button>
-                            </div>
-
-                            {activeAssignedJobs.length > 0 && (
-                                <div className="space-y-3">
-                                    <h2 className="px-1 text-[10px] font-black uppercase tracking-wider text-slate-400">Assigned Jobs</h2>
-                                    {activeAssignedJobs.map(job => (
-                                        <button
-                                            key={job.id}
-                                            onClick={() => openJobDetails(job)}
-                                            className="w-full rounded-3xl border border-sky-100 bg-sky-50/80 p-4 text-left shadow-sm active:scale-[0.99] transition"
-                                        >
-                                            <div className="flex items-start justify-between gap-3">
-                                                <div className="min-w-0">
-                                                    <p className="text-[10px] font-black uppercase tracking-wider text-[#0a649d]">{job.id}</p>
-                                                    <h3 className="mt-1 truncate text-sm font-black text-slate-900">{job.customer}</h3>
-                                                    <p className="mt-1 text-xs font-semibold text-slate-500">{job.issue}</p>
-                                                </div>
-                                                <span className="rounded-full bg-white px-2.5 py-1 text-[9px] font-black uppercase text-sky-700 ring-1 ring-sky-100">
-                                                    {job.status}
-                                                </span>
-                                            </div>
-                                            <div className="mt-3 flex items-center justify-between border-t border-sky-100 pt-3 text-[10px] font-bold text-slate-500">
-                                                <span>{job.address}</span>
-                                                <span className={job.priority === "Emergency" ? "text-red-600" : "text-[#0a649d]"}>{job.priority}</span>
-                                            </div>
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-
-                            <div className="divide-y divide-slate-100 bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
-                                {notifications.length === 0 ? (
-                                    <p className="p-8 text-center text-xs text-slate-400">No alerts found.</p>
-                                ) : (
-                                    notifications.map(n => (
-                                        <div 
-                                            key={n.id} 
-                                            onClick={() => {
-                                                setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
-                                            }}
-                                            className={`p-4 hover:bg-slate-50 transition cursor-pointer text-xs flex gap-3 ${!n.read ? "bg-blue-50/40" : ""}`}
-                                        >
-                                            <div className="flex-1 space-y-1">
-                                                <div className="flex justify-between items-center pl-0.5">
-                                                    <span className="font-extrabold text-slate-800">{n.title}</span>
-                                                    <span className="text-[9.5px] text-slate-400 font-bold">{n.time}</span>
-                                                </div>
-                                                <p className="text-slate-500 font-semibold leading-relaxed pl-0.5">{n.message}</p>
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
-                        </div>
+                    {/* VIEW: PROJECTS TAB */}
+                    {activeTab === "projects" && (
+                        <TechnicianProjectsView
+                            projects={myProjects}
+                            loading={myProjectsLoading}
+                            checklistProject={checklistProject}
+                            onOpenProject={setChecklistProject}
+                            onBack={() => setChecklistProject(null)}
+                            onProjectUpdated={(updated) => {
+                                setMyProjects((current) => current.map((p) => (p.id === updated.id ? updated : p)));
+                                setChecklistProject(updated);
+                            }}
+                        />
                     )}
 
                     {/* VIEW: PROFILE TAB */}
@@ -1983,14 +2093,11 @@ export default function Techniciandashboard({ user }) {
                     </button>
 
                     <button
-                        onClick={() => {
-                            clearAppBadgeCount();
-                            handleTabChange("notifications");
-                        }}
-                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "notifications" ? "text-[#59e0ff]" : "text-slate-400"}`}
+                        onClick={() => handleTabChange("projects")}
+                        className={`flex flex-col items-center justify-center flex-1 py-1 ${activeTab === "projects" ? "text-[#59e0ff]" : "text-slate-400"}`}
                     >
-                        <BellIcon className="h-5.5 w-5.5 mb-0.5" />
-                        <span className="text-[9px] font-black tracking-tight leading-none">Alerts</span>
+                        <ProjectsIcon className="h-5.5 w-5.5 mb-0.5" />
+                        <span className="text-[9px] font-black tracking-tight leading-none">Projects</span>
                     </button>
 
                     <button

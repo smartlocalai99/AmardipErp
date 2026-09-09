@@ -919,18 +919,32 @@ function ProjectCard({ project, onStartProject, onOpenChecklist }) {
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
   const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
   const isComplete = completedCount >= totalSteps;
+  const isStarted = canStart && Boolean(project.startedAt);
 
   return (
-    <div className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm">
+    <div
+      onClick={isStarted ? () => onOpenChecklist(project) : undefined}
+      className={`rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ${isStarted ? "cursor-pointer transition hover:border-slate-300" : ""}`}
+    >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="text-sm font-black text-slate-900">{project.customerName}</p>
           <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "City not listed"} · {project.mobileNo || "Number not listed"}</p>
         </div>
-        <span className={`rounded-xl px-2.5 py-1 text-[10px] font-black ${project.startedAt ? "bg-sky-50 text-[#0a649d]" : "bg-emerald-50 text-emerald-700"}`}>
-          {project.startedAt ? "IN PROGRESS" : "ONGOING"}
+        <span className={`shrink-0 rounded-xl px-2.5 py-1 text-[10px] font-black whitespace-nowrap ${isStarted ? (isComplete ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-[#0a649d]") : "bg-emerald-50 text-emerald-700"}`}>
+          {isStarted ? (isComplete ? "COMPLETE" : `IN PROGRESS · ${percent}%`) : "ONGOING"}
         </span>
       </div>
+
+      {isStarted && (
+        <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+          <div
+            className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
+
       <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-[11px]">
         <div><p className="font-bold text-slate-400">Agreed</p><p className="mt-0.5 font-black text-slate-900">₹{formatRupees(project.agreedAmount)}</p></div>
         <div><p className="font-bold text-slate-400">Advance</p><p className="mt-0.5 font-black text-slate-900">₹{formatRupees(project.advanceAmount)}</p></div>
@@ -938,45 +952,20 @@ function ProjectCard({ project, onStartProject, onOpenChecklist }) {
       </div>
       <p className="mt-3 text-[10px] font-bold text-slate-400">Onboarded {project.onboardedAt ? new Date(project.onboardedAt).toLocaleDateString("en-IN") : "—"}</p>
 
-      {canStart && (
-        project.startedAt ? (
-          <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-sky-50/60 border border-sky-100 px-3 py-2.5">
-            <div className="min-w-0">
-              <p className="truncate text-[11px] font-black text-[#0a649d]">Crew: {crewNames || "—"}</p>
-              <p className="mt-0.5 text-[9.5px] font-bold text-slate-400">Started {new Date(project.startedAt).toLocaleDateString("en-IN")}</p>
-            </div>
-            <button
-              type="button"
-              onClick={() => onStartProject(project)}
-              className="shrink-0 text-[10px] font-black text-[#0a649d] underline underline-offset-2"
-            >
-              Update crew
-            </button>
+      {isStarted && (
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-sky-50/60 border border-sky-100 px-3 py-2.5">
+          <div className="min-w-0">
+            <p className="truncate text-[11px] font-black text-[#0a649d]">Crew: {crewNames || "—"}</p>
+            <p className="mt-0.5 text-[9.5px] font-bold text-slate-400">Started {new Date(project.startedAt).toLocaleDateString("en-IN")}</p>
           </div>
-        ) : null
-      )}
-
-      {canStart && project.startedAt && (
-        <button
-          type="button"
-          onClick={() => onOpenChecklist(project)}
-          className="mt-2 w-full rounded-2xl border border-slate-200 p-3 text-left transition hover:border-slate-300"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[10.5px] font-black text-slate-700">
-              {isComplete ? "Installation complete" : "Installation progress"}
-            </span>
-            <span className={`text-[10.5px] font-black ${isComplete ? "text-emerald-700" : "text-[#0a649d]"}`}>
-              {completedCount}/{totalSteps} · {percent}%
-            </span>
-          </div>
-          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
-            <div
-              className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
-              style={{ width: `${percent}%` }}
-            />
-          </div>
-        </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onStartProject(project); }}
+            className="shrink-0 text-[10px] font-black text-[#0a649d] underline underline-offset-2"
+          >
+            Update crew
+          </button>
+        </div>
       )}
 
       {canStart && !project.startedAt && (
