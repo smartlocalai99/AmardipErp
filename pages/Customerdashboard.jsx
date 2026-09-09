@@ -802,6 +802,14 @@ export default function Customerdashboard({
     const activeServiceTickets = complaints.filter(
         (c) => c.rawComplaintType === "SERVICE_REQUEST" && !["RESOLVED", "CLOSED", "CANCELLED"].includes(c.rawStatus)
     );
+    const completedServiceTickets = complaints.filter(
+        (c) => c.rawComplaintType === "SERVICE_REQUEST" && ["RESOLVED", "CLOSED"].includes(c.rawStatus)
+    );
+    const serviceHistoryTickets = [
+        ...serviceVisits.map(mapServiceVisitForCustomer),
+        ...completedServiceTickets,
+    ];
+    const latestServiceTicket = serviceHistoryTickets[0] || null;
 
     return (
         <>
@@ -1260,16 +1268,16 @@ export default function Customerdashboard({
                                 </section>
                             )}
 
-                            {latestServiceVisit ? (
+                            {latestServiceTicket ? (
                                 <>
                                     <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-[#073354] via-[#0a649d] to-[#1687bd] p-5 text-white shadow-md">
                                         <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10" />
                                         <div className="relative flex items-start justify-between gap-4">
                                             <div>
                                                 <p className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-100">Last serviced</p>
-                                                <p className="mt-2 text-2xl font-black">{formatPortalDate(latestServiceVisit.service_date)}</p>
+                                                <p className="mt-2 text-2xl font-black">{latestServiceVisit ? formatPortalDate(latestServiceVisit.service_date) : (latestServiceTicket.completedAt || latestServiceTicket.checkedInAt ? formatPortalDateObj(new Date(latestServiceTicket.completedAt || latestServiceTicket.checkedInAt)) : "Not recorded")}</p>
                                                 <p className="mt-1 text-xs font-bold text-white/80">
-                                                    {latestServiceVisit.customer_code || "Elevator"} • {String(latestServiceVisit.service_type || "Routine service").replaceAll("_", " ")}
+                                                    {latestServiceVisit?.customer_code || latestServiceTicket.siteName || "Elevator"} • {String(latestServiceVisit?.service_type || latestServiceTicket.category || "Routine service").replaceAll("_", " ")}
                                                 </p>
                                             </div>
                                             <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white/15 ring-1 ring-white/20">
@@ -1303,10 +1311,10 @@ export default function Customerdashboard({
                                     <section>
                                         <h2 className="mb-3 px-1 text-xs font-bold uppercase tracking-wider text-slate-400">Recent service history</h2>
                                         <div className="space-y-2.5">
-                                            {serviceVisits.map((visit) => (
+                                            {serviceHistoryTickets.map((ticket) => (
                                                 <TicketCard
-                                                    key={visit.id}
-                                                    ticket={mapServiceVisitForCustomer(visit)}
+                                                    key={ticket.id}
+                                                    ticket={ticket}
                                                     onOpen={openComplaintDetails}
                                                 />
                                             ))}

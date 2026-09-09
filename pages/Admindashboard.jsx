@@ -1751,6 +1751,7 @@ function AdmindashboardShell({ user }) {
                                                             Engineer: <span className="font-semibold text-slate-600">{row.assignedTechnicianName || "Unassigned"}</span>
                                                         </p>
                                                         {row.city && <p className="text-[10px] text-slate-400">{row.city}</p>}
+                                                        {row.checkedInAt && <p className="mt-1 text-[10px] font-semibold text-emerald-700">Went: {new Date(row.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>}
                                                     </div>
                                                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded shrink-0 ${statusBadge(row.scheduleStatus)}`}>
                                                         {row.scheduleStatus?.replace("_", " ")}
@@ -1762,6 +1763,10 @@ function AdmindashboardShell({ user }) {
                                                             ? new Date(row.scheduledDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
                                                             : "Date TBD"}
                                                     </span>
+                                                    <div className="text-right text-[10px] font-semibold text-slate-500">
+                                                        {row.completedAt && <p className="text-emerald-700">Completed: {new Date(row.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>}
+                                                        {row.durationMinutes != null && <p>Time: {row.durationMinutes}m</p>}
+                                                    </div>
                                                     <div className="flex items-center gap-2">
                                                         <button
                                                             onClick={(e) => { e.stopPropagation(); deleteScheduleAndRefresh(row.scheduleId); }}
