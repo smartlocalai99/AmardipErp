@@ -167,6 +167,14 @@ export default function Techniciandashboard({ user }) {
     // Pass QR without opening the full job workspace first.
     const [showReturnMaterials, setShowReturnMaterials] = useState(false);
 
+    // Installation projects this technician is crewed on — fetched once the
+    // Profile tab is opened so the "My Projects" card only shows up (and the
+    // count on it is accurate) once we actually know whether they have any.
+    const [myProjects, setMyProjects] = useState([]);
+    const [myProjectsLoading, setMyProjectsLoading] = useState(true);
+    const [showMyProjects, setShowMyProjects] = useState(false);
+    const [checklistProject, setChecklistProject] = useState(null);
+
     // Every tab/filter switch and job open reuses the same scrollable <main>
     // — without this its scroll position carries over from whatever was
     // scrolled before, so a new view can silently open mid-scroll. Keyed on
@@ -220,6 +228,25 @@ export default function Techniciandashboard({ user }) {
             controller.abort();
         };
     }, [materialRequestQuery]);
+
+    useEffect(() => {
+        if (activeTab !== "profile") return;
+        let active = true;
+        (async () => {
+            try {
+                const res = await fetch("/api/worker/projects");
+                const data = await res.json();
+                if (active && data.success) setMyProjects(data.projects || []);
+            } catch {
+                // Leave whatever was last loaded — the card just won't update this pass.
+            } finally {
+                if (active) setMyProjectsLoading(false);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [activeTab]);
 
     function addToMaterialRequestCart(item) {
         setMaterialRequestCart(prev => {
