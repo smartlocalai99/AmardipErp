@@ -55,7 +55,7 @@ export default async function handler(req, res) {
       }
 
       await safeSendPush(
-        { roles: ["superadmin", "admin", "manager", "front_office"] },
+        { roles: ["superadmin", "admin"] },
         {
           title: "Checklist step completed",
           body: `${actor.name || actor.username} marked "${itemKey}" done${summary?.customerName ? ` for ${summary.customerName}` : ""}.`,
