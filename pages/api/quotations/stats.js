@@ -20,6 +20,10 @@ export default async function handler(req, res) {
   }
 
   await ensureQuotationTables();
+  const sheetProjectsPromise = listOngoingProjectsFromSheet().catch((error) => {
+    console.error("Ongoing sheet stats read failed:", error);
+    return null;
+  });
   const frontOffice = actor.role === "front_office";
   const result = await query(`
     SELECT
@@ -34,11 +38,8 @@ export default async function handler(req, res) {
 
   const row = result.rows[0] || {};
   let ongoingProjects = Number(row.ongoing_projects || 0);
-  try {
-    ongoingProjects = (await listOngoingProjectsFromSheet()).length;
-  } catch (error) {
-    console.error("Ongoing sheet stats read failed:", error);
-  }
+  const sheetProjects = await sheetProjectsPromise;
+  if (sheetProjects) ongoingProjects = sheetProjects.length;
   return res.status(200).json({
     success: true,
     canGenerate: hasBoqPermission,

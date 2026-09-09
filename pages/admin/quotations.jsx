@@ -170,8 +170,11 @@ export default function QuotationsPage({ user, initialData }) {
     const cacheKey = search.trim().toLowerCase();
     const cached = projectsCacheRef.current.get(cacheKey);
     if (cached) {
+      projectsAbortRef.current?.abort();
+      projectsRequestRef.current = null;
       setProjects(cached.projects);
       setProjectsTotal(cached.total);
+      setProjectsLoading(false);
       return;
     }
     if (projectsRequestRef.current === cacheKey) return;
@@ -195,9 +198,12 @@ export default function QuotationsPage({ user, initialData }) {
     } catch (err) {
       if (err.name !== "AbortError") setError(err.message);
     } finally {
-      if (projectsRequestRef.current === cacheKey) projectsRequestRef.current = null;
-      if (projectsAbortRef.current === controller) projectsAbortRef.current = null;
-      setProjectsLoading(false);
+      const isCurrentRequest = projectsRequestRef.current === cacheKey && projectsAbortRef.current === controller;
+      if (isCurrentRequest) {
+        projectsRequestRef.current = null;
+        projectsAbortRef.current = null;
+        setProjectsLoading(false);
+      }
     }
   }
 
@@ -225,7 +231,7 @@ export default function QuotationsPage({ user, initialData }) {
 
   useEffect(() => {
     if (activeTab !== "projects") return undefined;
-    const timer = setTimeout(() => fetchProjects(), 0);
+    const timer = setTimeout(() => fetchProjects(), 250);
     return () => clearTimeout(timer);
   }, [activeTab, search]); // eslint-disable-line react-hooks/exhaustive-deps
 
