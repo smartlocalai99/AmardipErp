@@ -545,6 +545,7 @@ export default function Customerdashboard({
 
     // Complaints
     const [complaints, setComplaints] = useState([]);
+    const [serviceTickets, setServiceTickets] = useState([]);
     const [complaintError, setComplaintError] = useState("");
 
     // Active Complaint Tracking Modal state
@@ -585,6 +586,17 @@ export default function Customerdashboard({
         }
     }, []);
 
+    const fetchCustomerServiceTickets = useCallback(async () => {
+        try {
+            const res = await fetch("/api/customer/complaints?page=1&pageSize=100&includeServiceRequests=true");
+            const data = await res.json();
+            if (!res.ok || !data.success) throw new Error(data.message || "Failed to load service tickets");
+            setServiceTickets((data.complaints || []).filter((ticket) => ticket.complaintType === "SERVICE_REQUEST").map(mapComplaintForCustomer));
+        } catch (err) {
+            setComplaintError(err.message || "Failed to load service tickets");
+        }
+    }, []);
+
     // AMC renewal reminders (and anything else sent from the admin side) land
     // here — persisted server-side so they're waiting in the bell icon the
     // next time the customer opens the app, not just a push banner they
@@ -611,6 +623,7 @@ export default function Customerdashboard({
     useEffect(() => {
         const initialLoad = window.setTimeout(() => {
             fetchCustomerComplaints();
+            fetchCustomerServiceTickets();
             fetchCustomerNotifications();
 
             const storedReqs = localStorage.getItem("amardip_material_requests");
@@ -624,7 +637,7 @@ export default function Customerdashboard({
         }, 0);
 
         return () => window.clearTimeout(initialLoad);
-    }, [fetchCustomerComplaints, fetchCustomerNotifications]);
+    }, [fetchCustomerComplaints, fetchCustomerServiceTickets, fetchCustomerNotifications]);
 
     const contractStatus = String(amcData.status || "").trim().toUpperCase();
     // "1M"/"2M" are short informal AMC arrangements — AMC in substance, same
@@ -799,11 +812,11 @@ export default function Customerdashboard({
     // nowhere to show up today — the Service tab only ever showed
     // already-finished visits, so a customer had no way to see "yes, this
     // month's service is on its way" until it was over.
-    const activeServiceTickets = complaints.filter(
-        (c) => c.rawComplaintType === "SERVICE_REQUEST" && !["RESOLVED", "CLOSED", "CANCELLED"].includes(c.rawStatus)
+    const activeServiceTickets = serviceTickets.filter(
+        (c) => !["RESOLVED", "CLOSED", "CANCELLED"].includes(c.rawStatus)
     );
-    const completedServiceTickets = complaints.filter(
-        (c) => c.rawComplaintType === "SERVICE_REQUEST" && ["RESOLVED", "CLOSED"].includes(c.rawStatus)
+    const completedServiceTickets = serviceTickets.filter(
+        (c) => ["RESOLVED", "CLOSED"].includes(c.rawStatus)
     );
     const serviceHistoryTickets = [
         ...serviceVisits.map(mapServiceVisitForCustomer),

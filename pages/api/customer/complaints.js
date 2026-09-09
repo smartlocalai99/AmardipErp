@@ -22,6 +22,7 @@ export default async function handler(req, res) {
         search: req.query.search,
         status: req.query.status,
       },
+      includeServiceRequests: req.query.includeServiceRequests === "true",
     });
     await attachMaterialsToComplaints(result.rows);
     return res.status(200).json({ success: true, complaints: result.rows, ...result });
