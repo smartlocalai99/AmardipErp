@@ -4,6 +4,7 @@ import { assignComplaintToWorker, getComplaintById, ensureComplaintsTable } from
 import { safeSendPush } from "@/lib/pushNotifications";
 import { createMaterialRequests, normalizeAllocatedItems, ensureMaterialRequestsTable } from "@/lib/materialRequests";
 import { createCustomerNotification } from "@/lib/customerNotifications";
+import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 import { ensureAssigneeTables } from "@/lib/assignees";
 import { withTransaction } from "@/lib/db";
 
@@ -85,22 +86,36 @@ export default async function handler(req, res) {
     }
   );
 
-  if (complaint.customerUserId) {
+  // Most breakdowns/services are raised by admin on the customer's behalf,
+  // which never sets customer_user_id directly — this resolves the actual
+  // portal login(s) via the underlying customer record in that case,
+  // instead of silently notifying no one.
+  const customerUserIds = await resolveComplaintNotificationRecipients(complaint);
+  if (customerUserIds.length > 0) {
+    // A monthly service visit assigned through this generic endpoint (e.g.
+    // a technician picked at ticket-creation time) should land the customer
+    // on the Service tab, same as a schedule dispatched the dedicated way —
+    // not the general Complaints tab, which wouldn't show it as a service.
+    const customerTab = complaint.complaintType === "SERVICE_REQUEST" ? "service" : "complaints";
     const technicianNames = (complaint.assignees || []).map((a) => a.name).join(" & ") || complaint.assignedTechnicianName;
     const message = `${complaint.complaintNo} has been assigned to ${technicianNames || "a technician"} and is on its way.`;
-    await createCustomerNotification({
-      userId: complaint.customerUserId,
-      category: "Ticket assigned",
-      message,
-      data: { type: "TICKET_ASSIGNED", complaintId: complaint.id },
-    }).catch((error) => console.error("Failed to persist ticket-assigned notification:", error));
+    await Promise.all(
+      customerUserIds.map((userId) =>
+        createCustomerNotification({
+          userId,
+          category: "Ticket assigned",
+          message,
+          data: { type: "TICKET_ASSIGNED", complaintId: complaint.id },
+        }).catch((error) => console.error("Failed to persist ticket-assigned notification:", error))
+      )
+    );
 
     await safeSendPush(
-      { userIds: [complaint.customerUserId] },
+      { userIds: customerUserIds },
       {
         title: "Technician assigned",
         body: message,
-        data: { url: "/Customerdashboard?tab=complaints", complaintId: complaint.id },
+        data: { url: `/Customerdashboard?tab=${customerTab}`, complaintId: complaint.id },
       }
     );
   }

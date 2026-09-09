@@ -6,6 +6,7 @@ import { getComplaintAssignees, ensureAssigneeTables } from "@/lib/assignees";
 import { reverseGeocode } from "@/lib/reverseGeocode";
 import { appendServiceCompletionToSheet } from "@/lib/serviceHistorySheetWriter";
 import { buildCustomerDateSql } from "@/lib/customerDates";
+import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 
 let tableReady = false;
 
@@ -73,6 +74,12 @@ async function ensureJobCompletionsTable() {
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_address TEXT;
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS signature_image TEXT;
   `);
+  // How long the visit actually took, measured from the worker's GPS
+  // check-in (complaints.checked_in_at) to this completion — not asked for
+  // at checklist time, computed once here so it can't drift from reality.
+  await query(`
+    ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
+  `);
   // elevator_service_visits has a UNIQUE(source_sheet, source_row_no) index
   // from the spreadsheet-sync import. Every app-completed job used to insert
   // the literal pair ('App - Technician Completion', 0), so the very first
@@ -131,6 +138,7 @@ export default async function handler(req, res) {
          co.id, co.complaint_no, co.customer_name, co.customer_user_id,
          co.assigned_technician_user_id, co.status, co.complaint_type,
          co.customer_id, co.customer_code, co.mobile_no, co.city, co.address,
+         co.checked_in_at,
          cust.customer_status AS customer_status_snapshot,
          (${buildCustomerDateSql("cust.amc_warranty_due")}) AS amc_warranty_due_snapshot,
          (${buildCustomerDateSql("cust.hoc_date")}) AS hoc_date_snapshot
@@ -158,6 +166,9 @@ export default async function handler(req, res) {
 
     const complaint = check.rows[0];
     const provider = process.env.VOICE_NOTES_PROVIDER || null;
+    const durationMinutes = complaint.checked_in_at
+      ? Math.max(0, Math.round((Date.now() - new Date(complaint.checked_in_at).getTime()) / 60000))
+      : null;
 
     // Was this job dispatched from the AMC/EMC/Warranty monthly service planner
     // (Upcoming Services -> Schedule Service)? If so, closing it out here needs
@@ -198,8 +209,8 @@ export default async function handler(req, res) {
           spare_parts_used, status_resolution, gps_checked_in, gps_latitude,
           gps_longitude, gps_accuracy_meters, gps_address, checklist_data,
           customer_rep_name, signature_image, voice_language, voice_original_transcript,
-          voice_english_translation, voice_processing_status, voice_provider
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)`,
+          voice_english_translation, voice_processing_status, voice_provider, duration_minutes
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)`,
         [
           jobDbId,
           actor.id,
@@ -220,6 +231,7 @@ export default async function handler(req, res) {
           voiceEnglishTranslation || null,
           voiceProcessingStatus || null,
           provider,
+          durationMinutes,
         ]
       );
 
@@ -322,19 +334,31 @@ export default async function handler(req, res) {
         data: { url: `/Admindashboard?tab=${adminTab}`, complaintId: jobDbId },
       }
     );
-    if (complaint.customer_user_id) {
+    // Most breakdowns/services are raised by admin on the customer's
+    // behalf, which never sets customer_user_id directly — resolve the
+    // actual portal login(s) via the underlying customer record in that
+    // case, instead of silently notifying no one.
+    const customerUserIds = await resolveComplaintNotificationRecipients({
+      customerUserId: complaint.customer_user_id,
+      customerId: complaint.customer_id,
+    });
+    if (customerUserIds.length > 0) {
       const message = `${complaint.complaint_no || "Your ticket"} has been marked resolved by ${actor.name || actor.username}. Open it to see everything the technician recorded.`;
       // Persisted so it's waiting in the bell icon even if the push above
       // never reaches a live subscription — same pattern as AMC reminders.
-      await createCustomerNotification({
-        userId: complaint.customer_user_id,
-        category: "Service job completed",
-        message,
-        data: { type: "JOB_COMPLETED", complaintId: jobDbId },
-      }).catch((error) => console.error("Failed to persist job-completed notification:", error));
+      await Promise.all(
+        customerUserIds.map((userId) =>
+          createCustomerNotification({
+            userId,
+            category: "Service job completed",
+            message,
+            data: { type: "JOB_COMPLETED", complaintId: jobDbId },
+          }).catch((error) => console.error("Failed to persist job-completed notification:", error))
+        )
+      );
 
       await safeSendPush(
-        { userIds: [complaint.customer_user_id] },
+        { userIds: customerUserIds },
         {
           title: "Service job completed",
           body: message,

@@ -10,6 +10,7 @@ import { setScheduleAssignees, getScheduleAssigneesForMany, ensureAssigneeTables
 import { createAuditLog } from "@/lib/auditLog";
 import { safeSendPush } from "@/lib/pushNotifications";
 import { createCustomerNotification } from "@/lib/customerNotifications";
+import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 
@@ -294,18 +295,26 @@ export default async function handler(req, res) {
         }
       );
 
-      if (dispatchedJob.customerUserId) {
+      // Dispatched by admin on the customer's behalf — customerUserId is
+      // rarely set directly, so resolve the actual portal login(s) via the
+      // underlying customer record instead of silently notifying no one.
+      const customerUserIds = await resolveComplaintNotificationRecipients(dispatchedJob);
+      if (customerUserIds.length > 0) {
         const technicianNames = (dispatchedJob.assignees || []).map((a) => a.name).join(" & ") || dispatchedJob.assignedTechnicianName;
         const message = `Your monthly service visit (${dispatchedJob.complaintNo}) has been assigned to ${technicianNames || "a technician"}.`;
-        await createCustomerNotification({
-          userId: dispatchedJob.customerUserId,
-          category: "Service visit assigned",
-          message,
-          data: { type: "SERVICE_VISIT_ASSIGNED", complaintId: dispatchedJob.id },
-        }).catch((error) => console.error("Failed to persist service-visit-assigned notification:", error));
+        await Promise.all(
+          customerUserIds.map((userId) =>
+            createCustomerNotification({
+              userId,
+              category: "Service visit assigned",
+              message,
+              data: { type: "SERVICE_VISIT_ASSIGNED", complaintId: dispatchedJob.id },
+            }).catch((error) => console.error("Failed to persist service-visit-assigned notification:", error))
+          )
+        );
 
         await safeSendPush(
-          { userIds: [dispatchedJob.customerUserId] },
+          { userIds: customerUserIds },
           {
             title: "Service technician assigned",
             body: message,
