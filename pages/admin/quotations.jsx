@@ -870,7 +870,7 @@ function ProjectCard({ project }) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-sm font-black text-slate-900">{project.customerName}</p>
-          <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.quotationNo} · {project.mobileNo}</p>
+          <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "City not listed"} · {project.mobileNo || "Number not listed"}</p>
         </div>
         <span className="rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">ONGOING</span>
       </div>
