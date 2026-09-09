@@ -1,5 +1,6 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { listQuotations } from "@/lib/quotations";
+import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS } from "@/lib/projectChecklist";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -136,6 +137,7 @@ export default function QuotationsPage({ user, initialData }) {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectQuotation, setProjectQuotation] = useState(null);
   const [startProjectTarget, setStartProjectTarget] = useState(null);
+  const [checklistProject, setChecklistProject] = useState(null);
   const projectsCacheRef = useRef(new Map());
   const projectsRequestRef = useRef(null);
   const projectsAbortRef = useRef(null);
@@ -442,7 +444,14 @@ export default function QuotationsPage({ user, initialData }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {projects.map((project) => <ProjectCard key={project.id} project={project} onStartProject={setStartProjectTarget} />)}
+              {projects.map((project) => (
+                <ProjectCard
+                  key={project.id}
+                  project={project}
+                  onStartProject={setStartProjectTarget}
+                  onOpenChecklist={setChecklistProject}
+                />
+              ))}
             </div>
           )
         ) : loading ? (
@@ -593,6 +602,20 @@ export default function QuotationsPage({ user, initialData }) {
             setStartProjectTarget(null);
             projectsCacheRef.current.clear();
             fetchProjects();
+          }}
+        />
+      )}
+
+      {checklistProject && (
+        <ProjectChecklistModal
+          project={checklistProject}
+          onClose={() => {
+            setChecklistProject(null);
+            projectsCacheRef.current.clear();
+            fetchProjects();
+          }}
+          onUpdated={(updatedProject) => {
+            setProjects((current) => current.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
           }}
         />
       )}
@@ -889,9 +912,13 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
   );
 }
 
-function ProjectCard({ project, onStartProject }) {
+function ProjectCard({ project, onStartProject, onOpenChecklist }) {
   const canStart = project.source !== "google_sheet";
   const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
+  const completedCount = (project.checklistCompletions || []).length;
+  const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
+  const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
+  const isComplete = completedCount >= totalSteps;
 
   return (
     <div className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm">
@@ -926,15 +953,40 @@ function ProjectCard({ project, onStartProject }) {
               Update crew
             </button>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onStartProject(project)}
-            className="mt-3 h-11 w-full rounded-2xl bg-[#0a649d] text-xs font-black text-white active:scale-[0.98] transition"
-          >
-            Start Project
-          </button>
-        )
+        ) : null
+      )}
+
+      {canStart && project.startedAt && (
+        <button
+          type="button"
+          onClick={() => onOpenChecklist(project)}
+          className="mt-2 w-full rounded-2xl border border-slate-200 p-3 text-left transition hover:border-slate-300"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10.5px] font-black text-slate-700">
+              {isComplete ? "Installation complete" : "Installation progress"}
+            </span>
+            <span className={`text-[10.5px] font-black ${isComplete ? "text-emerald-700" : "text-[#0a649d]"}`}>
+              {completedCount}/{totalSteps} · {percent}%
+            </span>
+          </div>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-100">
+            <div
+              className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </button>
+      )}
+
+      {canStart && !project.startedAt && (
+        <button
+          type="button"
+          onClick={() => onStartProject(project)}
+          className="mt-3 h-11 w-full rounded-2xl bg-[#0a649d] text-xs font-black text-white active:scale-[0.98] transition"
+        >
+          Start Project
+        </button>
       )}
     </div>
   );
@@ -1043,6 +1095,123 @@ function StartProjectModal({ project, onClose, onSuccess }) {
             {submitting ? "Saving…" : isReassign ? "Update Crew" : "Start Project"}
           </button>
         </div>
+      </div>
+    </Modal>
+  );
+}
+
+function ProjectChecklistModal({ project, onClose, onUpdated }) {
+  const [completions, setCompletions] = useState(project.checklistCompletions || []);
+  const [pendingKey, setPendingKey] = useState("");
+  const [error, setError] = useState("");
+
+  const completedKeys = new Set(completions.map((c) => c.itemKey));
+  const completedCount = completedKeys.size;
+  const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
+  const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
+  const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
+  const isComplete = completedCount >= totalSteps;
+
+  async function toggle(itemKey, nextCompleted) {
+    setPendingKey(itemKey);
+    setError("");
+    // Optimistic — a 52-item list feels sluggish if every tap waits on a
+    // round trip before showing the check.
+    setCompletions((current) =>
+      nextCompleted
+        ? [...current, { itemKey, completedAt: new Date().toISOString(), completedByUsername: null }]
+        : current.filter((c) => c.itemKey !== itemKey)
+    );
+    try {
+      const res = await fetch(`/api/quotations/projects/${project.id}/checklist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemKey, completed: nextCompleted }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to update step");
+      setCompletions(data.project.checklistCompletions || []);
+      onUpdated(data.project);
+    } catch (err) {
+      // Roll back the optimistic change on failure.
+      setCompletions((current) =>
+        nextCompleted ? current.filter((c) => c.itemKey !== itemKey) : [...current, { itemKey }]
+      );
+      setError(err.message);
+    } finally {
+      setPendingKey("");
+    }
+  }
+
+  return (
+    <Modal title="Installation Checklist" onClose={onClose}>
+      <div className="space-y-5">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-900">{project.customerName}</p>
+          <p className="mt-0.5 text-xs font-bold text-slate-500">{project.quotationNo}</p>
+          <div className="mt-3 flex items-center justify-between gap-2">
+            <span className={`text-[11px] font-black ${isComplete ? "text-emerald-700" : "text-[#0a649d]"}`}>
+              {isComplete ? "All steps complete" : `${completedCount}/${totalSteps} steps done`}
+            </span>
+            <span className="text-[11px] font-black text-slate-500">{percent}%</span>
+          </div>
+          <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-slate-200">
+            <div
+              className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
+              style={{ width: `${percent}%` }}
+            />
+          </div>
+        </div>
+
+        {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+
+        {PROJECT_CHECKLIST_PHASES.map((phase) => {
+          const phaseDone = phase.items.filter((item) => completedKeys.has(item)).length;
+          return (
+            <div key={phase.phase}>
+              <div className="mb-1.5 flex items-center justify-between px-1">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">{phase.phase}</h3>
+                <span className="text-[10px] font-black text-slate-400">{phaseDone}/{phase.items.length}</span>
+              </div>
+              <div className="space-y-1">
+                {phase.items.map((item) => {
+                  const checked = completedKeys.has(item);
+                  const isNext = item === nextItemKey;
+                  return (
+                    <label
+                      key={item}
+                      className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 transition ${
+                        checked
+                          ? "border-emerald-100 bg-emerald-50/60"
+                          : isNext
+                          ? "border-[#0a649d] bg-sky-50/60"
+                          : "border-slate-100 bg-white"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={pendingKey === item}
+                        onChange={() => toggle(item, !checked)}
+                        className="mt-0.5 h-4 w-4 accent-[#0a649d] disabled:opacity-50"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className={`block text-xs font-bold ${checked ? "text-emerald-800" : "text-slate-700"}`}>
+                          {item}
+                        </span>
+                      </span>
+                      {isNext && !checked && (
+                        <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
+                          Next
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </Modal>
   );
