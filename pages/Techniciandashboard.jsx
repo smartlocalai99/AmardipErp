@@ -178,8 +178,9 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
 
     if (checklistProject) {
         const completions = checklistProject.checklistCompletions || [];
-        const completedKeys = new Set(completions.map((c) => c.itemKey));
-        const completedCount = completedKeys.size;
+        const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
+        const completedKeys = completedByKey;
+        const completedCount = completedByKey.size;
         const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
         const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
         const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
@@ -196,7 +197,7 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                 });
                 const data = await res.json();
                 if (!res.ok || !data.success) throw new Error(data.message || "Failed to update step");
-                onProjectUpdated(data.project);
+                onProjectUpdated({ ...checklistProject, checklistCompletions: data.checklistCompletions });
             } catch (err) {
                 setError(err.message);
             } finally {
@@ -246,7 +247,8 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                             </div>
                             <div className="space-y-1.5">
                                 {phase.items.map((item) => {
-                                    const checked = completedKeys.has(item);
+                                    const completion = completedByKey.get(item);
+                                    const checked = Boolean(completion);
                                     const isNext = item === nextItemKey;
                                     return (
                                         <label
@@ -268,6 +270,12 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                                             />
                                             <span className="min-w-0 flex-1 text-xs font-bold leading-snug">
                                                 <span className={checked ? "text-emerald-800" : "text-slate-700"}>{item}</span>
+                                                {checked && (
+                                                    <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
+                                                        {completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician"}
+                                                        {completion.completedAt && ` · ${new Date(completion.completedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+                                                    </span>
+                                                )}
                                             </span>
                                             {isNext && !checked && (
                                                 <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
@@ -306,6 +314,7 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                         const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
                         const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
                         const isComplete = completedCount >= totalSteps;
+                        const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
                         return (
                             <button
                                 key={project.id}
@@ -315,12 +324,13 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                                 <div className="flex items-start justify-between gap-3">
                                     <div className="min-w-0">
                                         <p className="truncate text-sm font-black text-slate-900">{project.customerName}</p>
-                                        <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "Site"}</p>
+                                        <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.quotationNo}</p>
                                     </div>
                                     <span className={`shrink-0 rounded-xl px-2.5 py-1 text-[10px] font-black whitespace-nowrap ${isComplete ? "bg-emerald-50 text-emerald-700" : "bg-sky-50 text-[#0a649d]"}`}>
                                         {isComplete ? "COMPLETE" : `${percent}%`}
                                     </span>
                                 </div>
+
                                 <div className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
                                     <div
                                         className={`h-full rounded-full transition-all ${isComplete ? "bg-emerald-500" : "bg-[#0a649d]"}`}
@@ -328,6 +338,13 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                                     />
                                 </div>
                                 <p className="mt-2 text-[10px] font-bold text-slate-400">{completedCount}/{totalSteps} steps done</p>
+
+                                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-slate-100 pt-3 text-[10.5px] font-semibold text-slate-500">
+                                    <p className="truncate"><span className="text-slate-400">Site:</span> {project.address || project.city || "Not listed"}</p>
+                                    <p className="truncate"><span className="text-slate-400">Mobile:</span> {project.mobileNo || "Not listed"}</p>
+                                    <p className="col-span-2 truncate"><span className="text-slate-400">Crew:</span> {crewNames || "—"}</p>
+                                    <p className="col-span-2"><span className="text-slate-400">Started:</span> {project.startedAt ? new Date(project.startedAt).toLocaleDateString("en-IN") : "—"}</p>
+                                </div>
                             </button>
                         );
                     })}

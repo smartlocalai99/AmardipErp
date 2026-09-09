@@ -609,14 +609,7 @@ export default function QuotationsPage({ user, initialData }) {
       {checklistProject && (
         <ProjectChecklistModal
           project={checklistProject}
-          onClose={() => {
-            setChecklistProject(null);
-            projectsCacheRef.current.clear();
-            fetchProjects();
-          }}
-          onUpdated={(updatedProject) => {
-            setProjects((current) => current.map((p) => (p.id === updatedProject.id ? updatedProject : p)));
-          }}
+          onClose={() => setChecklistProject(null)}
         />
       )}
 
@@ -924,7 +917,11 @@ function ProjectCard({ project, onStartProject, onOpenChecklist }) {
   return (
     <div
       onClick={isStarted ? () => onOpenChecklist(project) : undefined}
-      className={`rounded-3xl border border-slate-200 bg-white p-4 shadow-sm ${isStarted ? "cursor-pointer transition hover:border-slate-300" : ""}`}
+      className={`rounded-3xl border p-4 shadow-sm ${
+        isStarted
+          ? "cursor-pointer border-[#cfe8f7] bg-[#eaf5fc] transition hover:border-[#0a649d]/30"
+          : "border-slate-200 bg-white"
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -953,7 +950,7 @@ function ProjectCard({ project, onStartProject, onOpenChecklist }) {
       <p className="mt-3 text-[10px] font-bold text-slate-400">Onboarded {project.onboardedAt ? new Date(project.onboardedAt).toLocaleDateString("en-IN") : "—"}</p>
 
       {isStarted && (
-        <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-sky-50/60 border border-sky-100 px-3 py-2.5">
+        <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl border border-white bg-white/80 px-3 py-2.5">
           <div className="min-w-0">
             <p className="truncate text-[11px] font-black text-[#0a649d]">Crew: {crewNames || "—"}</p>
             <p className="mt-0.5 text-[9.5px] font-bold text-slate-400">Started {new Date(project.startedAt).toLocaleDateString("en-IN")}</p>
@@ -1089,48 +1086,17 @@ function StartProjectModal({ project, onClose, onSuccess }) {
   );
 }
 
-function ProjectChecklistModal({ project, onClose, onUpdated }) {
-  const [completions, setCompletions] = useState(project.checklistCompletions || []);
-  const [pendingKey, setPendingKey] = useState("");
-  const [error, setError] = useState("");
-
-  const completedKeys = new Set(completions.map((c) => c.itemKey));
-  const completedCount = completedKeys.size;
+// Read-only for admin — the assigned technicians are the ones who mark
+// steps done on site, from their own app. This just shows where things
+// stand and who did what.
+function ProjectChecklistModal({ project, onClose }) {
+  const completions = project.checklistCompletions || [];
+  const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
+  const completedCount = completedByKey.size;
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
   const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
-  const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
+  const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedByKey.has(item)) || null;
   const isComplete = completedCount >= totalSteps;
-
-  async function toggle(itemKey, nextCompleted) {
-    setPendingKey(itemKey);
-    setError("");
-    // Optimistic — a 52-item list feels sluggish if every tap waits on a
-    // round trip before showing the check.
-    setCompletions((current) =>
-      nextCompleted
-        ? [...current, { itemKey, completedAt: new Date().toISOString(), completedByUsername: null }]
-        : current.filter((c) => c.itemKey !== itemKey)
-    );
-    try {
-      const res = await fetch(`/api/quotations/projects/${project.id}/checklist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemKey, completed: nextCompleted }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error(data.message || "Failed to update step");
-      setCompletions(data.project.checklistCompletions || []);
-      onUpdated(data.project);
-    } catch (err) {
-      // Roll back the optimistic change on failure.
-      setCompletions((current) =>
-        nextCompleted ? current.filter((c) => c.itemKey !== itemKey) : [...current, { itemKey }]
-      );
-      setError(err.message);
-    } finally {
-      setPendingKey("");
-    }
-  }
 
   return (
     <Modal title="Installation Checklist" onClose={onClose}>
@@ -1150,12 +1116,11 @@ function ProjectChecklistModal({ project, onClose, onUpdated }) {
               style={{ width: `${percent}%` }}
             />
           </div>
+          <p className="mt-2 text-[9.5px] font-semibold text-slate-400">Marked done by the crew on site — view only here.</p>
         </div>
 
-        {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
-
         {PROJECT_CHECKLIST_PHASES.map((phase) => {
-          const phaseDone = phase.items.filter((item) => completedKeys.has(item)).length;
+          const phaseDone = phase.items.filter((item) => completedByKey.has(item)).length;
           return (
             <div key={phase.phase}>
               <div className="mb-1.5 flex items-center justify-between px-1">
@@ -1164,12 +1129,13 @@ function ProjectChecklistModal({ project, onClose, onUpdated }) {
               </div>
               <div className="space-y-1">
                 {phase.items.map((item) => {
-                  const checked = completedKeys.has(item);
+                  const completion = completedByKey.get(item);
+                  const checked = Boolean(completion);
                   const isNext = item === nextItemKey;
                   return (
-                    <label
+                    <div
                       key={item}
-                      className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 transition ${
+                      className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 ${
                         checked
                           ? "border-emerald-100 bg-emerald-50/60"
                           : isNext
@@ -1177,24 +1143,34 @@ function ProjectChecklistModal({ project, onClose, onUpdated }) {
                           : "border-slate-100 bg-white"
                       }`}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={pendingKey === item}
-                        onChange={() => toggle(item, !checked)}
-                        className="mt-0.5 h-4 w-4 accent-[#0a649d] disabled:opacity-50"
-                      />
+                      <span
+                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+                          checked ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300"
+                        }`}
+                      >
+                        {checked && (
+                          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
                       <span className="min-w-0 flex-1">
                         <span className={`block text-xs font-bold ${checked ? "text-emerald-800" : "text-slate-700"}`}>
                           {item}
                         </span>
+                        {checked && (
+                          <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
+                            {completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician"}
+                            {completion.completedAt && ` · ${new Date(completion.completedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`}
+                          </span>
+                        )}
                       </span>
                       {isNext && !checked && (
                         <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
                           Next
                         </span>
                       )}
-                    </label>
+                    </div>
                   );
                 })}
               </div>
