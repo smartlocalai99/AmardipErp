@@ -44,7 +44,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { customer, quotation } = await onboardQuotationAsCustomer({ quotationId: req.query.id });
+    const { customer, quotation } = await onboardQuotationAsCustomer({ quotationId: req.query.id, actor });
 
     await safeAppendCustomerAutomationRow(customer);
 

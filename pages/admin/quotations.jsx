@@ -103,7 +103,12 @@ export async function getServerSideProps({ req }) {
   } catch {
     // Fall back to an empty list; the client effect will retry on mount.
   }
-  return { props: { user, initialData } };
+  // Quotation/project rows carry raw Date objects (createdAt, onboardedAt,
+  // etc.) straight from pg — Next.js's props serializer rejects those, so
+  // round-tripping through JSON here (which turns each Date into its ISO
+  // string, same as what the client-side fetch API path already returns)
+  // is required, not optional.
+  return { props: { user, initialData: JSON.parse(JSON.stringify(initialData)) } };
 }
 
 export default function QuotationsPage({ user, initialData }) {
@@ -814,6 +819,13 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
         </div>
         <span className="rounded-xl bg-blue-50 px-2.5 py-1 text-[10px] font-black text-blue-700 shrink-0">{quotation.status}</span>
       </div>
+      {(quotation.createdByUsername || quotation.convertedByUsername) && (
+        <p className="mt-1 text-[9.5px] font-semibold text-slate-400">
+          {quotation.createdByUsername && `Created by @${quotation.createdByUsername}`}
+          {quotation.createdByUsername && quotation.convertedByUsername && " · "}
+          {quotation.convertedByUsername && `Converted by @${quotation.convertedByUsername}`}
+        </p>
+      )}
       <div className="mt-3 grid grid-cols-2 gap-1.5 text-[11px] font-bold text-slate-500">
         <p>Width: <span className="text-slate-800">{quotation.wellWidth}</span></p>
         <p>Depth: <span className="text-slate-800">{quotation.wellDepth}</span></p>

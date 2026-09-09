@@ -52,6 +52,7 @@ export default async function handler(req, res) {
       quotationId: req.query.id,
       agreedAmount: req.body?.agreedAmount,
       advanceAmount: req.body?.advanceAmount,
+      actor,
     });
     let sheetRow = result.project.googleSheetRow;
     if (!sheetRow) {

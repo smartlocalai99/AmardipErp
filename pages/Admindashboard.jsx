@@ -1629,6 +1629,14 @@ function AdmindashboardShell({ user }) {
                                             <p className="text-[10px] font-bold text-slate-500">
                                                 {c.assignees?.length ? `Technician: ${c.assignees.map((a) => a.name).join(" & ")}` : "Unassigned"}
                                             </p>
+
+                                            {(c.raisedByUsername || c.assignedByUsername) && (
+                                                <p className="text-[9.5px] font-semibold text-slate-400">
+                                                    {c.raisedByUsername && `Logged by @${c.raisedByUsername}`}
+                                                    {c.raisedByUsername && c.assignedByUsername && " · "}
+                                                    {c.assignedByUsername && `Assigned by @${c.assignedByUsername}`}
+                                                </p>
+                                            )}
                                         </div>
                                         <div className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white">
                                             Tap to View Details &rarr;
@@ -1825,6 +1833,10 @@ function AdmindashboardShell({ user }) {
                                                     <p className="text-[11px] font-semibold text-slate-500">
                                                         {row.city ? `${row.city} · ` : ""}Engineer: <span className="font-bold text-slate-700">{row.assignedTechnicianName || "Unassigned"}</span>
                                                     </p>
+
+                                                    {row.assignedByUsername && (
+                                                        <p className="text-[9.5px] font-semibold text-slate-400">Assigned by @{row.assignedByUsername}</p>
+                                                    )}
 
                                                     {(row.checkedInAt || (row.scheduleStatus === "COMPLETED" && row.completedAt) || rowDuration) && (
                                                         <div className="flex flex-wrap gap-1.5">
@@ -2743,8 +2755,11 @@ function AdmindashboardShell({ user }) {
                                                         <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">
                                                             {c.complaintType ? c.complaintType.replaceAll("_", " ") : "Ticket"}
                                                         </p>
-                                                        {c.createdAt && (
+                                        {c.createdAt && (
                                                             <p className="mt-0.5 text-[9px] font-bold text-slate-400">{formatDeviceDate(c.createdAt)}</p>
+                                                        )}
+                                                        {c.assignedByUsername && (
+                                                            <p className="mt-0.5 text-[9px] font-bold text-slate-400">Assigned by @{c.assignedByUsername}</p>
                                                         )}
                                                     </button>
                                                 ))}
@@ -3257,6 +3272,18 @@ function AdmindashboardShell({ user }) {
                                         {selectedComplaint.priority}
                                     </span>
                                 </div>
+                                {selectedComplaint.raisedByUsername && (
+                                    <div>
+                                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Logged By</span>
+                                        <p className="text-xs font-bold text-slate-700">@{selectedComplaint.raisedByUsername}</p>
+                                    </div>
+                                )}
+                                {selectedComplaint.assignedByUsername && (
+                                    <div>
+                                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Assigned By</span>
+                                        <p className="text-xs font-bold text-slate-700">@{selectedComplaint.assignedByUsername}</p>
+                                    </div>
+                                )}
                             </div>
 
                             <div>
