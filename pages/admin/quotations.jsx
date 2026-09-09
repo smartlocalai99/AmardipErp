@@ -135,6 +135,7 @@ export default function QuotationsPage({ user, initialData }) {
   const [projectsTotal, setProjectsTotal] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectQuotation, setProjectQuotation] = useState(null);
+  const [startProjectTarget, setStartProjectTarget] = useState(null);
   const projectsCacheRef = useRef(new Map());
   const projectsRequestRef = useRef(null);
   const projectsAbortRef = useRef(null);
@@ -441,7 +442,7 @@ export default function QuotationsPage({ user, initialData }) {
             </div>
           ) : (
             <div className="space-y-3">
-              {projects.map((project) => <ProjectCard key={project.id} project={project} />)}
+              {projects.map((project) => <ProjectCard key={project.id} project={project} onStartProject={setStartProjectTarget} />)}
             </div>
           )
         ) : loading ? (
@@ -579,6 +580,18 @@ export default function QuotationsPage({ user, initialData }) {
             setActiveTab("projects");
             projectsCacheRef.current.clear();
             load();
+            fetchProjects();
+          }}
+        />
+      )}
+
+      {startProjectTarget && (
+        <StartProjectModal
+          project={startProjectTarget}
+          onClose={() => setStartProjectTarget(null)}
+          onSuccess={() => {
+            setStartProjectTarget(null);
+            projectsCacheRef.current.clear();
             fetchProjects();
           }}
         />
@@ -876,7 +889,10 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
   );
 }
 
-function ProjectCard({ project }) {
+function ProjectCard({ project, onStartProject }) {
+  const canStart = project.source !== "google_sheet";
+  const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
+
   return (
     <div className="rounded-3xl border border-emerald-100 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
@@ -884,7 +900,9 @@ function ProjectCard({ project }) {
           <p className="text-sm font-black text-slate-900">{project.customerName}</p>
           <p className="mt-0.5 text-[11px] font-bold text-slate-500">{project.city || "City not listed"} · {project.mobileNo || "Number not listed"}</p>
         </div>
-        <span className="rounded-xl bg-emerald-50 px-2.5 py-1 text-[10px] font-black text-emerald-700">ONGOING</span>
+        <span className={`rounded-xl px-2.5 py-1 text-[10px] font-black ${project.startedAt ? "bg-sky-50 text-[#0a649d]" : "bg-emerald-50 text-emerald-700"}`}>
+          {project.startedAt ? "IN PROGRESS" : "ONGOING"}
+        </span>
       </div>
       <div className="mt-4 grid grid-cols-3 gap-2 border-t border-slate-100 pt-3 text-[11px]">
         <div><p className="font-bold text-slate-400">Agreed</p><p className="mt-0.5 font-black text-slate-900">₹{formatRupees(project.agreedAmount)}</p></div>
@@ -892,7 +910,141 @@ function ProjectCard({ project }) {
         <div><p className="font-bold text-slate-400">Balance</p><p className="mt-0.5 font-black text-emerald-700">₹{formatRupees(project.balanceAmount)}</p></div>
       </div>
       <p className="mt-3 text-[10px] font-bold text-slate-400">Onboarded {project.onboardedAt ? new Date(project.onboardedAt).toLocaleDateString("en-IN") : "—"}</p>
+
+      {canStart && (
+        project.startedAt ? (
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl bg-sky-50/60 border border-sky-100 px-3 py-2.5">
+            <div className="min-w-0">
+              <p className="truncate text-[11px] font-black text-[#0a649d]">Crew: {crewNames || "—"}</p>
+              <p className="mt-0.5 text-[9.5px] font-bold text-slate-400">Started {new Date(project.startedAt).toLocaleDateString("en-IN")}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => onStartProject(project)}
+              className="shrink-0 text-[10px] font-black text-[#0a649d] underline underline-offset-2"
+            >
+              Update crew
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onStartProject(project)}
+            className="mt-3 h-11 w-full rounded-2xl bg-[#0a649d] text-xs font-black text-white active:scale-[0.98] transition"
+          >
+            Start Project
+          </button>
+        )
+      )}
     </div>
+  );
+}
+
+function StartProjectModal({ project, onClose, onSuccess }) {
+  const [technicians, setTechnicians] = useState([]);
+  const [loadingTechnicians, setLoadingTechnicians] = useState(true);
+  const [selectedIds, setSelectedIds] = useState(() => (project.assignees || []).map((a) => String(a.id)));
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const isReassign = Boolean(project.startedAt);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/users");
+        const data = await res.json();
+        if (active && data.success) {
+          setTechnicians((data.users || []).filter((u) => u.role === "worker"));
+        }
+      } catch {
+        // Leave the list empty — the error below still lets them retry.
+      } finally {
+        if (active) setLoadingTechnicians(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function toggle(id) {
+    const key = String(id);
+    setSelectedIds((current) => (current.includes(key) ? current.filter((v) => v !== key) : [...current, key]));
+  }
+
+  async function submit() {
+    if (selectedIds.length === 0) return setError("Pick at least one technician.");
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/quotations/projects/${project.id}/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ technicianUserIds: selectedIds }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to start project");
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={isReassign ? "Update Crew" : "Start Project"} onClose={() => !submitting && onClose()}>
+      <div className="space-y-4">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-900">{project.customerName}</p>
+          <p className="mt-0.5 text-xs font-bold text-slate-500">{project.quotationNo}</p>
+        </div>
+
+        <div>
+          <span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">
+            Assign Technicians *
+          </span>
+          {loadingTechnicians ? (
+            <p className="rounded-2xl border border-slate-200 bg-white p-4 text-center text-xs font-bold text-slate-400">Loading technicians…</p>
+          ) : technicians.length === 0 ? (
+            <p className="rounded-2xl border border-slate-200 bg-white p-4 text-center text-xs font-bold text-slate-400">No technicians found.</p>
+          ) : (
+            <div className="max-h-64 space-y-1.5 overflow-y-auto rounded-2xl border border-slate-200 p-1.5">
+              {technicians.map((tech) => {
+                const checked = selectedIds.includes(String(tech.id));
+                return (
+                  <label
+                    key={tech.id}
+                    className={`flex items-center gap-3 rounded-xl px-3 py-2.5 transition ${checked ? "bg-sky-50" : "hover:bg-slate-50"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(tech.id)}
+                      className="h-4 w-4 accent-[#0a649d]"
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-bold text-slate-800">{tech.name}</span>
+                      {tech.phone && <span className="block text-[10px] font-semibold text-slate-400">{tech.phone}</span>}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={submitting} className="h-12 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-700 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={submit} disabled={submitting} className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50">
+            {submitting ? "Saving…" : isReassign ? "Update Crew" : "Start Project"}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
