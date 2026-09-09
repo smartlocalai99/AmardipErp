@@ -1,14 +1,39 @@
 import { getUserFromRequest } from "@/lib/auth";
+import { query } from "@/lib/db";
 import { createAuditLog } from "@/lib/auditLog";
 import { canGenerateBoq, isBoqAdmin } from "@/lib/quotationPermissions";
 import { appendOngoingProjectRow } from "@/lib/googleSheets";
 import { markProjectSheetRow, onboardQuotationAsProject } from "@/lib/quotations";
+import { appendCustomerAutomationRow } from "@/lib/customerAutomationSheet";
 
 async function safeAudit(args) {
   try {
     await createAuditLog(args);
   } catch (err) {
     console.error("Quotation project onboarding audit failed:", err);
+  }
+}
+
+// Best-effort, same reasoning as the plain customer-onboarding route: a
+// Sheets hiccup must not fail a project onboarding already committed to
+// Postgres. `advance` is the one field this path has that plain customer
+// onboarding doesn't.
+async function safeAppendCustomerAutomationRow(customer, advance) {
+  try {
+    await appendCustomerAutomationRow({
+      customerCode: customer.customer_code,
+      customerName: customer.customer_name,
+      address: customer.address || "",
+      mobileNo: customer.mobile_no || "",
+      status: customer.customer_status || "AMC",
+      amcWarrantyDue: customer.amc_warranty_due,
+      amcStartDate: customer.amc_starting_date,
+      amcEndDate: customer.amc_ending_date,
+      amcAmount: advance?.agreedAmount,
+      advance: advance?.advanceAmount,
+    });
+  } catch (err) {
+    console.error("Failed to append onboarded project customer to CUSTOMER_AUTOMATION sheet:", err);
   }
 }
 
@@ -33,6 +58,14 @@ export default async function handler(req, res) {
       sheetRow = await appendOngoingProjectRow(result.project, result.quotation);
       await markProjectSheetRow({ projectId: result.project.id, rowNumber: sheetRow });
       result.project.googleSheetRow = sheetRow;
+
+      const customerRow = await query("SELECT * FROM elevator_service_customers WHERE id = $1 LIMIT 1", [result.project.customerId]);
+      if (customerRow.rows[0]) {
+        await safeAppendCustomerAutomationRow(customerRow.rows[0], {
+          agreedAmount: result.project.agreedAmount,
+          advanceAmount: result.project.advanceAmount,
+        });
+      }
     }
     await safeAudit({
       req,
