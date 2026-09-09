@@ -1,7 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { query } from "@/lib/db";
 import { cleanNumber, ensureServiceSchedulesTable } from "@/lib/serviceSchedules";
-import { getServiceDueCustomerCodes, getServiceDueCustomerMobiles } from "@/lib/customerAutomationSheet";
+import { fetchCustomerAutomationRows, getServiceDueCustomerCodes, getServiceDueCustomerMobiles, isServiceDueStatus } from "@/lib/customerAutomationSheet";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const SCHEDULED_STATUSES = new Set(["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "MISSED"]);
@@ -304,7 +304,8 @@ export default async function handler(req, res) {
       params
     );
 
-    const total = summaryResult.rows[0]?.total || 0;
+    let total = summaryResult.rows[0]?.total || 0;
+    let fallbackUnassigned = 0;
     const limitParam = params.length + 1;
     const offsetParam = params.length + 2;
 
@@ -326,10 +327,53 @@ export default async function handler(req, res) {
 
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
+    let responseRows = rowsResult.rows;
+    // Recovery path for legacy customer-sheet data whose customer codes or
+    // phone numbers no longer match the database roster. Keep the normal SQL
+    // path authoritative whenever it returns rows; only recover an empty
+    // unfiltered month view so the admin never sees a false zero state.
+    if (total === 0 && !req.query.search && mode === "all" && (!status || status === "ALL")) {
+      const sheetRows = (await fetchCustomerAutomationRows()).filter((row) => isServiceDueStatus(row.status));
+      const customerRows = await query(`
+        SELECT id, customer_code, customer_name, address, city, mobile_no, customer_status
+        FROM elevator_service_customers
+      `);
+      const byCode = new Map(customerRows.rows.map((row) => [String(row.customer_code || "").trim().toUpperCase(), row]));
+      const byMobile = new Map(customerRows.rows.map((row) => [String(row.mobile_no || "").replace(/\D/g, "").slice(-10), row]));
+      responseRows = sheetRows.map((sheetRow, index) => {
+        const customer = byCode.get(sheetRow.customerCode.toUpperCase()) || byMobile.get(sheetRow.mobileNo.replace(/\D/g, "").slice(-10));
+        return {
+          row_type: "TO_BE_SCHEDULED",
+          schedule_id: null,
+          customer_id: customer?.id || null,
+          customer_code: customer?.customer_code || sheetRow.customerCode,
+          customer_name: customer?.customer_name || sheetRow.customerName,
+          mobile_no: customer?.mobile_no || sheetRow.mobileNo,
+          city: customer?.city || sheetRow.city,
+          address: customer?.address || sheetRow.address,
+          customer_status: sheetRow.status,
+          amc_warranty_due: sheetRow.amcWarrantyDueText,
+          schedule_month: new Date().toISOString().slice(0, 7) + "-01",
+          scheduled_date: null,
+          preferred_time: null,
+          schedule_status: "TO_BE_SCHEDULED",
+          assigned_technician_user_id: null,
+          assigned_technician_name: null,
+          service_type: "MONTHLY_SERVICE",
+          checked_in_at: null,
+          duration_minutes: null,
+          completed_at: null,
+          fallback_row: index,
+        };
+      });
+      total = responseRows.length;
+      fallbackUnassigned = responseRows.length;
+    }
+
     res.setHeader("Cache-Control", "private, no-store, max-age=0");
     return res.status(200).json({
       success: true,
-      rows: rowsResult.rows.map((row) => ({
+      rows: responseRows.map((row) => ({
         rowType: row.row_type,
         scheduleId: row.schedule_id,
         customerId: row.customer_id,
@@ -357,10 +401,10 @@ export default async function handler(req, res) {
       })),
       summary: {
         scheduled: summaryResult.rows[0]?.scheduled || 0,
-        toBeScheduled: summaryResult.rows[0]?.to_be_scheduled || 0,
-        unassigned: summaryResult.rows[0]?.to_be_scheduled || 0,
-        assigned: summaryResult.rows[0]?.assigned || 0,
-        completed: summaryResult.rows[0]?.completed || 0,
+        toBeScheduled: fallbackUnassigned || summaryResult.rows[0]?.to_be_scheduled || 0,
+        unassigned: fallbackUnassigned || summaryResult.rows[0]?.to_be_scheduled || 0,
+        assigned: fallbackUnassigned ? 0 : summaryResult.rows[0]?.assigned || 0,
+        completed: fallbackUnassigned ? 0 : summaryResult.rows[0]?.completed || 0,
         today: summaryResult.rows[0]?.today || 0,
         total,
       },
