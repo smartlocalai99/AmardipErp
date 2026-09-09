@@ -12,6 +12,12 @@ const UNITS = ["Nos", "Meter", "Kg", "Set", "Roll", "Box", "Packet", "Litre", "O
 
 const PRIMARY_COLOR = "#0a649d";
 
+// Staff who also help run the store (manager/admin/superadmin) can still
+// open this dashboard directly — same set the store API routes already
+// trust, and the same set Storelogin.jsx redirects here in the first
+// place, so a manager isn't bounced back out the moment they land.
+const STORE_ROLES = new Set(["storekeeper", "manager", "admin", "superadmin"]);
+
 export async function getServerSideProps(context) {
     const user = await getUserFromRequest(context.req);
 
@@ -24,11 +30,11 @@ export async function getServerSideProps(context) {
         };
     }
 
-    if (user.role !== "storekeeper") {
+    if (!STORE_ROLES.has(user.role)) {
         return {
             redirect: {
-                destination: user.role === "customer" 
-                    ? "/Customerdashboard" 
+                destination: user.role === "customer"
+                    ? "/Customerdashboard"
                     : (user.role === "worker" ? "/Techniciandashboard" : "/Admindashboard"),
                 permanent: false,
             },

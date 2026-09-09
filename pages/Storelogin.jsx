@@ -10,11 +10,18 @@ const LOGIN_THEME = {
   primaryDeep: "#062f4f",
 };
 
+// Staff who also help run the store (manager/admin/superadmin) still land
+// on Storedashboard when they open the Store app specifically — same
+// credentials, but which app they opened decides where they end up, not
+// just their primary role. Matches the STORE_ROLES the store API routes
+// already trust for exactly this reason.
+const STORE_ROLES = new Set(["storekeeper", "manager", "admin", "superadmin"]);
+
 export async function getServerSideProps(context) {
   const user = await getUserFromRequest(context.req);
 
   if (user) {
-    if (user.role === "storekeeper") {
+    if (STORE_ROLES.has(user.role)) {
       return {
         redirect: {
           destination: "/Storedashboard",
@@ -207,7 +214,7 @@ export default function Storelogin() {
         throw new Error(data.message || "Unable to sign in");
       }
 
-      if (data.user?.role === "storekeeper") {
+      if (STORE_ROLES.has(data.user?.role)) {
         await router.replace("/Storedashboard");
         return;
       }
