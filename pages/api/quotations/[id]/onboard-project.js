@@ -1,7 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { createAuditLog } from "@/lib/auditLog";
 import { canGenerateBoq, isBoqAdmin } from "@/lib/quotationPermissions";
-import { onboardQuotationAsProject } from "@/lib/quotations";
+import { appendOngoingProjectRow } from "@/lib/googleSheets";
+import { markProjectSheetRow, onboardQuotationAsProject } from "@/lib/quotations";
 
 async function safeAudit(args) {
   try {
@@ -27,6 +28,12 @@ export default async function handler(req, res) {
       agreedAmount: req.body?.agreedAmount,
       advanceAmount: req.body?.advanceAmount,
     });
+    let sheetRow = result.project.googleSheetRow;
+    if (!sheetRow) {
+      sheetRow = await appendOngoingProjectRow(result.project, result.quotation);
+      await markProjectSheetRow({ projectId: result.project.id, rowNumber: sheetRow });
+      result.project.googleSheetRow = sheetRow;
+    }
     await safeAudit({
       req,
       actor,

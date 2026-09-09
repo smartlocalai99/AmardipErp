@@ -130,6 +130,9 @@ export default function QuotationsPage({ user, initialData }) {
   const [projectsTotal, setProjectsTotal] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectQuotation, setProjectQuotation] = useState(null);
+  const projectsCacheRef = useRef(new Map());
+  const projectsRequestRef = useRef(null);
+  const projectsAbortRef = useRef(null);
   const fieldRefs = useRef({});
   // Guards against double-tap double-submits: React state updates (and the
   // `disabled` attribute they drive) land on the next render, which is too
@@ -164,19 +167,36 @@ export default function QuotationsPage({ user, initialData }) {
   }
 
   async function fetchProjects() {
+    const cacheKey = search.trim().toLowerCase();
+    const cached = projectsCacheRef.current.get(cacheKey);
+    if (cached) {
+      setProjects(cached.projects);
+      setProjectsTotal(cached.total);
+      return;
+    }
+    if (projectsRequestRef.current === cacheKey) return;
+    projectsRequestRef.current = cacheKey;
+    projectsAbortRef.current?.abort();
+    const controller = new AbortController();
+    projectsAbortRef.current = controller;
     setProjectsLoading(true);
     setError("");
     try {
       const params = new URLSearchParams({ page: "1", pageSize: String(DEFAULT_PAGE_SIZE) });
       if (search) params.set("search", search);
-      const res = await fetch(`/api/quotations/projects?${params.toString()}`);
+      const res = await fetch(`/api/quotations/projects?${params.toString()}`, { signal: controller.signal });
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error(data.message || "Failed to load ongoing projects");
-      setProjects(data.projects || []);
-      setProjectsTotal(data.total || 0);
+      const nextProjects = data.projects || [];
+      const nextTotal = data.total || 0;
+      projectsCacheRef.current.set(cacheKey, { projects: nextProjects, total: nextTotal });
+      setProjects(nextProjects);
+      setProjectsTotal(nextTotal);
     } catch (err) {
-      setError(err.message);
+      if (err.name !== "AbortError") setError(err.message);
     } finally {
+      if (projectsRequestRef.current === cacheKey) projectsRequestRef.current = null;
+      if (projectsAbortRef.current === controller) projectsAbortRef.current = null;
       setProjectsLoading(false);
     }
   }
@@ -546,6 +566,7 @@ export default function QuotationsPage({ user, initialData }) {
           onSuccess={() => {
             setProjectQuotation(null);
             setActiveTab("projects");
+            projectsCacheRef.current.clear();
             load();
             fetchProjects();
           }}
@@ -796,7 +817,7 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
       <p className="mt-2 text-[11px] text-slate-400 truncate">{quotation.doorType} · {quotation.cabinType}</p>
       <div className="mt-3 border-t border-slate-100 pt-3">
         <p className="text-sm font-black text-slate-900">{quotation.finalPrice ? `₹${formatRupees(quotation.finalPrice)}` : "—"}</p>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {canGenerate && quotation.status === "DRAFT" && (
             <button
               onClick={onRefreshPrice}
@@ -826,9 +847,9 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
           {canGenerate && shareEnabled && quotation.status !== "CONVERTED_TO_PROJECT" && (
             <button
               onClick={onOnboardProject}
-              className="h-10 rounded-xl bg-emerald-600 text-[11px] font-black text-white active:scale-95 transition shadow-sm"
+              className="col-span-2 h-10 rounded-xl bg-emerald-600 text-[11px] font-black text-white active:scale-95 transition shadow-sm"
             >
-              Onboard Project
+              Onboard Customer
             </button>
           )}
         </div>
@@ -888,7 +909,7 @@ function ProjectOnboardingModal({ quotation, onClose, onSuccess }) {
   }
 
   return (
-    <Modal title="Onboard Project" onClose={() => !submitting && onClose()}>
+    <Modal title="Onboard Customer" onClose={() => !submitting && onClose()}>
       <div className="space-y-4">
         <div className="rounded-2xl bg-slate-50 p-3">
           <p className="text-sm font-black text-slate-900">{quotation.customerName}</p>
@@ -899,7 +920,7 @@ function ProjectOnboardingModal({ quotation, onClose, onSuccess }) {
         {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={onClose} disabled={submitting} className="h-12 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-700 disabled:opacity-50">Cancel</button>
-          <button type="button" onClick={submit} disabled={submitting} className="h-12 rounded-2xl bg-emerald-600 text-sm font-black text-white disabled:opacity-50">{submitting ? "Onboarding…" : "Onboard Project"}</button>
+          <button type="button" onClick={submit} disabled={submitting} className="h-12 rounded-2xl bg-emerald-600 text-sm font-black text-white disabled:opacity-50">{submitting ? "Onboarding…" : "Onboard Customer"}</button>
         </div>
       </div>
     </Modal>
