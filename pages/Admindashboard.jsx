@@ -1093,6 +1093,10 @@ function AdmindashboardShell({ user }) {
 
     // Technician availability list
     const [technicians, setTechnicians] = useState([]);
+    // What each technician is currently working on (project/service/breakdown),
+    // or their most recent past assignment if nothing's active right now —
+    // keyed by user id. Fetched alongside the technicians list itself.
+    const [technicianWork, setTechnicianWork] = useState({});
 
     // Technician assignment detail (real complaints + service visits, fetched on open)
     const [technicianDetail, setTechnicianDetail] = useState(null);
@@ -1139,6 +1143,24 @@ function AdmindashboardShell({ user }) {
             return () => clearTimeout(timer);
         }
     }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Only fetched for the Service Crew list itself — nowhere else needs it.
+    useEffect(() => {
+        if (activeTab !== "technicians") return;
+        let active = true;
+        (async () => {
+            try {
+                const res = await fetch("/api/users/technician-work");
+                const data = await res.json();
+                if (active && data.success) setTechnicianWork(data.work || {});
+            } catch (err) {
+                console.error("Failed to load technician current work:", err);
+            }
+        })();
+        return () => {
+            active = false;
+        };
+    }, [activeTab]);
 
     async function handleLogout() {
         setLoading(true);
@@ -1891,7 +1913,10 @@ function AdmindashboardShell({ user }) {
                             </div>
 
                             <div className="space-y-2.5">
-                                {technicians.map(t => (
+                                {technicians.map(t => {
+                                    const work = technicianWork[t.id];
+                                    const workColor = work?.type === "project" ? "text-violet-700 bg-violet-50" : work?.type === "service" ? "text-[#0a649d] bg-sky-50" : "text-red-700 bg-red-50";
+                                    return (
                                     <button
                                         key={t.id}
                                         type="button"
@@ -1902,10 +1927,20 @@ function AdmindashboardShell({ user }) {
                                             <h3 className="text-sm font-black text-slate-900 leading-tight truncate">{t.name}</h3>
                                             <p className="text-[11px] text-[#0a649d] font-bold mt-0.5">{t.role}</p>
                                             {t.phone && <p className="text-[10px] text-slate-400 font-semibold mt-1">{t.phone}</p>}
+                                            {work ? (
+                                                <span className={`mt-1.5 inline-block rounded-lg px-2 py-0.5 text-[9.5px] font-black truncate max-w-full ${workColor}`}>
+                                                    {work.isActive ? work.label : `Last: ${work.label}`}
+                                                </span>
+                                            ) : (
+                                                <span className="mt-1.5 inline-block rounded-lg bg-slate-50 px-2 py-0.5 text-[9.5px] font-black text-slate-400">
+                                                    No assignments yet
+                                                </span>
+                                            )}
                                         </div>
                                         <span className="shrink-0 pl-3 text-[10px] font-bold text-[#0a649d]">Assignments →</span>
                                     </button>
-                                ))}
+                                    );
+                                })}
                                 {technicians.length === 0 && (
                                     <div className="rounded-3xl border border-dashed border-slate-300 bg-white p-6 text-center">
                                         <p className="text-sm font-extrabold text-slate-700">No technicians on record</p>
