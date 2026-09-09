@@ -36,6 +36,7 @@ test("a repeated concurrent completion cannot write another completion, visit or
     ensureAssigneeTables: async () => {},
     reverseGeocode: async () => null,
     appendServiceCompletionToSheet: async () => {},
+    buildCustomerDateSql: (column) => column,
   };
   const source = (await readFile(new URL("../pages/api/worker/complete-job.js", import.meta.url), "utf8"))
     .replace(/^import \{([^}]+)\} from [^;]+;$/gm, "const {$1} = globalThis.__completionTest;");

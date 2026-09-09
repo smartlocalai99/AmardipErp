@@ -123,6 +123,7 @@ test("quotation statistics include permission without needing a quotation-list r
       isBoqAdmin: async () => allowed,
       ensureQuotationTables: async () => {},
       query: async () => ({ rows: [{ total_quotations: 3, draft_quotations: 1 }] }),
+      listOngoingProjectsFromSheet: async () => null,
     }, ["handler"]);
     const response = responseRecorder();
     await handler({ method: "GET" }, response);

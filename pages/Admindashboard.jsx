@@ -401,6 +401,17 @@ function formatComplaintDate(value) {
     return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+// "1h 24m" / "45m" — how long a technician was actually on site, from GPS
+// check-in to job completion.
+function formatJobDuration(minutes) {
+    if (!Number.isFinite(minutes) || minutes < 0) return null;
+    const hrs = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    if (hrs === 0) return `${mins}m`;
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+}
+
 
 function AdmindashboardShell({ user }) {
     const router = useRouter();
@@ -1565,33 +1576,66 @@ function AdmindashboardShell({ user }) {
                                     <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real breakdowns...</p>
                                 ) : complaints.length === 0 ? (
                                     <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No breakdowns found. Use Add to create the first ticket.</p>
-                                ) : complaints.map(c => (
+                                ) : complaints.map(c => {
+                                    const duration = formatJobDuration(c.jobCompletion?.durationMinutes);
+                                    const isCompleted = ["RESOLVED", "CLOSED"].includes(c.status);
+                                    return (
                                     <button
                                         key={c.id}
                                         type="button"
                                         onClick={() => openComplaintDetails(c)}
-                                        className="w-full rounded-3xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99]"
+                                        className="w-full overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] text-left shadow-sm active:scale-[0.99] transition"
                                     >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <span className="text-sm font-black text-slate-900">{c.complaintNo}</span>
-                                                    <span className={`rounded border px-2 py-0.5 text-[9px] font-black ${c.priority === "EMERGENCY" ? "bg-red-50 border-red-100 text-red-700" : "bg-slate-50 border-slate-100 text-slate-600"}`}>{c.priority}</span>
+                                        <div className="p-4 flex flex-col gap-2.5">
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0">
+                                                    <p className="truncate text-sm font-black text-slate-900">{c.customerName}</p>
+                                                    <p className="mt-0.5 text-[10.5px] font-bold text-[#0a649d]">{formatComplaintDate(c.createdAt)}</p>
                                                 </div>
-                                                <p className="mt-1 text-xs font-bold text-slate-700">{c.customerName}</p>
-                                                <p className="mt-0.5 text-[10px] text-slate-400">{c.mobileNo || "-"} · {c.city || "-"}</p>
+                                                <div className="flex shrink-0 flex-col items-end gap-1">
+                                                    <span className={`rounded-xl border px-2.5 py-1 text-[9.5px] font-black uppercase whitespace-nowrap ${complaintStatusClass(c.status)}`}>{c.status?.replaceAll("_", " ")}</span>
+                                                    {c.priority === "EMERGENCY" && (
+                                                        <span className="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-[9px] font-black text-red-700">EMERGENCY</span>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <span className={`rounded-xl border px-2.5 py-1 text-[10px] font-black ${complaintStatusClass(c.status)}`}>{c.status?.replaceAll("_", " ")}</span>
+
+                                            <p className="text-[11px] font-semibold text-slate-500">{c.mobileNo || "-"} · {c.city || "-"}</p>
+
+                                            {(c.checkedInAt || (isCompleted && c.resolvedAt) || duration) && (
+                                                <div className="flex flex-wrap gap-1.5">
+                                                    {c.checkedInAt && (
+                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
+                                                            Arrived {new Date(c.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                        </span>
+                                                    )}
+                                                    {isCompleted && c.resolvedAt && (
+                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                                                            Completed {new Date(c.resolvedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                        </span>
+                                                    )}
+                                                    {duration && (
+                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                                            Time on site: {duration}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            {c.description && (
+                                                <p className="line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{c.description}</p>
+                                            )}
+
+                                            <p className="text-[10px] font-bold text-slate-500">
+                                                {c.assignees?.length ? `Technician: ${c.assignees.map((a) => a.name).join(" & ")}` : "Unassigned"}
+                                            </p>
                                         </div>
-                                        <p className="mt-3 line-clamp-2 text-xs font-medium leading-relaxed text-slate-500">{c.description}</p>
-                                        <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-2 text-[10px] font-bold text-slate-400">
-                                            <span>{formatComplaintDate(c.createdAt)}</span>
-                                            <span className="truncate pl-2">
-                                                {c.assignees?.length ? `Worker${c.assignees.length > 1 ? "s" : ""}: ${c.assignees.map((a) => a.name).join(", ")}` : "Unassigned"}
-                                            </span>
+                                        <div className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white">
+                                            Tap to View Details &rarr;
                                         </div>
                                     </button>
-                                ))}
+                                    );
+                                })}
                             </div>
                         </div>
                     )}
@@ -1628,11 +1672,20 @@ function AdmindashboardShell({ user }) {
                             if (d.customers) setScheduleCustomers(d.customers);
                         } catch {}
                     }}
-                                    className="h-10 w-10 shrink-0 rounded-full bg-[#0a649d] text-white flex items-center justify-center shadow-md active:scale-95 transition"
+                                    className="flex h-10 shrink-0 items-center gap-1.5 rounded-full bg-[#0a649d] px-4 text-white shadow-md active:scale-95 transition"
                                 >
-                                    <PlusIcon className="h-5 w-5" />
+                                    <PlusIcon className="h-4 w-4" />
+                                    <span className="text-xs font-black whitespace-nowrap">Assign Service</span>
                                 </button>
                             </div>
+
+                            {/* Any customer can be scheduled here, not only the ones the
+                                sheet/DB heuristic below flags as due — a customer with a
+                                data mismatch (blank mobile, re-coded customer_code) never
+                                surfaces in that list otherwise. */}
+                            <p className="-mt-3 text-[11px] font-semibold text-slate-400">
+                                Don&apos;t see who you&apos;re looking for below? Tap <span className="font-black text-[#0a649d]">Assign Service</span> above to search every customer and schedule them directly.
+                            </p>
 
                             <div className="space-y-3">
                                 {serviceViewMode === "month" && (
@@ -1705,27 +1758,25 @@ function AdmindashboardShell({ user }) {
                                         const key = `${row.rowType}-${row.scheduleId || row.customerId}`;
                                         if (row.rowType === "TO_BE_SCHEDULED") {
                                             return (
-                                                <div key={key} className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                                                    <div className="flex justify-between items-start gap-3">
-                                                        <div className="min-w-0">
-                                                            <h3 className="text-sm font-extrabold text-slate-900 truncate">{row.customerName || "—"}</h3>
-                                                            <p className="text-[10px] text-slate-400 mt-0.5">{row.city || row.mobileNo || "-"}</p>
+                                                <div key={key} className="overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] shadow-sm">
+                                                    <div className="p-4 flex flex-col gap-2.5">
+                                                        <div className="flex items-start justify-between gap-2">
+                                                            <p className="truncate text-sm font-black text-slate-900">{row.customerName || "—"}</p>
+                                                            <span className="shrink-0 rounded-xl px-2.5 py-1 text-[9.5px] font-black uppercase bg-amber-100 text-amber-800">
+                                                                To Be Scheduled
+                                                            </span>
                                                         </div>
-                                                        <span className="text-[9px] font-bold px-2 py-0.5 rounded shrink-0 bg-amber-100 text-amber-800">
-                                                            TO BE SCHEDULED
-                                                        </span>
-                                                    </div>
-                                                    <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                                                        <span className="text-slate-400 font-semibold">
+                                                        <p className="text-[11px] font-semibold text-slate-500">{row.mobileNo || "-"} · {row.city || "-"}</p>
+                                                        <p className="text-[10px] font-bold text-slate-500">
                                                             {row.lastServiceDate ? `Last visit: ${new Date(row.lastServiceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : "No service history"}
-                                                        </span>
-                                                        <button
-                                                            onClick={() => openAssignForCustomer(row)}
-                                                            className="h-8 rounded-lg bg-[#0a649d] px-3 text-[10px] font-bold text-white active:scale-95 transition"
-                                                        >
-                                                            Assign Worker
-                                                        </button>
+                                                        </p>
                                                     </div>
+                                                    <button
+                                                        onClick={() => openAssignForCustomer(row)}
+                                                        className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white active:scale-[0.99] transition"
+                                                    >
+                                                        Assign Worker
+                                                    </button>
                                                 </div>
                                             );
                                         }
@@ -1737,47 +1788,66 @@ function AdmindashboardShell({ user }) {
                                             if (s === "ASSIGNED") return "bg-sky-100 text-sky-800";
                                             return "bg-blue-100 text-blue-800";
                                         };
+                                        const rowDuration = formatJobDuration(row.durationMinutes);
 
                                         return (
                                             <div
                                                 key={key}
                                                 onClick={() => openScheduleDetail(row.scheduleId)}
-                                                className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm cursor-pointer active:scale-[0.99] transition"
+                                                className="overflow-hidden rounded-3xl bg-[#eaf5fc] border border-[#cfe8f7] shadow-sm cursor-pointer active:scale-[0.99] transition"
                                             >
-                                                <div className="flex justify-between items-start gap-3">
-                                                    <div className="min-w-0">
-                                                        <h3 className="text-sm font-extrabold text-slate-900 truncate">{row.customerName || "—"}</h3>
-                                                        <p className="text-[10px] text-slate-400 mt-0.5">
-                                                            Engineer: <span className="font-semibold text-slate-600">{row.assignedTechnicianName || "Unassigned"}</span>
-                                                        </p>
-                                                        {row.city && <p className="text-[10px] text-slate-400">{row.city}</p>}
-                                                        {row.checkedInAt && <p className="mt-1 text-[10px] font-semibold text-emerald-700">Went: {new Date(row.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>}
+                                                <div className="p-4 flex flex-col gap-2.5">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-sm font-black text-slate-900">{row.customerName || "—"}</p>
+                                                            <p className="mt-0.5 text-[10.5px] font-bold text-[#0a649d]">
+                                                                {row.scheduledDate
+                                                                    ? new Date(row.scheduledDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })
+                                                                    : "Date TBD"}
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex shrink-0 items-center gap-1.5">
+                                                            <span className={`rounded-xl px-2.5 py-1 text-[9.5px] font-black uppercase whitespace-nowrap ${statusBadge(row.scheduleStatus)}`}>
+                                                                {row.scheduleStatus?.replace("_", " ")}
+                                                            </span>
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); deleteScheduleAndRefresh(row.scheduleId); }}
+                                                                className="h-7 w-7 flex items-center justify-center rounded-lg bg-white/70 border border-[#cfe8f7] text-red-500 hover:bg-red-50 transition cursor-pointer"
+                                                                title="Delete"
+                                                            >
+                                                                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
                                                     </div>
-                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded shrink-0 ${statusBadge(row.scheduleStatus)}`}>
-                                                        {row.scheduleStatus?.replace("_", " ")}
-                                                    </span>
+
+                                                    <p className="text-[11px] font-semibold text-slate-500">
+                                                        {row.city ? `${row.city} · ` : ""}Engineer: <span className="font-bold text-slate-700">{row.assignedTechnicianName || "Unassigned"}</span>
+                                                    </p>
+
+                                                    {(row.checkedInAt || (row.scheduleStatus === "COMPLETED" && row.completedAt) || rowDuration) && (
+                                                        <div className="flex flex-wrap gap-1.5">
+                                                            {row.checkedInAt && (
+                                                                <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
+                                                                    Arrived {new Date(row.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                                </span>
+                                                            )}
+                                                            {row.scheduleStatus === "COMPLETED" && row.completedAt && (
+                                                                <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                                                                    Completed {new Date(row.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                                </span>
+                                                            )}
+                                                            {rowDuration && (
+                                                                <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                                                    Time on site: {rowDuration}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                <div className="mt-3.5 pt-3 border-t border-slate-100 flex items-center justify-between text-[10px]">
-                                                    <span className="text-slate-400 font-semibold">
-                                                        {row.scheduledDate
-                                                            ? new Date(row.scheduledDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })
-                                                            : "Date TBD"}
-                                                    </span>
-                                                    <div className="text-right text-[10px] font-semibold text-slate-500">
-                                                        {row.completedAt && <p className="text-emerald-700">Completed: {new Date(row.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</p>}
-                                                        {row.durationMinutes != null && <p>Time: {row.durationMinutes}m</p>}
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        <button
-                                                            onClick={(e) => { e.stopPropagation(); deleteScheduleAndRefresh(row.scheduleId); }}
-                                                            className="h-7 w-7 flex items-center justify-center rounded-lg bg-red-50 border border-red-100 text-red-500 hover:bg-red-100 transition cursor-pointer"
-                                                            title="Delete"
-                                                        >
-                                                            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-                                                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                                            </svg>
-                                                        </button>
-                                                    </div>
+                                                <div className="w-full bg-[#0a649d] py-3 text-center text-xs font-black text-white">
+                                                    Tap to View Details &rarr;
                                                 </div>
                                             </div>
                                         );
@@ -2667,11 +2737,11 @@ function AdmindashboardShell({ user }) {
                                                         className="w-full rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm"
                                                     >
                                                         <div className="flex items-center justify-between gap-2">
-                                                            <span className="truncate text-[11px] font-black text-slate-900">{c.complaintNo}</span>
+                                                            <span className="truncate text-[11px] font-black text-slate-900">{c.customerName || "Customer"}</span>
                                                             <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[8px] font-black uppercase ${complaintStatusClass(c.status)}`}>{c.status}</span>
                                                         </div>
                                                         <p className="mt-1 truncate text-[10px] font-semibold text-slate-500">
-                                                            {c.customerName || "Customer"} · {c.complaintType ? c.complaintType.replaceAll("_", " ") : "Ticket"}
+                                                            {c.complaintType ? c.complaintType.replaceAll("_", " ") : "Ticket"}
                                                         </p>
                                                         {c.createdAt && (
                                                             <p className="mt-0.5 text-[9px] font-bold text-slate-400">{formatDeviceDate(c.createdAt)}</p>
@@ -3158,7 +3228,7 @@ function AdmindashboardShell({ user }) {
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
                             <div>
                                 <h2 className="text-base font-bold">Breakdown Ticket</h2>
-                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.complaintNo}</p>
+                                <p className="text-[10px] text-white/80 font-bold uppercase tracking-wider">{selectedComplaint.customerName}</p>
                             </div>
                             <button
                                 onClick={() => setSelectedComplaint(null)}
