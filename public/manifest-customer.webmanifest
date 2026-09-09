@@ -4,7 +4,7 @@
   "description": "Track your elevator's service visits, raise a complaint, and reach your technician.",
   "id": "/Customerlogin",
   "start_url": "/Customerlogin",
-  "scope": "/",
+  "scope": "/Customer",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0a649d",

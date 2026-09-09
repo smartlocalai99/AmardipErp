@@ -4,7 +4,7 @@
   "description": "Manage assigned jobs, check in on site, and submit completion reports.",
   "id": "/Technicianlogin",
   "start_url": "/Technicianlogin",
-  "scope": "/",
+  "scope": "/Technician",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0a649d",

@@ -4,7 +4,7 @@
   "description": "Issue and collect spare parts for Amardip Elevators service jobs.",
   "id": "/Storelogin",
   "start_url": "/Storelogin",
-  "scope": "/",
+  "scope": "/Store",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#0a649d",
