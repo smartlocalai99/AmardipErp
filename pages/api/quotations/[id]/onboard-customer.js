@@ -21,6 +21,7 @@ async function safeAppendCustomerListRow(customer) {
       customerCode: customer.customer_code,
       customerName: customer.customer_name,
       address: customer.address || "",
+      city: customer.city || "",
       mobileNo: customer.mobile_no || "",
       status: customer.customer_status || "AMC",
       amcWarrantyDue: customer.amc_warranty_due,

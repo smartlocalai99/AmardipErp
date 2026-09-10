@@ -702,7 +702,10 @@ function AdmindashboardShell({ user }) {
         setActiveTab(tab);
         if (tab !== "more") setMoreSubTab(null);
         setSearchQuery("");
-        setStatusFilter("all");
+        // Breakdowns should always open on "New" — that's the thing that
+        // actually needs attention — not whatever filter happened to be
+        // active last, and not every ticket ever raised.
+        setStatusFilter(tab === "complaints" ? "UNASSIGNED" : "all");
         const query = tab === "dashboard" ? {} : { tab };
         router.replace({ pathname: "/Admindashboard", query }, undefined, { shallow: true });
     }

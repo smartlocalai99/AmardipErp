@@ -818,10 +818,16 @@ export default function Customerdashboard({
     const completedServiceTickets = serviceTickets.filter(
         (c) => ["RESOLVED", "CLOSED"].includes(c.rawStatus)
     );
+    // Legacy sheet-imported visits and real app-completed tickets were
+    // simply concatenated (legacy always first) regardless of which
+    // actually happened more recently — so "Last serviced" and the top of
+    // this list could show a years-old imported row with no signature/work
+    // report, burying a customer's actual latest completed visit further
+    // down. Sorted by real date instead.
     const serviceHistoryTickets = [
         ...serviceVisits.map(mapServiceVisitForCustomer),
         ...completedServiceTickets,
-    ];
+    ].sort((a, b) => new Date(b.date) - new Date(a.date));
     const latestServiceTicket = serviceHistoryTickets[0] || null;
 
     return (
