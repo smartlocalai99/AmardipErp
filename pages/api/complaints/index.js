@@ -42,6 +42,7 @@ export default async function handler(req, res) {
         filters: {
           search: req.query.search,
           status: req.query.status,
+          statusIn: typeof req.query.statusIn === "string" ? req.query.statusIn.split(",").filter(Boolean) : undefined,
           priority: req.query.priority,
           complaintType: req.query.complaintType,
           excludeComplaintType: includeServiceRequests ? undefined : "SERVICE_REQUEST",

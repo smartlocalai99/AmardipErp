@@ -775,8 +775,8 @@ function AdmindashboardShell({ user }) {
                 pageSize: "50",
             });
             if (searchQuery.trim()) params.set("search", searchQuery.trim());
-            if (statusFilter === "EMERGENCY") params.set("priority", "EMERGENCY");
-            else if (statusFilter === "COMPLETED") params.set("status", "RESOLVED");
+            if (statusFilter === "ASSIGNED") params.set("statusIn", "ASSIGNED,IN_PROGRESS");
+            else if (statusFilter === "COMPLETED") params.set("statusIn", "RESOLVED,CLOSED,CANCELLED");
             else if (statusFilter !== "all") params.set("status", statusFilter);
 
             const [listRes] = await Promise.all([
@@ -1578,8 +1578,8 @@ function AdmindashboardShell({ user }) {
                             <div className="grid grid-cols-3 gap-2">
                                 {[
                                     ["UNASSIGNED", "New", complaintStats?.unassignedComplaints || 0],
-                                    ["EMERGENCY", "Emergency", complaintStats?.emergencyComplaints || 0],
-                                    ["COMPLETED", "Completed", complaintStats?.resolvedComplaints || 0],
+                                    ["ASSIGNED", "Assigned", complaintStats?.assignedComplaints || 0],
+                                    ["COMPLETED", "Completed", complaintStats?.completedComplaints || 0],
                                 ].map(([status, label, value]) => (
                                     <button
                                         key={status}
