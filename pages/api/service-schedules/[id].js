@@ -50,17 +50,6 @@ export default async function handler(req, res) {
       materials = await getMaterialsForComplaint(row.linked_complaint_id);
     }
 
-    // Prior visits for this same customer, so opening one service card
-    // shows their history, not just this one appointment.
-    const historyResult = await query(
-      `SELECT id, service_date, service_type, technician_1, technician_2, remarks
-         FROM elevator_service_visits
-        WHERE customer_id = $1
-        ORDER BY service_date DESC
-        LIMIT 10`,
-      [row.customer_id]
-    );
-
     return res.status(200).json({
       success: true,
       schedule: {
@@ -82,13 +71,6 @@ export default async function handler(req, res) {
         assignees,
         jobCompletion,
         materials,
-        history: historyResult.rows.map((v) => ({
-          id: v.id,
-          serviceDate: v.service_date,
-          serviceType: v.service_type,
-          technicians: [v.technician_1, v.technician_2].filter(Boolean).join(" & "),
-          remarks: v.remarks,
-        })),
       },
     });
   }

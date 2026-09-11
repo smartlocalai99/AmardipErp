@@ -3739,26 +3739,6 @@ function AdmindashboardShell({ user }) {
                                 </>
                             )}
 
-                            {selectedSchedule.history?.length > 0 && (
-                                <>
-                                    <hr className="border-slate-100" />
-                                    <div>
-                                        <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Previous Service History</span>
-                                        <div className="space-y-1.5">
-                                            {selectedSchedule.history.map((v) => (
-                                                <div key={v.id} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 flex items-center justify-between gap-2">
-                                                    <div className="min-w-0">
-                                                        <p className="text-xs font-bold text-slate-700">{v.serviceDate ? new Date(v.serviceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}</p>
-                                                        <p className="text-[10px] text-slate-400 truncate">{v.technicians || "Technician not recorded"}</p>
-                                                    </div>
-                                                    <span className="shrink-0 text-[9px] font-bold uppercase text-slate-400">{v.serviceType?.replaceAll("_", " ") || "Service"}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </>
-                            )}
-
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
                                 {!selectedScheduleIsTerminal && (
                                     <button
