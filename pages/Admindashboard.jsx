@@ -614,6 +614,9 @@ function AdmindashboardShell({ user }) {
         technicianIdJunior: "",
         notes: "",
     });
+    // Set while the Schedule modal is editing an existing schedule's date/
+    // assignment rather than creating a new one — null means "create mode".
+    const [editingScheduleId, setEditingScheduleId] = useState(null);
 
     // Database user directory states
     const [usersList, setUsersList] = useState([]);
@@ -867,6 +870,7 @@ function AdmindashboardShell({ user }) {
 
     async function openAssignForCustomer(row) {
         fetchUsers();
+        setEditingScheduleId(null);
         setNewSchedule({
             customerId: row.customerId,
             customerName: row.customerName,
@@ -1381,6 +1385,36 @@ function AdmindashboardShell({ user }) {
             .filter(Boolean)
             .map(Number);
 
+        if (editingScheduleId) {
+            try {
+                const res = await fetch(`/api/service-schedules/${editingScheduleId}`, {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        scheduledDate: newSchedule.scheduledDate || "",
+                        assignedTechnicianUserIds,
+                    }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || "Failed to update assignment");
+                await fetchUpcomingServiceRows(serviceSearch);
+            } catch (err) {
+                Swal.fire({ icon: "error", title: "Could not update", text: err.message || "Something went wrong.", confirmButtonColor: "#0a649d" });
+            }
+            setEditingScheduleId(null);
+            setNewSchedule({
+                customerId: "",
+                customerName: "",
+                customerLocked: false,
+                scheduledDate: "",
+                technicianIdSenior: "",
+                technicianIdJunior: "",
+                notes: "",
+            });
+            setShowScheduleModal(false);
+            return;
+        }
+
         try {
             const res = await fetch("/api/service-schedules", {
                 method: "POST",
@@ -1415,6 +1449,34 @@ function AdmindashboardShell({ user }) {
         setShowScheduleModal(false);
     }
 
+    // Prefills the Schedule modal with an existing schedule's date/crew so
+    // admin can change who's assigned or when, instead of only being able to
+    // delete and recreate it from scratch.
+    function openEditSchedule(schedule) {
+        if (!schedule || schedule.id === undefined) return;
+        fetchUsers();
+        const assigneeIds = (schedule.assignees || []).map((a) => String(a.id));
+        setEditingScheduleId(schedule.id);
+        setNewSchedule({
+            customerId: schedule.customerId ? String(schedule.customerId) : "",
+            customerName: schedule.customerName || "",
+            customerLocked: true,
+            // Local calendar getters, not toISOString()/slice(0, 10) — the
+            // stored DATE round-trips through JSON as a UTC instant, which
+            // would show a day early for IST (UTC+5:30) once sliced raw.
+            scheduledDate: (() => {
+                if (!schedule.scheduledDate) return "";
+                const d = new Date(schedule.scheduledDate);
+                return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+            })(),
+            technicianIdSenior: assigneeIds[0] || "",
+            technicianIdJunior: assigneeIds[1] || "",
+            notes: schedule.notes || "",
+        });
+        setSelectedSchedule(null);
+        setShowScheduleModal(true);
+    }
+
     async function openScheduleDetail(id) {
         if (!id) return;
         setSelectedSchedule({ loading: true });
@@ -1433,6 +1495,7 @@ function AdmindashboardShell({ user }) {
     const canViewStaffCredentials = ["superadmin", "admin", "manager"].includes(user?.role);
 
     const selectedComplaintIsTerminal = ["RESOLVED", "CLOSED", "CANCELLED"].includes(String(selectedComplaint?.status || "").toUpperCase());
+    const selectedScheduleIsTerminal = ["COMPLETED", "CANCELLED"].includes(String(selectedSchedule?.status || "").toUpperCase());
 
     return (
         <div className="min-h-[100dvh] bg-slate-900 sm:py-6 flex items-center justify-center font-sans antialiased">
@@ -1688,6 +1751,7 @@ function AdmindashboardShell({ user }) {
                                 </div>
                                 <button
                                     onClick={async () => {
+                        setEditingScheduleId(null);
                         setNewSchedule({
                             customerId: "",
                             customerName: "",
@@ -3043,9 +3107,9 @@ function AdmindashboardShell({ user }) {
                 <div className="amardip-modal-layer fixed inset-0 flex items-center justify-center bg-slate-900/60 px-4 backdrop-blur-sm">
                     <div className="w-full max-w-sm bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-5 py-4.5 bg-[#0a649d] text-white flex items-center justify-between">
-                            <h2 className="text-base font-bold">Schedule Service Call</h2>
+                            <h2 className="text-base font-bold">{editingScheduleId ? "Edit Assignment" : "Schedule Service Call"}</h2>
                             <button
-                                onClick={() => setShowScheduleModal(false)}
+                                onClick={() => { setShowScheduleModal(false); setEditingScheduleId(null); }}
                                 className="h-8 w-8 flex items-center justify-center bg-white/10 rounded-full text-white hover:bg-white/20 transition"
                             >
                                 <CloseIcon className="h-5 w-5" />
@@ -3122,21 +3186,23 @@ function AdmindashboardShell({ user }) {
                                 )}
                             </div>
 
-                            <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Notes (optional)</label>
-                                <input
-                                    type="text"
-                                    value={newSchedule.notes}
-                                    onChange={(e) => setNewSchedule({ ...newSchedule, notes: e.target.value })}
-                                    placeholder="Any special instructions…"
-                                    className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base outline-none focus:border-[#0a649d] transition"
-                                />
-                            </div>
+                            {!editingScheduleId && (
+                                <div>
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Notes (optional)</label>
+                                    <input
+                                        type="text"
+                                        value={newSchedule.notes}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, notes: e.target.value })}
+                                        placeholder="Any special instructions…"
+                                        className="h-10.5 w-full px-4 rounded-xl border border-slate-200 text-base outline-none focus:border-[#0a649d] transition"
+                                    />
+                                </div>
+                            )}
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
                                 <button
                                     type="button"
-                                    onClick={() => setShowScheduleModal(false)}
+                                    onClick={() => { setShowScheduleModal(false); setEditingScheduleId(null); }}
                                     className="h-10 px-4.5 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold hover:bg-slate-50 transition"
                                 >
                                     Cancel
@@ -3145,7 +3211,7 @@ function AdmindashboardShell({ user }) {
                                     type="submit"
                                     className="h-10 px-4.5 bg-[#0a649d] text-white rounded-xl text-xs font-semibold hover:bg-[#085282] transition"
                                 >
-                                    Schedule Visit
+                                    {editingScheduleId ? "Save Changes" : "Schedule Visit"}
                                 </button>
                             </div>
                         </form>
@@ -3694,6 +3760,15 @@ function AdmindashboardShell({ user }) {
                             )}
 
                             <div className="pt-4 flex gap-2.5 justify-end border-t border-slate-100">
+                                {!selectedScheduleIsTerminal && (
+                                    <button
+                                        type="button"
+                                        onClick={() => openEditSchedule(selectedSchedule)}
+                                        className="h-10 px-4.5 border border-[#0a649d] bg-[#eaf5fc] text-[#0a649d] rounded-xl text-xs font-semibold hover:bg-[#d9edf8] transition cursor-pointer"
+                                    >
+                                        Edit
+                                    </button>
+                                )}
                                 <button
                                     type="button"
                                     onClick={async () => {

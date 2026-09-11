@@ -65,6 +65,7 @@ export default async function handler(req, res) {
       success: true,
       schedule: {
         id: row.id,
+        customerId: row.customer_id,
         customerName: row.customer_name,
         customerCode: row.customer_code,
         city: row.city,

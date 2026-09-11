@@ -142,6 +142,7 @@ export default async function handler(req, res) {
           co.checked_in_at,
           jc.duration_minutes,
           jc.completed_at,
+          s.created_at,
           FALSE AS matched_via_search
         FROM service_schedules s
         JOIN elevator_service_customers c ON c.id = s.customer_id
@@ -187,6 +188,7 @@ export default async function handler(req, res) {
           NULL::timestamptz AS checked_in_at,
           NULL::integer AS duration_minutes,
           NULL::timestamptz AS completed_at,
+          NULL::timestamptz AS created_at,
           FALSE AS matched_via_search
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
@@ -254,6 +256,7 @@ export default async function handler(req, res) {
           NULL::timestamptz AS checked_in_at,
           NULL::integer AS duration_minutes,
           NULL::timestamptz AS completed_at,
+          NULL::timestamptz AS created_at,
           TRUE AS matched_via_search
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
@@ -321,8 +324,12 @@ export default async function handler(req, res) {
       FROM filtered_rows
       ORDER BY
         CASE WHEN row_type = 'TO_BE_SCHEDULED' THEN 0 ELSE 1 END,
+        CASE WHEN row_type = 'TO_BE_SCHEDULED' THEN last_service_date END ASC NULLS FIRST,
+        CASE
+          WHEN row_type != 'TO_BE_SCHEDULED' AND schedule_status = 'COMPLETED' THEN completed_at
+          WHEN row_type != 'TO_BE_SCHEDULED' THEN created_at
+        END DESC NULLS LAST,
         scheduled_date ASC NULLS LAST,
-        last_service_date ASC NULLS FIRST,
         customer_name ASC
       LIMIT $${limitParam}
       OFFSET $${offsetParam}
