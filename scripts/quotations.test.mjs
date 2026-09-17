@@ -106,4 +106,17 @@ assert.throws(
   /Advance amount cannot be greater than agreed amount/
 );
 
+// Advance amount is optional — a project can be onboarded with nothing
+// paid up front yet.
+assert.deepEqual(validateProjectAmounts({ agreedAmount: "250000" }), {
+  agreedAmount: 250000,
+  advanceAmount: 0,
+  balanceAmount: 250000,
+});
+assert.deepEqual(validateProjectAmounts({ agreedAmount: "250000", advanceAmount: "" }), {
+  agreedAmount: 250000,
+  advanceAmount: 0,
+  balanceAmount: 250000,
+});
+
 console.log("quotations tests passed");

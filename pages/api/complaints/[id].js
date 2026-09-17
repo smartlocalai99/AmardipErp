@@ -1,6 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { createAuditLog } from "@/lib/auditLog";
 import { canViewComplaint, getComplaintById, updateComplaintStatus } from "@/lib/complaints";
+import { canDeleteJobAssignment } from "@/lib/jobAssignmentPermissions";
 
 const UPDATE_ROLES = new Set(["superadmin", "admin", "manager", "front_office", "worker"]);
 
@@ -37,6 +38,9 @@ export default async function handler(req, res) {
   if (req.method === "PATCH") {
     if (!UPDATE_ROLES.has(actor.role)) {
       return res.status(403).json({ success: false, message: "Unauthorized." });
+    }
+    if (String(req.body?.status || "").toUpperCase() === "CANCELLED" && !canDeleteJobAssignment(actor)) {
+      return res.status(403).json({ success: false, message: "You don't have permission to cancel this." });
     }
 
     try {

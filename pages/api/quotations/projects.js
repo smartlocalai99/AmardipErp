@@ -20,8 +20,16 @@ export default async function handler(req, res) {
         return [];
       }),
     ]);
-    const seen = new Set(databaseResult.rows.map((project) => project.quotationNo).filter(Boolean));
-    const sheetOnly = sheetResult.filter((project) => !project.quotationNo || !seen.has(project.quotationNo));
+    const seenByQuotationNo = new Set(databaseResult.rows.map((project) => project.quotationNo).filter(Boolean));
+    // A legacy sheet row that's been adopted into a real project has no
+    // quotationNo (there was never a quotation) — it's tied back to its
+    // sheet row instead, so dedup needs both keys.
+    const seenBySheetRow = new Set(databaseResult.rows.map((project) => project.googleSheetRow).filter(Boolean));
+    const sheetOnly = sheetResult.filter((project) => {
+      if (project.quotationNo && seenByQuotationNo.has(project.quotationNo)) return false;
+      if (project.googleSheetRow && seenBySheetRow.has(project.googleSheetRow)) return false;
+      return true;
+    });
     const projects = [...databaseResult.rows, ...sheetOnly];
     return res.status(200).json({ success: true, projects, total: projects.length, page: databaseResult.page, pageSize: databaseResult.pageSize });
   } catch (err) {

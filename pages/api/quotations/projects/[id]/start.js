@@ -45,7 +45,7 @@ export default async function handler(req, res) {
         { userIds: crewUserIds },
         {
           title: alreadyStarted ? "Project crew updated" : "New project started",
-          body: `${project.customerName} (${project.quotationNo}) — you're on the crew for this installation.`,
+          body: `${project.customerName}${project.quotationNo ? ` (${project.quotationNo})` : ""} — you're on the crew for this installation.`,
           data: { url: "/Techniciandashboard", projectId: project.id },
         }
       );

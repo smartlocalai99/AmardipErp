@@ -5,6 +5,7 @@ import { getScheduleAssignees, setScheduleAssignees } from "@/lib/assignees";
 import { assignComplaintToWorker } from "@/lib/complaints";
 import { getJobCompletionsForMany } from "@/lib/complaints";
 import { getMaterialsForComplaint } from "@/lib/inventory";
+import { canDeleteJobAssignment } from "@/lib/jobAssignmentPermissions";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
 const ALLOWED_STATUSES = ["SCHEDULED", "ASSIGNED", "IN_PROGRESS", "COMPLETED", "CANCELLED"];
@@ -131,6 +132,9 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "DELETE") {
+    if (!canDeleteJobAssignment(user)) {
+      return res.status(403).json({ success: false, message: "You don't have permission to delete this." });
+    }
     // Dispatching a schedule creates a real complaint the worker sees and
     // acts on in their own app. Deleting only the schedule row left that
     // job dangling — still ASSIGNED, still fully visible and actionable in

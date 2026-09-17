@@ -139,6 +139,7 @@ export default function QuotationsPage({ user, initialData }) {
   const [projectQuotation, setProjectQuotation] = useState(null);
   const [startProjectTarget, setStartProjectTarget] = useState(null);
   const [checklistProject, setChecklistProject] = useState(null);
+  const [editProjectTarget, setEditProjectTarget] = useState(null);
   const projectsCacheRef = useRef(new Map());
   const projectsRequestRef = useRef(null);
   const projectsAbortRef = useRef(null);
@@ -451,6 +452,7 @@ export default function QuotationsPage({ user, initialData }) {
                   project={project}
                   onStartProject={setStartProjectTarget}
                   onOpenChecklist={setChecklistProject}
+                  onEditProject={setEditProjectTarget}
                 />
               ))}
             </div>
@@ -611,6 +613,18 @@ export default function QuotationsPage({ user, initialData }) {
         <ProjectChecklistModal
           project={checklistProject}
           onClose={() => setChecklistProject(null)}
+        />
+      )}
+
+      {editProjectTarget && (
+        <EditProjectModal
+          project={editProjectTarget}
+          onClose={() => setEditProjectTarget(null)}
+          onSuccess={() => {
+            setEditProjectTarget(null);
+            projectsCacheRef.current.clear();
+            fetchProjects();
+          }}
         />
       )}
 
@@ -906,7 +920,7 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
   );
 }
 
-function ProjectCard({ project, onStartProject, onOpenChecklist }) {
+function ProjectCard({ project, onStartProject, onOpenChecklist, onEditProject }) {
   const canStart = project.source !== "google_sheet";
   const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
   const completedKeys = new Set((project.checklistCompletions || []).map((c) => c.itemKey));
@@ -968,7 +982,16 @@ function ProjectCard({ project, onStartProject, onOpenChecklist }) {
         <div><p className="font-bold text-slate-400">Advance</p><p className="mt-0.5 font-black text-slate-900">₹{formatRupees(project.advanceAmount)}</p></div>
         <div><p className="font-bold text-slate-400">Balance</p><p className="mt-0.5 font-black text-emerald-700">₹{formatRupees(project.balanceAmount)}</p></div>
       </div>
-      <p className="mt-3 text-[10px] font-bold text-slate-400">Onboarded {project.onboardedAt ? new Date(project.onboardedAt).toLocaleDateString("en-IN") : "—"}</p>
+      <div className="mt-3 flex items-center justify-between gap-2">
+        <p className="text-[10px] font-bold text-slate-400">Onboarded {project.onboardedAt ? new Date(project.onboardedAt).toLocaleDateString("en-IN") : "—"}</p>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onEditProject(project); }}
+          className="shrink-0 text-[10px] font-black text-[#0a649d] underline underline-offset-2"
+        >
+          Edit
+        </button>
+      </div>
 
       {isStarted && (
         <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl border border-white bg-white/80 px-3 py-2.5">
@@ -1107,6 +1130,77 @@ function StartProjectModal({ project, onClose, onSuccess }) {
   );
 }
 
+// A legacy "ONGOING" sheet row (project.source === "google_sheet") has no
+// real project record yet — saving here adopts it into one (unlocking
+// Start/checklist for it, same as any quotation-onboarded project). A
+// project that's already real just gets its details updated in place.
+// Either way, edited customer details sync back to the row's own line in
+// the ONGOING sheet server-side, best-effort.
+function EditProjectModal({ project, onClose, onSuccess }) {
+  const isLegacy = project.source === "google_sheet";
+  const [customerName, setCustomerName] = useState(project.customerName || "");
+  const [mobileNo, setMobileNo] = useState(project.mobileNo || "");
+  const [address, setAddress] = useState(project.address || "");
+  const [city, setCity] = useState(project.city || "");
+  const [agreedAmount, setAgreedAmount] = useState(project.agreedAmount ? String(project.agreedAmount) : "");
+  const [advanceAmount, setAdvanceAmount] = useState(project.advanceAmount ? String(project.advanceAmount) : "");
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function submit() {
+    const agreed = Number(agreedAmount);
+    const advance = advanceAmount === "" ? 0 : Number(advanceAmount);
+    if (!customerName.trim()) return setError("Enter the customer name.");
+    if (!agreedAmount || !Number.isFinite(agreed) || agreed <= 0) return setError("Enter the agreed amount.");
+    if (!Number.isFinite(advance) || advance < 0) return setError("Advance amount must be zero or greater.");
+    if (advance > agreed) return setError("Advance cannot be greater than agreed amount.");
+
+    setSubmitting(true);
+    setError("");
+    try {
+      const url = isLegacy ? "/api/quotations/projects/adopt" : `/api/quotations/projects/${project.id}/edit`;
+      const body = isLegacy
+        ? { customerName, mobileNo, address, city, agreedAmount: agreed, advanceAmount: advance, googleSheetRow: project.googleSheetRow }
+        : { customerName, mobileNo, address, city, agreedAmount: agreed, advanceAmount: advance };
+      const res = await fetch(url, {
+        method: isLegacy ? "POST" : "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to save changes");
+      onSuccess();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={isLegacy ? "Adopt & Edit Project" : "Edit Project"} onClose={() => !submitting && onClose()}>
+      <div className="space-y-4">
+        {isLegacy && (
+          <p className="rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs font-bold text-amber-800">
+            This is an older project from the ONGOING sheet with no crew/checklist tracking yet. Saving brings it into the app so you can start it and manage it like any other project.
+          </p>
+        )}
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Customer Name *</span><input type="text" value={customerName} onChange={(e) => setCustomerName(e.target.value)} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Mobile No</span><input type="text" value={mobileNo} onChange={(e) => setMobileNo(e.target.value)} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Address</span><input type="text" value={address} onChange={(e) => setAddress(e.target.value)} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">City</span><input type="text" value={city} onChange={(e) => setCity(e.target.value)} className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Agreed Amount *</span><input type="number" min="0" value={agreedAmount} onChange={(e) => setAgreedAmount(e.target.value)} placeholder="Enter agreed amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Advance (optional)</span><input type="number" min="0" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="Enter advance amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={submitting} className="h-12 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-700 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={submit} disabled={submitting} className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50">{submitting ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // Read-only for admin — the assigned technicians are the ones who mark
 // steps done on site, from their own app. This just shows where things
 // stand and who did what.
@@ -1224,9 +1318,9 @@ function ProjectOnboardingModal({ quotation, onClose, onSuccess }) {
 
   async function submit() {
     const agreed = Number(agreedAmount);
-    const advance = Number(advanceAmount);
+    const advance = advanceAmount === "" ? 0 : Number(advanceAmount);
     if (!agreedAmount || !Number.isFinite(agreed) || agreed <= 0) return setError("Enter the agreed amount.");
-    if (!advanceAmount || !Number.isFinite(advance) || advance < 0) return setError("Enter the advance amount.");
+    if (!Number.isFinite(advance) || advance < 0) return setError("Advance amount must be zero or greater.");
     if (advance > agreed) return setError("Advance cannot be greater than agreed amount.");
     setSubmitting(true);
     setError("");
@@ -1254,7 +1348,7 @@ function ProjectOnboardingModal({ quotation, onClose, onSuccess }) {
           <p className="mt-0.5 text-xs font-bold text-slate-500">{quotation.quotationNo}</p>
         </div>
         <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Agreed Amount *</span><input type="number" min="0" value={agreedAmount} onChange={(e) => setAgreedAmount(e.target.value)} placeholder="Enter agreed amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
-        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Advance *</span><input type="number" min="0" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="Enter advance amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
+        <label className="block"><span className="mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500">Advance (optional)</span><input type="number" min="0" value={advanceAmount} onChange={(e) => setAdvanceAmount(e.target.value)} placeholder="Enter advance amount" className="h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]" /></label>
         {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={onClose} disabled={submitting} className="h-12 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-700 disabled:opacity-50">Cancel</button>
