@@ -604,6 +604,11 @@ function AdmindashboardShell({ user }) {
     const [warrantyAmounts, setWarrantyAmounts] = useState({});
     const [sendingWarrantyCustomerId, setSendingWarrantyCustomerId] = useState(null);
     const [warrantySendFeedback, setWarrantySendFeedback] = useState({});
+    const [outOfWarrantyCandidates, setOutOfWarrantyCandidates] = useState([]);
+    const [outOfWarrantyLoading, setOutOfWarrantyLoading] = useState(false);
+    const [outOfWarrantyAmounts, setOutOfWarrantyAmounts] = useState({});
+    const [sendingOutOfWarrantyId, setSendingOutOfWarrantyId] = useState(null);
+    const [outOfWarrantyFeedback, setOutOfWarrantyFeedback] = useState({});
 
     // Form inputs for new Schedule
     const [newSchedule, setNewSchedule] = useState({
@@ -985,6 +990,58 @@ function AdmindashboardShell({ user }) {
             setSendingWarrantyCustomerId(null);
         }
     }
+
+    async function fetchOutOfWarrantyCandidates() {
+        setOutOfWarrantyLoading(true);
+        try {
+            const res = await fetch("/api/elevator-customers/out-of-warranty", { cache: "no-store" });
+            const data = await res.json();
+            setOutOfWarrantyCandidates(data.success ? data.candidates : []);
+        } catch {
+            setOutOfWarrantyCandidates([]);
+        } finally {
+            setOutOfWarrantyLoading(false);
+        }
+    }
+
+    // Manual, per-customer: admin enters the AMC amount for this one
+    // customer and sends the AMC quotation notice. They stay listed as sent.
+    async function sendOutOfWarrantyQuotationFor(candidate) {
+        if (sendingOutOfWarrantyId) return;
+        const amcAmount = outOfWarrantyAmounts[candidate.id];
+        if (!amcAmount || Number(amcAmount) <= 0) {
+            setOutOfWarrantyFeedback((prev) => ({ ...prev, [candidate.id]: { error: "Enter an AMC amount first." } }));
+            return;
+        }
+
+        setSendingOutOfWarrantyId(candidate.id);
+        setOutOfWarrantyFeedback((prev) => ({ ...prev, [candidate.id]: null }));
+        try {
+            const res = await fetch("/api/elevator-customers/send-out-of-warranty", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ customerId: candidate.id, amcAmount }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setOutOfWarrantyCandidates((prev) => prev.map((c) =>
+                    c.id === candidate.id ? { ...c, sentAt: new Date().toISOString(), amcAmount } : c
+                ));
+            } else {
+                setOutOfWarrantyFeedback((prev) => ({ ...prev, [candidate.id]: { error: data.message || "Failed to send" } }));
+            }
+        } catch {
+            setOutOfWarrantyFeedback((prev) => ({ ...prev, [candidate.id]: { error: "Failed to send AMC quotation" } }));
+        } finally {
+            setSendingOutOfWarrantyId(null);
+        }
+    }
+
+    useEffect(() => {
+        if (activeTab !== "more" || moreSubTab !== "out_of_warranty") return;
+        const timer = setTimeout(() => fetchOutOfWarrantyCandidates(), 0);
+        return () => clearTimeout(timer);
+    }, [activeTab, moreSubTab]);
 
     useEffect(() => {
         if (activeTab !== "service" || serviceViewMode !== "month") return;
@@ -2137,6 +2194,85 @@ function AdmindashboardShell({ user }) {
                                         bucket="warranty"
                                         returnTo="/Admindashboard?tab=more&subtab=warranty"
                                     />
+                                </div>
+                            ) : moreSubTab === "out_of_warranty" ? (
+                                <div className="space-y-4">
+                                    <div className="flex items-center gap-3">
+                                        <button
+                                            onClick={() => openTab("dashboard")}
+                                            className="h-8.5 w-8.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-700 flex items-center justify-center shrink-0 active:scale-95 transition"
+                                        >
+                                            <svg className="h-4 w-4 stroke-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" /></svg>
+                                        </button>
+                                        <div>
+                                            <h1 className="text-xl font-black tracking-tight text-slate-900">Out of Warranty</h1>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Warranty has ended and no AMC yet — send an AMC quotation.</p>
+                                        </div>
+                                    </div>
+
+                                    {outOfWarrantyLoading ? (
+                                        <p className="rounded-2xl bg-white p-6 text-center text-xs font-bold text-slate-400">Loading customers…</p>
+                                    ) : outOfWarrantyCandidates.length === 0 ? (
+                                        <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
+                                            <p className="text-sm font-black text-slate-900">No out-of-warranty customers</p>
+                                            <p className="mt-1 text-[11px] font-bold text-slate-400">Everyone handed over is either in warranty or on an AMC.</p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            <p className="text-[11px] font-bold text-slate-500 px-0.5">
+                                                {outOfWarrantyCandidates.filter((c) => !c.sentAt).length} of {outOfWarrantyCandidates.length} still need an AMC quotation
+                                            </p>
+                                            {outOfWarrantyCandidates.map((c) => (
+                                                <div key={c.id} className="rounded-2xl border border-red-100 bg-white p-3 shadow-sm">
+                                                    <div className="flex items-start justify-between gap-2">
+                                                        <div className="min-w-0">
+                                                            <p className="truncate text-xs font-black text-slate-800">{c.customerName}</p>
+                                                            <p className="text-[10px] font-semibold text-slate-400">{c.mobileNo || "No number"}</p>
+                                                        </div>
+                                                        <span className="shrink-0 pl-2 text-[10px] font-semibold text-red-600">
+                                                            Ended {new Date(c.expiryDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                                                        </span>
+                                                    </div>
+                                                    {c.sentAt ? (
+                                                        <div className="mt-2 flex items-center justify-between gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2">
+                                                            <span className="text-[10px] font-black text-emerald-700">
+                                                                ✓ Quotation Sent{c.amcAmount ? ` · Rs. ${Number(c.amcAmount).toLocaleString("en-IN")}` : ""}
+                                                            </span>
+                                                            <span className="shrink-0 text-[9px] font-bold text-emerald-600">
+                                                                {new Date(c.sentAt).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                                                            </span>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="mt-2 flex items-center gap-2">
+                                                            <div className="relative flex-1">
+                                                                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400">Rs.</span>
+                                                                <input
+                                                                    type="number"
+                                                                    min="1"
+                                                                    inputMode="numeric"
+                                                                    placeholder="AMC amount"
+                                                                    value={outOfWarrantyAmounts[c.id] || ""}
+                                                                    onChange={(e) => setOutOfWarrantyAmounts((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                                                                    className="h-9 w-full rounded-xl border border-slate-200 pl-8 pr-3 text-xs font-bold outline-none focus:border-[#0a649d]"
+                                                                />
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                disabled={sendingOutOfWarrantyId === c.id}
+                                                                onClick={() => sendOutOfWarrantyQuotationFor(c)}
+                                                                className="h-9 shrink-0 rounded-xl bg-[#0a649d] px-3 text-[10px] font-black text-white disabled:opacity-50 active:scale-95 transition"
+                                                            >
+                                                                {sendingOutOfWarrantyId === c.id ? "Sending…" : "Send AMC Quotation"}
+                                                            </button>
+                                                        </div>
+                                                    )}
+                                                    {outOfWarrantyFeedback[c.id]?.error && (
+                                                        <p className="mt-1.5 text-[10px] font-bold text-red-700">{outOfWarrantyFeedback[c.id].error}</p>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             ) : moreSubTab === "amc" ? (
                                 <div className="space-y-4">
