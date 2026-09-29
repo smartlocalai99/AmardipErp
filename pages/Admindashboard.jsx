@@ -788,7 +788,7 @@ function AdmindashboardShell({ user }) {
             });
             if (searchQuery.trim()) params.set("search", searchQuery.trim());
             if (statusFilter === "ASSIGNED") params.set("statusIn", "ASSIGNED,IN_PROGRESS");
-            else if (statusFilter === "COMPLETED") params.set("statusIn", "RESOLVED,CLOSED,CANCELLED");
+            else if (statusFilter === "COMPLETED") params.set("statusIn", "RESOLVED,CLOSED");
             else if (statusFilter !== "all") params.set("status", statusFilter);
 
             const [listRes] = await Promise.all([
