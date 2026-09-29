@@ -386,12 +386,42 @@ const COMPLAINT_TYPE_OPTIONS = [
 
 const COMPLAINT_PRIORITY_OPTIONS = ["LOW", "NORMAL", "HIGH", "EMERGENCY"];
 
+// isNewClient + newClient* fields cover a one-off job for a lift that isn't
+// an Amardip customer at all (a different company's building asking us to
+// check a breakdown/service) — the schedule endpoint creates a minimal real
+// customer record for these instead of requiring an existing one.
+const INITIAL_NEW_SCHEDULE = {
+    customerId: "",
+    customerName: "",
+    customerLocked: false,
+    isNewClient: false,
+    newClientMobile: "",
+    newClientCity: "",
+    newClientAddress: "",
+    scheduledDate: "",
+    technicianIdSenior: "",
+    technicianIdJunior: "",
+    notes: "",
+};
+
 function complaintStatusClass(status) {
     if (status === "UNASSIGNED") return "bg-amber-50 border-amber-100 text-amber-700";
     if (status === "ASSIGNED") return "bg-blue-50 border-blue-100 text-blue-700";
     if (status === "IN_PROGRESS") return "bg-purple-50 border-purple-100 text-purple-700";
     if (status === "RESOLVED") return "bg-emerald-50 border-emerald-100 text-emerald-700";
     if (status === "CANCELLED") return "bg-red-50 border-red-100 text-red-700";
+    return "bg-slate-50 border-slate-100 text-slate-700";
+}
+
+// Matches the color language of the customers table (AmcStateBadge/StatusBadge)
+// so a contract status reads the same wherever it shows up in the app.
+function customerContractStatusClass(status) {
+    const upper = String(status || "").toUpperCase();
+    if (upper === "AMC") return "bg-emerald-50 border-emerald-100 text-emerald-700";
+    if (upper === "EMC") return "bg-sky-50 border-sky-100 text-sky-700";
+    if (upper === "WARRANTY") return "bg-blue-50 border-blue-100 text-blue-700";
+    if (upper === "OUT OF WARRANTY") return "bg-red-50 border-red-100 text-red-700";
+    if (upper === "ON GOING" || upper === "PENDING") return "bg-amber-50 border-amber-100 text-amber-700";
     return "bg-slate-50 border-slate-100 text-slate-700";
 }
 
@@ -611,15 +641,7 @@ function AdmindashboardShell({ user }) {
     const [outOfWarrantyFeedback, setOutOfWarrantyFeedback] = useState({});
 
     // Form inputs for new Schedule
-    const [newSchedule, setNewSchedule] = useState({
-        customerId: "",
-        customerName: "",
-        customerLocked: false,
-        scheduledDate: "",
-        technicianIdSenior: "",
-        technicianIdJunior: "",
-        notes: "",
-    });
+    const [newSchedule, setNewSchedule] = useState(INITIAL_NEW_SCHEDULE);
     // Set while the Schedule modal is editing an existing schedule's date/
     // assignment rather than creating a new one — null means "create mode".
     const [editingScheduleId, setEditingScheduleId] = useState(null);
@@ -878,13 +900,10 @@ function AdmindashboardShell({ user }) {
         fetchUsers();
         setEditingScheduleId(null);
         setNewSchedule({
+            ...INITIAL_NEW_SCHEDULE,
             customerId: row.customerId,
             customerName: row.customerName,
             customerLocked: true,
-            scheduledDate: "",
-            technicianIdSenior: "",
-            technicianIdJunior: "",
-            notes: "",
         });
         setScheduleCustomers((current) => {
             if (current.some((c) => String(c.id) === String(row.customerId))) return current;
@@ -1434,7 +1453,7 @@ function AdmindashboardShell({ user }) {
 
     async function handleAddSchedule(e) {
         e.preventDefault();
-        if (!newSchedule.customerId) return;
+        if (newSchedule.isNewClient ? !newSchedule.customerName.trim() : !newSchedule.customerId) return;
 
         // Senior Technician is the primary/first assignee; Junior Technician
         // (optional) is the second — maps onto technician_1/technician_2 once
@@ -1460,15 +1479,7 @@ function AdmindashboardShell({ user }) {
                 Swal.fire({ icon: "error", title: "Could not update", text: err.message || "Something went wrong.", confirmButtonColor: "#0a649d" });
             }
             setEditingScheduleId(null);
-            setNewSchedule({
-                customerId: "",
-                customerName: "",
-                customerLocked: false,
-                scheduledDate: "",
-                technicianIdSenior: "",
-                technicianIdJunior: "",
-                notes: "",
-            });
+            setNewSchedule(INITIAL_NEW_SCHEDULE);
             setShowScheduleModal(false);
             return;
         }
@@ -1478,7 +1489,13 @@ function AdmindashboardShell({ user }) {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    customerId: newSchedule.customerId,
+                    customerId: newSchedule.isNewClient ? undefined : newSchedule.customerId,
+                    newCustomer: newSchedule.isNewClient ? {
+                        name: newSchedule.customerName,
+                        mobileNo: newSchedule.newClientMobile,
+                        city: newSchedule.newClientCity,
+                        address: newSchedule.newClientAddress,
+                    } : undefined,
                     scheduledDate: newSchedule.scheduledDate || null,
                     assignedTechnicianUserIds,
                     priority: "NORMAL",
@@ -1495,15 +1512,7 @@ function AdmindashboardShell({ user }) {
             await fetchUpcomingServiceRows(serviceSearch);
         } catch {}
 
-        setNewSchedule({
-            customerId: "",
-            customerName: "",
-            customerLocked: false,
-            scheduledDate: "",
-            technicianIdSenior: "",
-            technicianIdJunior: "",
-            notes: "",
-        });
+        setNewSchedule(INITIAL_NEW_SCHEDULE);
         setShowScheduleModal(false);
     }
 
@@ -1516,6 +1525,7 @@ function AdmindashboardShell({ user }) {
         const assigneeIds = (schedule.assignees || []).map((a) => String(a.id));
         setEditingScheduleId(schedule.id);
         setNewSchedule({
+            ...INITIAL_NEW_SCHEDULE,
             customerId: schedule.customerId ? String(schedule.customerId) : "",
             customerName: schedule.customerName || "",
             customerLocked: true,
@@ -1811,15 +1821,7 @@ function AdmindashboardShell({ user }) {
                                 <button
                                     onClick={async () => {
                         setEditingScheduleId(null);
-                        setNewSchedule({
-                            customerId: "",
-                            customerName: "",
-                            customerLocked: false,
-                            scheduledDate: "",
-                            technicianIdSenior: "",
-                            technicianIdJunior: "",
-                            notes: "",
-                        });
+                        setNewSchedule(INITIAL_NEW_SCHEDULE);
                         setShowScheduleModal(true);
                         fetchUsers();
                         try {
@@ -3258,10 +3260,63 @@ function AdmindashboardShell({ user }) {
 
                         <form onSubmit={handleAddSchedule} className="p-5 space-y-4">
                             <div>
-                                <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1.5">Customer / Site</label>
+                                <div className="flex items-center justify-between mb-1.5">
+                                    <label className="block text-[10px] font-bold text-slate-400 uppercase">Customer / Site</label>
+                                    {!newSchedule.customerLocked && !editingScheduleId && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setNewSchedule({
+                                                ...newSchedule,
+                                                isNewClient: !newSchedule.isNewClient,
+                                                customerId: "",
+                                                customerName: "",
+                                                newClientMobile: "",
+                                                newClientCity: "",
+                                                newClientAddress: "",
+                                            })}
+                                            className="text-[10px] font-black text-[#0a649d] underline underline-offset-2"
+                                        >
+                                            {newSchedule.isNewClient ? "Pick existing customer instead" : "+ New Client"}
+                                        </button>
+                                    )}
+                                </div>
                                 {newSchedule.customerLocked ? (
                                     <div className="h-10.5 w-full px-3 rounded-xl border border-slate-200 bg-slate-50 text-base font-semibold text-slate-700 flex items-center">
                                         {newSchedule.customerName || "Selected customer"}
+                                    </div>
+                                ) : newSchedule.isNewClient ? (
+                                    <div className="space-y-2.5">
+                                        <p className="text-[10px] font-semibold text-slate-400">
+                                            For a lift that isn&apos;t an Amardip customer — a different company asking us to check a breakdown or service.
+                                        </p>
+                                        <input
+                                            type="text"
+                                            value={newSchedule.customerName}
+                                            onChange={(e) => setNewSchedule({ ...newSchedule, customerName: e.target.value })}
+                                            placeholder="Client / site name"
+                                            className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={newSchedule.newClientMobile}
+                                            onChange={(e) => setNewSchedule({ ...newSchedule, newClientMobile: e.target.value })}
+                                            placeholder="Mobile number"
+                                            className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={newSchedule.newClientCity}
+                                            onChange={(e) => setNewSchedule({ ...newSchedule, newClientCity: e.target.value })}
+                                            placeholder="City"
+                                            className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
+                                        />
+                                        <input
+                                            type="text"
+                                            value={newSchedule.newClientAddress}
+                                            onChange={(e) => setNewSchedule({ ...newSchedule, newClientAddress: e.target.value })}
+                                            placeholder="Address"
+                                            className="h-10.5 w-full px-3 rounded-xl border border-slate-200 text-base outline-none bg-white focus:border-[#0a649d] transition"
+                                        />
                                     </div>
                                 ) : (
                                     <CustomerSearchSelect
@@ -3499,7 +3554,14 @@ function AdmindashboardShell({ user }) {
 
                         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
                             <div>
-                                <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
+                                <div className="flex items-start justify-between gap-2">
+                                    <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">Customer / Site</span>
+                                    {selectedComplaint.customerContractStatus && (
+                                        <span className={`shrink-0 rounded-lg border px-2 py-0.5 text-[9px] font-black uppercase whitespace-nowrap ${customerContractStatusClass(selectedComplaint.customerContractStatus)}`}>
+                                            {selectedComplaint.customerContractStatus}
+                                        </span>
+                                    )}
+                                </div>
                                 <p className="text-sm font-extrabold text-slate-800">{selectedComplaint.customerName}</p>
                                 <p className="mt-0.5 text-xs text-slate-500">{selectedComplaint.mobileNo || "-"} · {selectedComplaint.city || "-"}</p>
                                 {selectedComplaint.address && <p className="mt-1 text-xs text-slate-400">{selectedComplaint.address}</p>}

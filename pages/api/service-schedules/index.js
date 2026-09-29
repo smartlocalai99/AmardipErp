@@ -112,6 +112,7 @@ export default async function handler(req, res) {
 
     const {
       customerId,
+      newCustomer,
       scheduledDate,
       preferredTime,
       assignedTechnicianUserId,
@@ -121,7 +122,7 @@ export default async function handler(req, res) {
       notes,
     } = req.body || {};
 
-    if (!customerId) {
+    if (!customerId && !String(newCustomer?.name || "").trim()) {
       return res.status(400).json({
         success: false,
         message: "Customer is required",
@@ -137,21 +138,45 @@ export default async function handler(req, res) {
       });
     }
 
-    const customerResult = await query(
-      `
-      SELECT id, customer_code, customer_name
-      FROM elevator_service_customers
-      WHERE id = $1
-      LIMIT 1
-      `,
-      [customerId]
-    );
+    // A one-off job for a lift that isn't an Amardip customer at all — a
+    // different company's building asking us to check a breakdown/service —
+    // gets a minimal real customer record (status EXTERNAL) instead of
+    // requiring them to already exist in elevator_service_customers. This
+    // keeps every downstream piece (checklist, service history, job
+    // completion) working exactly like a normal customer's schedule.
+    let resolvedCustomerId = customerId;
+    if (!resolvedCustomerId) {
+      const createdCustomer = await query(
+        `
+        INSERT INTO elevator_service_customers (customer_name, mobile_no, city, address, customer_status, remarks)
+        VALUES ($1, $2, $3, $4, 'EXTERNAL', 'Not an Amardip installation — added for a one-off breakdown/service request.')
+        RETURNING id, customer_code, customer_name
+        `,
+        [
+          String(newCustomer.name).trim(),
+          String(newCustomer.mobileNo || "").trim() || null,
+          String(newCustomer.city || "").trim() || null,
+          String(newCustomer.address || "").trim() || null,
+        ]
+      );
+      resolvedCustomerId = createdCustomer.rows[0].id;
+    } else {
+      const customerResult = await query(
+        `
+        SELECT id, customer_code, customer_name
+        FROM elevator_service_customers
+        WHERE id = $1
+        LIMIT 1
+        `,
+        [customerId]
+      );
 
-    if (customerResult.rowCount === 0) {
-      return res.status(404).json({
-        success: false,
-        message: "Customer not found",
-      });
+      if (customerResult.rowCount === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "Customer not found",
+        });
+      }
     }
 
     const technicianName = String(assignedTechnicianName || "").trim();
@@ -206,7 +231,7 @@ export default async function handler(req, res) {
           RETURNING *
           `,
           [
-            customerId,
+            resolvedCustomerId,
             scheduledDate || "",
             String(preferredTime || "").trim(),
             status,
@@ -232,7 +257,7 @@ export default async function handler(req, res) {
           const complaint = await createComplaint({
             actor: user,
             input: {
-              customerId,
+              customerId: resolvedCustomerId,
               complaintType: "SERVICE_REQUEST",
               priority: cleanPriority,
               description: visitLabel,

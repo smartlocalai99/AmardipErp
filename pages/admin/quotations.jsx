@@ -137,6 +137,7 @@ export default function QuotationsPage({ user, initialData }) {
   const [projectsTotal, setProjectsTotal] = useState(0);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [projectQuotation, setProjectQuotation] = useState(null);
+  const [editQuotationTarget, setEditQuotationTarget] = useState(null);
   const [startProjectTarget, setStartProjectTarget] = useState(null);
   const [checklistProject, setChecklistProject] = useState(null);
   const [editProjectTarget, setEditProjectTarget] = useState(null);
@@ -482,6 +483,7 @@ export default function QuotationsPage({ user, initialData }) {
                 onViewQuotation={() => setQuotationView(q)}
                 onOnboardProject={() => setProjectQuotation(q)}
                 onOpenBoq={() => setBoqView(q)}
+                onEditQuotation={() => setEditQuotationTarget(q)}
               />
             ))}
           </div>
@@ -581,6 +583,18 @@ export default function QuotationsPage({ user, initialData }) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {editQuotationTarget && (
+        <EditQuotationModal
+          quotation={editQuotationTarget}
+          onClose={() => setEditQuotationTarget(null)}
+          onSuccess={(updated) => {
+            setEditQuotationTarget(null);
+            if (quotationView?.id === updated.id) setQuotationView(updated);
+            load();
+          }}
+        />
       )}
 
       {projectQuotation && (
@@ -847,8 +861,9 @@ function QuotationViewCard({ quotation, onBack }) {
 }
 
 // ─── Quotation List Card ──────────────────────────────────────────────────────
-function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onOnboardProject, onOpenBoq }) {
+function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, onViewQuotation, onOnboardProject, onOpenBoq, onEditQuotation }) {
   const shareEnabled = quotation.status !== "DRAFT";
+  const isConverted = quotation.status === "CONVERTED_TO_CUSTOMER" || quotation.status === "CONVERTED_TO_PROJECT";
 
   return (
     <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -898,6 +913,14 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
               View Quotation
             </button>
           )}
+          {canGenerate && !isConverted && (
+            <button
+              onClick={onEditQuotation}
+              className="h-10 rounded-xl border border-[#0a649d] text-xs font-bold text-[#0a649d] active:scale-95 transition"
+            >
+              Edit Quotation
+            </button>
+          )}
           {canGenerate && shareEnabled && (
             <button
               onClick={onOpenBoq}
@@ -917,6 +940,140 @@ function QuotationCard({ quotation, index, canGenerate, busy, onRefreshPrice, on
         </div>
       </div>
     </div>
+  );
+}
+
+// Fixing a typo or a wrong spec used to mean scrapping the quotation and
+// starting over — there was no edit path once it left DRAFT (which in
+// practice was immediately, since creation auto-generates a price). This
+// reuses the same field set as creation. A spec field (dimensions, floors,
+// door/cabin/motor type, etc.) changing re-fetches price from the sheet
+// server-side; a plain contact-detail fix doesn't touch price or status.
+function EditQuotationModal({ quotation, onClose, onSuccess }) {
+  const [form, setForm] = useState({
+    serialNo: quotation.serialNo || "",
+    name: quotation.customerName || "",
+    address: quotation.address || "",
+    mobileNo: quotation.mobileNo || "",
+    wellWidth: quotation.wellWidth != null ? String(quotation.wellWidth) : "",
+    wellDepth: quotation.wellDepth != null ? String(quotation.wellDepth) : "",
+    noOfFloors: quotation.noOfFloors || "",
+    noOfPassenger: quotation.noOfPassenger != null ? String(quotation.noOfPassenger) : "",
+    doorType: quotation.doorType || "",
+    cabinType: quotation.cabinType || "",
+    motorType: quotation.motorType || "",
+    headRoom: quotation.headRoom || "",
+    doorOpening: quotation.doorOpening || "",
+  });
+  const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  function set(key, value) {
+    setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function submit() {
+    const digits = String(form.mobileNo || "").replace(/\D/g, "");
+    if (!form.name.trim()) return setError("Enter the customer name.");
+    if (digits.length !== 10) return setError("Enter a valid 10-digit mobile number.");
+    if (!form.wellWidth || !form.wellDepth) return setError("Enter wall width and depth.");
+    if (!form.noOfFloors || !form.noOfPassenger || !form.doorType || !form.cabinType || !form.motorType || !form.headRoom || !form.doorOpening) {
+      return setError("Fill in every spec field.");
+    }
+
+    setSubmitting(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/quotations/${quotation.id}/edit`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(form),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to update quotation");
+      onSuccess(data.quotation);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const selectClass = "h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d] appearance-none";
+  const inputClass = "h-12 w-full rounded-2xl border border-slate-200 bg-white px-4 text-sm outline-none focus:border-[#0a649d]";
+  const labelClass = "mb-1.5 block text-[11px] font-black uppercase tracking-wide text-slate-500";
+
+  return (
+    <Modal title="Edit Quotation" onClose={() => !submitting && onClose()}>
+      <div className="space-y-4">
+        <div className="rounded-2xl bg-slate-50 p-3">
+          <p className="text-sm font-black text-slate-900">{quotation.quotationNo}</p>
+          <p className="mt-0.5 text-xs font-bold text-slate-500">{quotation.status}</p>
+        </div>
+
+        <label className="block"><span className={labelClass}>S.NO</span><input type="text" value={form.serialNo} onChange={(e) => set("serialNo", e.target.value)} className={inputClass} /></label>
+        <label className="block"><span className={labelClass}>Customer Name *</span><input type="text" value={form.name} onChange={(e) => set("name", e.target.value)} className={inputClass} /></label>
+        <label className="block"><span className={labelClass}>Address</span><input type="text" value={form.address} onChange={(e) => set("address", e.target.value)} className={inputClass} /></label>
+        <label className="block"><span className={labelClass}>Mobile No *</span><input type="text" inputMode="numeric" value={form.mobileNo} onChange={(e) => set("mobileNo", e.target.value)} className={inputClass} /></label>
+        <label className="block"><span className={labelClass}>Wall Width (mm) *</span><input type="number" min="0" value={form.wellWidth} onChange={(e) => set("wellWidth", e.target.value)} className={inputClass} /></label>
+        <label className="block"><span className={labelClass}>Wall Depth (mm) *</span><input type="number" min="0" value={form.wellDepth} onChange={(e) => set("wellDepth", e.target.value)} className={inputClass} /></label>
+        <label className="block">
+          <span className={labelClass}>No. of Floors *</span>
+          <select value={form.noOfFloors} onChange={(e) => set("noOfFloors", e.target.value)} className={selectClass}>
+            <option value="">Select no. of floors</option>
+            {typeOptions.noOfFloors.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={labelClass}>No. of Passenger *</span>
+          <select value={form.noOfPassenger} onChange={(e) => set("noOfPassenger", e.target.value)} className={selectClass}>
+            <option value="">Select passenger capacity</option>
+            {typeOptions.noOfPassenger.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={labelClass}>Door Type *</span>
+          <select value={form.doorType} onChange={(e) => set("doorType", e.target.value)} className={selectClass}>
+            <option value="">Select door type</option>
+            {typeOptions.doorType.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={labelClass}>Cabin Type *</span>
+          <select value={form.cabinType} onChange={(e) => set("cabinType", e.target.value)} className={selectClass}>
+            <option value="">Select cabin type</option>
+            {typeOptions.cabinType.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={labelClass}>Motor Type *</span>
+          <select value={form.motorType} onChange={(e) => set("motorType", e.target.value)} className={selectClass}>
+            <option value="">Select motor type</option>
+            {typeOptions.motorType.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={labelClass}>Head Room *</span>
+          <select value={form.headRoom} onChange={(e) => set("headRoom", e.target.value)} className={selectClass}>
+            <option value="">Select head room</option>
+            {typeOptions.headRoom.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+        <label className="block">
+          <span className={labelClass}>Door Opening *</span>
+          <select value={form.doorOpening} onChange={(e) => set("doorOpening", e.target.value)} className={selectClass}>
+            <option value="">Select door opening size</option>
+            {typeOptions.doorOpening.map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </label>
+
+        {error && <p className="rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} disabled={submitting} className="h-12 rounded-2xl border-2 border-slate-200 text-sm font-black text-slate-700 disabled:opacity-50">Cancel</button>
+          <button type="button" onClick={submit} disabled={submitting} className="h-12 rounded-2xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50">{submitting ? "Saving…" : "Save"}</button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

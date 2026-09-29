@@ -57,6 +57,7 @@ assert.deepEqual(
     city: null,
     address: null,
     customerCode: null,
+    customerContractStatus: null,
     customerId: null,
     customerUserId: null,
     complaintType: null,
