@@ -1510,7 +1510,17 @@ function AdmindashboardShell({ user }) {
             // "Services This Month" (the default view) keeps showing the
             // customer as "TO BE SCHEDULED" until the next manual reload.
             await fetchUpcomingServiceRows(serviceSearch);
-        } catch {}
+        } catch (err) {
+            // This used to fail silently (empty catch) — the modal closed
+            // as if the assignment worked (most often because the customer
+            // already had a schedule this month, a real conflict) while
+            // nothing was actually created and nothing told the admin why.
+            // Keep the modal open with their input intact so they can see
+            // the error and fix it, instead of having to notice the
+            // assignment never happened and start over.
+            Swal.fire({ icon: "error", title: "Could not assign", text: err.message || "Something went wrong.", confirmButtonColor: "#0a649d" });
+            return;
+        }
 
         setNewSchedule(INITIAL_NEW_SCHEDULE);
         setShowScheduleModal(false);
@@ -1522,7 +1532,14 @@ function AdmindashboardShell({ user }) {
     function openEditSchedule(schedule) {
         if (!schedule || schedule.id === undefined) return;
         fetchUsers();
+        // assignees lists everyone assigned alphabetically by name, with no
+        // sense of who's primary — picking [0]/[1] for Senior/Junior swapped
+        // them whenever the junior's name happened to sort first. Anchor
+        // Senior on the schedule's actual assigned_technician_user_id
+        // instead, and put whichever assignee isn't that one in Junior.
         const assigneeIds = (schedule.assignees || []).map((a) => String(a.id));
+        const seniorId = schedule.assignedTechnicianUserId ? String(schedule.assignedTechnicianUserId) : (assigneeIds[0] || "");
+        const juniorId = assigneeIds.find((id) => id !== seniorId) || "";
         setEditingScheduleId(schedule.id);
         setNewSchedule({
             ...INITIAL_NEW_SCHEDULE,
@@ -1537,8 +1554,8 @@ function AdmindashboardShell({ user }) {
                 const d = new Date(schedule.scheduledDate);
                 return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
             })(),
-            technicianIdSenior: assigneeIds[0] || "",
-            technicianIdJunior: assigneeIds[1] || "",
+            technicianIdSenior: seniorId,
+            technicianIdJunior: juniorId,
             notes: schedule.notes || "",
         });
         setSelectedSchedule(null);

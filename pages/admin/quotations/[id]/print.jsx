@@ -9,7 +9,12 @@ export async function getServerSideProps({ req, params }) {
   try {
     const quotation = await getQuotationById({ id: params.id, actor: user });
     if (!quotation || quotation.status === "DRAFT") return { notFound: true };
-    return { props: { quotation } };
+    // Raw Date objects from pg (createdAt, generatedAt, ...) aren't JSON
+    // serializable — getServerSideProps rejects them outright, which made
+    // this page 500 for every quotation. Round-tripping through JSON turns
+    // each into the same ISO string the client-side fetch API already
+    // returns elsewhere in this app.
+    return { props: { quotation: JSON.parse(JSON.stringify(quotation)) } };
   } catch {
     return { notFound: true };
   }

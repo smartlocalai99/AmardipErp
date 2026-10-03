@@ -384,6 +384,9 @@ export default function Techniciandashboard({ user }) {
     const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, jobs, inventory, projects, profile
     const [activeJob, setActiveJob] = useState(null); // active job workspace
     const [jobsFilter, setJobsFilter] = useState("assigned"); // assigned, completed
+    const [customerHistoryOpen, setCustomerHistoryOpen] = useState(false);
+    const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
+    const [customerHistory, setCustomerHistory] = useState(null);
 
     // Dashboard "Return Materials" list — every job the worker has ever had
     // materials issued for, so they can jump straight to that job's Store
@@ -658,7 +661,26 @@ export default function Techniciandashboard({ user }) {
         setActiveJob(job);
         setSigCustomerName(job?.signature?.customerName || job?.customerName || "");
         setActiveTab("jobs");
+        setCustomerHistoryOpen(false);
+        setCustomerHistory(null);
     };
+
+    // Fetched on demand (not on every job open) — most jobs are checked
+    // once and never revisited, so this only hits the database when a
+    // technician actually wants to see what's happened at the site before.
+    async function fetchCustomerHistory(job) {
+        if (customerHistoryLoading || customerHistory) return;
+        setCustomerHistoryLoading(true);
+        try {
+            const res = await fetch(`/api/worker/customer-history?complaintId=${job.dbId}`);
+            const data = await res.json();
+            setCustomerHistory(data.success ? data : { visits: [], priorComplaints: [] });
+        } catch {
+            setCustomerHistory({ visits: [], priorComplaints: [] });
+        } finally {
+            setCustomerHistoryLoading(false);
+        }
+    }
 
     // Start Journey
     const handleStartJourney = (job) => {
@@ -1486,6 +1508,51 @@ export default function Techniciandashboard({ user }) {
                                                 <MapIcon className="h-4.5 w-4.5 text-slate-400" />
                                                 Open Maps
                                             </a>
+                                        </div>
+
+                                        {/* Customer history — collapsed by default, fetched only when opened */}
+                                        <div className="pt-2 border-t border-slate-100">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const next = !customerHistoryOpen;
+                                                    setCustomerHistoryOpen(next);
+                                                    if (next) fetchCustomerHistory(activeJob);
+                                                }}
+                                                className="w-full h-10 flex items-center justify-between rounded-xl px-1 text-xs font-extrabold text-[#0a649d]"
+                                            >
+                                                <span>Previous history at this site</span>
+                                                <svg className={`h-4 w-4 transition-transform ${customerHistoryOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                                            </button>
+                                            {customerHistoryOpen && (
+                                                customerHistoryLoading ? (
+                                                    <p className="text-[11px] font-semibold text-slate-400 py-2">Loading history…</p>
+                                                ) : (!customerHistory?.visits?.length && !customerHistory?.priorComplaints?.length) ? (
+                                                    <p className="text-[11px] font-semibold text-slate-400 py-2">No previous visits or breakdowns on record for this site.</p>
+                                                ) : (
+                                                    <div className="space-y-2 pt-1">
+                                                        {customerHistory.visits.map((v) => (
+                                                            <div key={`visit-${v.id}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-[10px] font-black text-slate-700">{v.serviceDate ? new Date(v.serviceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
+                                                                    <span className="text-[9px] font-bold uppercase text-slate-400">{v.serviceType?.replaceAll("_", " ") || "Service"}</span>
+                                                                </div>
+                                                                {v.technicians && <p className="text-[10px] text-slate-400 mt-0.5">{v.technicians}</p>}
+                                                                {v.remarks && <p className="text-[10px] text-slate-600 font-medium mt-1">{v.remarks}</p>}
+                                                            </div>
+                                                        ))}
+                                                        {customerHistory.priorComplaints.map((c) => (
+                                                            <div key={`complaint-${c.id}`} className="rounded-xl border border-slate-100 bg-slate-50 px-3 py-2">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-[10px] font-black text-slate-700">{c.resolvedAt ? new Date(c.resolvedAt).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "—"}</span>
+                                                                    <span className="text-[9px] font-bold uppercase text-slate-400">{c.complaintType?.replaceAll("_", " ") || "Breakdown"}</span>
+                                                                </div>
+                                                                <p className="text-[10px] text-slate-600 font-medium mt-1">{c.description}</p>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )
+                                            )}
                                         </div>
                                     </div>
 

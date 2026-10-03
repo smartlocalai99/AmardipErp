@@ -10,6 +10,13 @@ import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
 
 let tableReady = false;
 
+// Both report forms end with a resolution choice — the breakdown toggle
+// sends "Resolved"/"Not Resolved", the service-visit dropdown sends
+// "Completed"/"Need Spare Parts"/"Revisit Required"/"Escalated" — and only
+// these two actually mean the job is done. Everything else still needs
+// follow-up, so the ticket shouldn't be filed away as RESOLVED.
+const RESOLVED_STATUS_RESOLUTIONS = new Set(["Resolved", "Completed"]);
+
 // The 11-item lift inspection checklist (matches CHECK POINTS.pdf exactly),
 // keyed the same as the elevator_service_visits condition columns.
 const CHECKLIST_TO_COLUMN = {
@@ -169,6 +176,7 @@ export default async function handler(req, res) {
     const durationMinutes = complaint.checked_in_at
       ? Math.max(0, Math.round((Date.now() - new Date(complaint.checked_in_at).getTime()) / 60000))
       : null;
+    const isResolved = !statusResolution || RESOLVED_STATUS_RESOLUTIONS.has(statusResolution);
 
     // Was this job dispatched from the AMC/EMC/Warranty monthly service planner
     // (Upcoming Services -> Schedule Service)? If so, closing it out here needs
@@ -187,15 +195,15 @@ export default async function handler(req, res) {
       // after a concurrent updater commits, so a double submit writes once.
       const claimed = await query(
         `UPDATE complaints
-         SET status       = 'RESOLVED',
-             resolved_at  = NOW(),
+         SET status       = CASE WHEN $4::boolean THEN 'RESOLVED' ELSE 'IN_PROGRESS' END,
+             resolved_at  = CASE WHEN $4::boolean THEN NOW() ELSE resolved_at END,
              updated_at   = NOW(),
              office_notes = COALESCE($2, office_notes)
          WHERE id = $1
            AND assigned_technician_user_id = $3
            AND status NOT IN ('RESOLVED', 'CLOSED', 'CANCELLED')
          RETURNING id`,
-        [jobDbId, workPerformed || null, actor.id]
+        [jobDbId, workPerformed || null, actor.id, isResolved]
       );
       if (!claimed.rowCount) {
         const error = new Error("This job is already completed or its assignment has changed.");
@@ -329,8 +337,10 @@ export default async function handler(req, res) {
     await safeSendPush(
       { roles: ["superadmin", "admin", "manager", "front_office"] },
       {
-        title: "Worker completed job",
-        body: `${complaint.complaint_no || "Ticket"} completed by ${actor.name || actor.username}.`,
+        title: isResolved ? "Worker completed job" : "Worker visited — not resolved yet",
+        body: isResolved
+          ? `${complaint.complaint_no || "Ticket"} completed by ${actor.name || actor.username}.`
+          : `${complaint.complaint_no || "Ticket"} still needs follow-up — ${actor.name || actor.username} marked it ${statusResolution || "not resolved"}.`,
         data: { url: `/Admindashboard?tab=${adminTab}`, complaintId: jobDbId },
       }
     );
@@ -343,16 +353,18 @@ export default async function handler(req, res) {
       customerId: complaint.customer_id,
     });
     if (customerUserIds.length > 0) {
-      const message = `${complaint.complaint_no || "Your ticket"} has been marked resolved by ${actor.name || actor.username}. Open it to see everything the technician recorded.`;
+      const message = isResolved
+        ? `${complaint.complaint_no || "Your ticket"} has been marked resolved by ${actor.name || actor.username}. Open it to see everything the technician recorded.`
+        : `${complaint.complaint_no || "Your ticket"} was visited by ${actor.name || actor.username}, but isn't fully resolved yet — more work is needed. Open it to see what was recorded.`;
       // Persisted so it's waiting in the bell icon even if the push above
       // never reaches a live subscription — same pattern as AMC reminders.
       await Promise.all(
         customerUserIds.map((userId) =>
           createCustomerNotification({
             userId,
-            category: "Service job completed",
+            category: isResolved ? "Service job completed" : "Service job needs follow-up",
             message,
-            data: { type: "JOB_COMPLETED", complaintId: jobDbId },
+            data: { type: isResolved ? "JOB_COMPLETED" : "JOB_NEEDS_FOLLOWUP", complaintId: jobDbId },
           }).catch((error) => console.error("Failed to persist job-completed notification:", error))
         )
       );
@@ -360,7 +372,7 @@ export default async function handler(req, res) {
       await safeSendPush(
         { userIds: customerUserIds },
         {
-          title: "Service job completed",
+          title: isResolved ? "Service job completed" : "Job needs follow-up",
           body: message,
           data: { url: `/Customerdashboard?tab=${customerTab}`, complaintId: jobDbId },
         }

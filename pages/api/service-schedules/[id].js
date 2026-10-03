@@ -56,6 +56,10 @@ export default async function handler(req, res) {
       schedule: {
         id: row.id,
         customerId: row.customer_id,
+        // getScheduleAssignees has no concept of "primary" — it just lists
+        // everyone assigned, alphabetically by name — so the Senior/Junior
+        // dropdowns need this to know which assignee is actually senior.
+        assignedTechnicianUserId: row.assigned_technician_user_id,
         customerName: row.customer_name,
         customerCode: row.customer_code,
         city: row.city,
