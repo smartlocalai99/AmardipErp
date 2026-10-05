@@ -521,6 +521,7 @@ function AdmindashboardShell({ user }) {
     });
     const [customerNameQuery, setCustomerNameQuery] = useState("");
     const [customerNameResults, setCustomerNameResults] = useState([]);
+    const [linkedCustomerStatus, setLinkedCustomerStatus] = useState("");
 
     // Typing a customer's name in "Add Breakdown" searches the real customer
     // list — picking one auto-fills mobile/city/address and links the ticket
@@ -558,6 +559,7 @@ function AdmindashboardShell({ user }) {
         }));
         setCustomerNameQuery(customer.customer_name || customer.customerName || "");
         setCustomerNameResults([]);
+        setLinkedCustomerStatus(customer.live_status || customer.liveStatus || "");
     }
 
     const openComplaintDetails = (complaint) => {
@@ -1106,6 +1108,7 @@ function AdmindashboardShell({ user }) {
             });
             setCustomerNameQuery("");
             setCustomerNameResults([]);
+            setLinkedCustomerStatus("");
             await fetchComplaints();
         } catch (err) {
             setComplaintError(err.message || "Failed to create complaint");
@@ -3456,6 +3459,7 @@ function AdmindashboardShell({ user }) {
                                         const value = e.target.value;
                                         setCustomerNameQuery(value);
                                         setNewComplaintData((prev) => ({ ...prev, customerId: "", customerName: value }));
+                                        setLinkedCustomerStatus("");
                                     }}
                                     placeholder="Type to search existing customers, or enter a new name"
                                     required
@@ -3474,13 +3478,26 @@ function AdmindashboardShell({ user }) {
                                                 onClick={() => selectCustomerForComplaint(customer)}
                                                 className="block w-full border-b border-slate-50 px-3 py-2 text-left text-xs last:border-b-0 hover:bg-slate-50"
                                             >
-                                                <p className="font-bold text-slate-800">{customer.customer_name}</p>
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <p className="font-bold text-slate-800">{customer.customer_name}</p>
+                                                    {customer.live_status && (
+                                                        <span className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[8.5px] font-black uppercase whitespace-nowrap ${customerContractStatusClass(customer.live_status)}`}>
+                                                            {customer.live_status}
+                                                        </span>
+                                                    )}
+                                                </div>
                                                 <p className="text-[10px] text-slate-400">{customer.mobile_no || "No mobile on file"} · {customer.city || "—"}</p>
                                             </button>
                                         ))}
                                     </div>
                                 )}
                             </div>
+                            {newComplaintData.customerId && linkedCustomerStatus && (
+                                <div className={`rounded-xl border px-3 py-2 text-[11px] font-bold flex items-center justify-between ${customerContractStatusClass(linkedCustomerStatus)}`}>
+                                    <span>Customer status</span>
+                                    <span className="font-black uppercase">{linkedCustomerStatus}</span>
+                                </div>
+                            )}
                             <div className="grid grid-cols-2 gap-2">
                                 <input
                                     value={newComplaintData.mobileNo}

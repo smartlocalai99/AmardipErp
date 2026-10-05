@@ -1,5 +1,5 @@
 import { getUserFromRequest } from "@/lib/auth";
-import { CUSTOMER_DUE_DATE_SQL, IN_WARRANTY_SQL } from "@/lib/customerDates";
+import { CUSTOMER_DUE_DATE_SQL, IN_WARRANTY_SQL, CUSTOMER_LIVE_STATUS_SQL } from "@/lib/customerDates";
 import { query } from "@/lib/db";
 
 const BLOCKED_ROLES = new Set(["customer", "worker", "storekeeper"]);
@@ -125,7 +125,8 @@ export default async function handler(req, res) {
       WITH scoped AS (
         SELECT
           *,
-          ${CUSTOMER_DUE_DATE_SQL} AS due_date
+          ${CUSTOMER_DUE_DATE_SQL} AS due_date,
+          ${CUSTOMER_LIVE_STATUS_SQL} AS live_status
         FROM elevator_service_customers
       )
     `;
@@ -179,7 +180,7 @@ export default async function handler(req, res) {
         hoc_date, customer_status, amc_warranty_due, amc_starting_date, amc_ending_date,
         no_of_passenger, door_type, cabin, no_of_floors, motor_make, controller_make,
         drive_make, ard_make, drive_model_no, motor_model_no, elevator_type, door_make,
-        remarks, created_at, updated_at, due_date
+        remarks, created_at, updated_at, due_date, live_status
       FROM scoped
       ${whereSql}
       ${orderBySql}
