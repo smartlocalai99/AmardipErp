@@ -1,6 +1,6 @@
-import jwt from "jsonwebtoken";
 import { verifyAuthenticationResponse } from "@simplewebauthn/server";
 import { origin, rpID } from "@/lib/webauthnConfig";
+import { issueSessionCookie } from "@/lib/auth";
 import {
   deleteChallenge,
   ensurePasskeyTables,
@@ -74,16 +74,7 @@ export default async function handler(req, res) {
       role: passkey.role,
     };
 
-    const token = jwt.sign(
-      user,
-      process.env.JWT_SECRET || "super-secret-key-amardip-elevators-2026",
-      { expiresIn: "24h" }
-    );
-
-    res.setHeader(
-      "Set-Cookie",
-      `auth_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=86400`
-    );
+    res.setHeader("Set-Cookie", issueSessionCookie(user));
 
     return res.status(200).json({
       success: true,

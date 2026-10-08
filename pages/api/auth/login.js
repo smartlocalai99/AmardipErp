@@ -2,14 +2,8 @@ import { query } from "@/lib/db";
 import { normalizeMobileNumber } from "@/lib/customerAccounts";
 import { ensureCustomerAccountSchema, ensureUserLoginDeviceColumns } from "@/lib/usersSchema";
 import { describeDevice } from "@/lib/deviceInfo";
+import { issueSessionCookie } from "@/lib/auth";
 import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-
-// Staff logins stay signed in by default instead of expiring after a day;
-// only the customer portal keeps the shorter session.
-const STAFF_SESSION_SECONDS = 60 * 60 * 24 * 30;
-const CUSTOMER_SESSION_SECONDS = 60 * 60 * 24;
-const STAFF_ROLES = new Set(["superadmin", "admin", "manager", "front_office", "storekeeper", "worker"]);
 
 // Which device someone last logged in from is only tracked for store and
 // worker accounts, per the admin's request — not for admin logins.
@@ -76,25 +70,16 @@ export default async function handler(req, res) {
             );
         }
 
-        const sessionSeconds = STAFF_ROLES.has(user.role) ? STAFF_SESSION_SECONDS : CUSTOMER_SESSION_SECONDS;
-
-        // Generate signed JWT token containing ID, username, name, and role
-        const token = jwt.sign(
-            {
+        // Set HttpOnly cookie for session management — stays signed in by
+        // default (no "remember me" checkbox) for the duration in lib/auth.js.
+        res.setHeader(
+            "Set-Cookie",
+            issueSessionCookie({
                 id: user.id,
                 username: user.username,
                 name: user.name,
                 role: user.role,
-            },
-            process.env.JWT_SECRET || "super-secret-key-amardip-elevators-2026",
-            { expiresIn: sessionSeconds }
-        );
-
-        // Set HttpOnly cookie for session management — stays signed in by
-        // default (no "remember me" checkbox) for the duration above.
-        res.setHeader(
-            "Set-Cookie",
-            `auth_token=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${sessionSeconds}`
+            })
         );
 
         return res.status(200).json({
