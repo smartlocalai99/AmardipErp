@@ -1771,6 +1771,11 @@ function AdmindashboardShell({ user }) {
                                                 </div>
                                                 <div className="flex shrink-0 flex-col items-end gap-1">
                                                     <span className={`rounded-xl border px-2.5 py-1 text-[9.5px] font-black uppercase whitespace-nowrap ${complaintStatusClass(c.status)}`}>{c.status?.replaceAll("_", " ")}</span>
+                                                    {c.customerContractStatus && (
+                                                        <span className={`rounded-lg border px-2 py-0.5 text-[9px] font-black uppercase whitespace-nowrap ${customerContractStatusClass(c.customerContractStatus)}`}>
+                                                            {c.customerContractStatus}
+                                                        </span>
+                                                    )}
                                                     {c.priority === "EMERGENCY" && (
                                                         <span className="rounded border border-red-100 bg-red-50 px-2 py-0.5 text-[9px] font-black text-red-700">EMERGENCY</span>
                                                     )}
@@ -1779,8 +1784,18 @@ function AdmindashboardShell({ user }) {
 
                                             <p className="text-[11px] font-semibold text-slate-500">{c.mobileNo || "-"} · {c.city || "-"}</p>
 
-                                            {(c.checkedInAt || (isCompleted && c.resolvedAt) || duration) && (
+                                            {(c.createdAt || c.assignedAt || c.checkedInAt || (isCompleted && c.resolvedAt) || duration) && (
                                                 <div className="flex flex-wrap gap-1.5">
+                                                    {c.createdAt && (
+                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
+                                                            Logged {new Date(c.createdAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                        </span>
+                                                    )}
+                                                    {c.assignedAt && (
+                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
+                                                            Assigned {new Date(c.assignedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                        </span>
+                                                    )}
                                                     {c.checkedInAt && (
                                                         <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
                                                             Arrived {new Date(c.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
