@@ -17,6 +17,13 @@ let tableReady = false;
 // follow-up, so the ticket shouldn't be filed away as RESOLVED.
 const RESOLVED_STATUS_RESOLUTIONS = new Set(["Resolved", "Completed"]);
 
+// Which complaint types count as a real breakdown site visit for the
+// "Form Responses 4" sheet sync — matches the two categories the client's
+// own sheet already recognizes ("Preventive Maintenance" for scheduled
+// visits, "Brake down Maintenance" for these). AMC/payment queries aren't
+// site visits and don't belong in that sheet at all.
+const BREAKDOWN_SHEET_TYPES = new Set(["BREAKDOWN", "DOOR_ISSUE", "MOTOR_ISSUE", "NOISE"]);
+
 // The 11-item lift inspection checklist (matches CHECK POINTS.pdf exactly),
 // keyed the same as the elevator_service_visits condition columns.
 const CHECKLIST_TO_COLUMN = {
@@ -243,13 +250,18 @@ export default async function handler(req, res) {
         ]
       );
 
+      const isSiteVisit = complaint.customer_id && (linkedSchedule || BREAKDOWN_SHEET_TYPES.has(complaint.complaint_type));
+      // Senior/primary technician goes in technician_1 (this worker,
+      // whoever is completing the job); any second assignee (Junior
+      // Technician) goes in technician_2. Fetched once and reused below —
+      // both the internal visit history and the sheet row need it. Skipped
+      // entirely for non-visit completions (AMC/payment queries etc.) that
+      // need neither.
+      const assignees = isSiteVisit ? await getComplaintAssignees(jobDbId) : [];
+      const juniorTechnician = assignees.find((a) => Number(a.id) !== Number(actor.id));
+      const checklist = checklistData || {};
+
       if (linkedSchedule && complaint.customer_id) {
-        // Senior/primary technician goes in technician_1 (this worker,
-        // whoever is completing the job); any second assignee (Junior
-        // Technician) goes in technician_2.
-        const assignees = await getComplaintAssignees(jobDbId);
-        const juniorTechnician = assignees.find((a) => Number(a.id) !== Number(actor.id));
-        const checklist = checklistData || {};
         const conditionColumns = Object.keys(CHECKLIST_TO_COLUMN);
         const conditionValues = conditionColumns.map((key) => checklist[key] || null);
 
@@ -288,7 +300,13 @@ export default async function handler(req, res) {
            WHERE id = $2`,
           [visitResult.rows[0].id, linkedSchedule.id]
         );
+      }
 
+      // Logged to the same "Form Responses 4" sheet as monthly service
+      // visits — a resolved breakdown is a real site visit too, just not a
+      // scheduled one. AMC/payment queries and the like aren't site
+      // visits, so they're left out of this sheet entirely.
+      if (isSiteVisit) {
         // Form Responses 4 has one free-text REMARKS column and no
         // dedicated fields for these — folded in as text rather than
         // silently dropped, matching what a technician filling the sheet's
@@ -310,7 +328,10 @@ export default async function handler(req, res) {
           customerStatus: complaint.customer_status_snapshot,
           amcWarrantyDue: complaint.amc_warranty_due_snapshot,
           remarks: remarksExtras.join(" | ") || null,
-          serviceType: "MONTHLY_SERVICE",
+          // Matches the two categories the client's own sheet already
+          // recognizes — its "MONTH WISE BREAKDOWNS"/"BREAKDOWNS" tabs
+          // filter on this exact string.
+          serviceType: linkedSchedule ? "MONTHLY_SERVICE" : "Brake down Maintenance",
           technician1: actor.name || actor.username,
           technician2: juniorTechnician?.name || null,
           checklist,
