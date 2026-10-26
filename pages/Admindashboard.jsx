@@ -614,6 +614,7 @@ function AdmindashboardShell({ user }) {
     // Filter and search states
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("UNASSIGNED");
+    const [complaintViewMode, setComplaintViewMode] = useState("month");
     const [moreSubTab, setMoreSubTab] = useState(null);
 
     // Interactive directories
@@ -811,6 +812,7 @@ function AdmindashboardShell({ user }) {
                 pageSize: "50",
             });
             if (searchQuery.trim()) params.set("search", searchQuery.trim());
+            if (complaintViewMode === "month") params.set("period", "month");
             if (statusFilter === "ASSIGNED") params.set("statusIn", "ASSIGNED,IN_PROGRESS");
             else if (statusFilter === "COMPLETED") params.set("statusIn", "RESOLVED,CLOSED");
             else if (statusFilter !== "all") params.set("status", statusFilter);
@@ -838,7 +840,7 @@ function AdmindashboardShell({ user }) {
             clearTimeout(timer);
             complaintsRequestRef.current?.abort();
         };
-    }, [activeTab, searchQuery, statusFilter, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeTab, searchQuery, statusFilter, complaintViewMode, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Global totals do not change when the list's search/filter changes.
     // Refresh on tab entry and after mutations instead of on every search.
@@ -1716,14 +1718,42 @@ function AdmindashboardShell({ user }) {
                                 </button>
                             </div>
 
-                            <div className="relative">
-                                <input
-                                    type="text"
-                                    placeholder="Search breakdowns..."
-                                    value={searchQuery}
-                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="amardip-search-field w-full"
-                                />
+                            <div className="space-y-3">
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder="Search breakdowns..."
+                                        value={searchQuery}
+                                        onChange={(e) => setSearchQuery(e.target.value)}
+                                        className="amardip-search-field w-full"
+                                    />
+                                </div>
+                                <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/50 p-1.5">
+                                    {[
+                                        ["month", "This Month"],
+                                        ["all", "All Breakdowns"],
+                                    ].map(([mode, label]) => (
+                                        <button
+                                            key={mode}
+                                            onClick={() => setComplaintViewMode(mode)}
+                                            className={`h-9 rounded-xl text-xs font-bold transition ${complaintViewMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "text-slate-600"}`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                {/* "This Month" only lists tickets logged this month, so an
+                                    older ticket that's still open would otherwise vanish
+                                    from the default view. */}
+                                {complaintViewMode === "month" && complaintStats?.openBeforeThisMonth > 0 && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setComplaintViewMode("all")}
+                                        className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-[11px] font-bold text-amber-800"
+                                    >
+                                        {complaintStats.openBeforeThisMonth} open breakdown{complaintStats.openBeforeThisMonth === 1 ? "" : "s"} from earlier months · View in All Breakdowns
+                                    </button>
+                                )}
                             </div>
 
                             {complaintError && (
@@ -1731,11 +1761,14 @@ function AdmindashboardShell({ user }) {
                             )}
 
                             <div className="grid grid-cols-3 gap-2">
-                                {[
-                                    ["UNASSIGNED", "New", complaintStats?.unassignedComplaints || 0],
-                                    ["ASSIGNED", "Assigned", complaintStats?.assignedComplaints || 0],
-                                    ["COMPLETED", "Completed", complaintStats?.completedComplaints || 0],
-                                ].map(([status, label, value]) => (
+                                {(() => {
+                                    const counts = complaintViewMode === "month" ? complaintStats?.thisMonth : complaintStats;
+                                    return [
+                                        ["UNASSIGNED", "New", counts?.unassignedComplaints || 0],
+                                        ["ASSIGNED", "Assigned", counts?.assignedComplaints || 0],
+                                        ["COMPLETED", "Completed", counts?.completedComplaints || 0],
+                                    ];
+                                })().map(([status, label, value]) => (
                                     <button
                                         key={status}
                                         type="button"

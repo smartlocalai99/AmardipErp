@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   buildComplaintNo,
+  buildComplaintWhere,
   normalizeComplaintInput,
   normalizeComplaintRow,
 } from "../lib/complaints.js";
@@ -85,5 +86,15 @@ assert.deepEqual(
     checkInAddress: null,
   }
 );
+
+// Breakdowns "This Month" filters on the IST month start, computed in SQL
+// (no client clock involved) and only when asked for.
+{
+  const month = buildComplaintWhere({ actor: null, filters: { loggedThisMonth: true, status: "UNASSIGNED" } });
+  assert.match(month.whereSql, /created_at >= \(date_trunc\('month', NOW\(\) AT TIME ZONE 'Asia\/Kolkata'\) AT TIME ZONE 'Asia\/Kolkata'\)/);
+  assert.deepEqual(month.params, ["UNASSIGNED"]);
+  const all = buildComplaintWhere({ actor: null, filters: { loggedThisMonth: false } });
+  assert.equal(all.whereSql, "");
+}
 
 console.log("complaints tests passed");
