@@ -504,6 +504,8 @@ function AdmindashboardShell({ user }) {
     }
     const [assignmentNotes, setAssignmentNotes] = useState("");
     const [complaintsLoading, setComplaintsLoading] = useState(false);
+    const [complaintsTotal, setComplaintsTotal] = useState(0);
+    const [complaintsPage, setComplaintsPage] = useState(1);
     const [complaintError, setComplaintError] = useState("");
     const [complaintStats, setComplaintStats] = useState(null);
     const [quotationStats, setQuotationStats] = useState(null);
@@ -799,7 +801,10 @@ function AdmindashboardShell({ user }) {
         }
     }
 
-    async function fetchComplaints({ refreshStats = true } = {}) {
+    // page 1 replaces the list (filter/search change, after a mutation);
+    // later pages come from "Load more" and append, so a month with more
+    // than 50 tickets is never silently cut short.
+    async function fetchComplaints({ refreshStats = true, page = 1 } = {}) {
         if (!["superadmin", "admin", "manager", "front_office"].includes(user?.role)) return;
         complaintsRequestRef.current?.abort();
         const controller = new AbortController();
@@ -808,7 +813,7 @@ function AdmindashboardShell({ user }) {
         setComplaintError("");
         try {
             const params = new URLSearchParams({
-                page: "1",
+                page: String(page),
                 pageSize: "50",
             });
             if (searchQuery.trim()) params.set("search", searchQuery.trim());
@@ -824,7 +829,10 @@ function AdmindashboardShell({ user }) {
             const listData = await listRes.json();
             if (controller.signal.aborted) return;
             if (!listRes.ok || !listData.success) throw new Error(listData.message || "Failed to load complaints");
-            setComplaints(listData.complaints || []);
+            const rows = listData.complaints || [];
+            setComplaints(page === 1 ? rows : (prev) => [...prev, ...rows.filter((row) => !prev.some((p) => p.id === row.id))]);
+            setComplaintsTotal(listData.total || 0);
+            setComplaintsPage(page);
         } catch (err) {
             if (!controller.signal.aborted) setComplaintError(err.message || "Failed to load complaints");
         } finally {
@@ -1785,7 +1793,24 @@ function AdmindashboardShell({ user }) {
                                 {complaintsLoading && complaints.length === 0 ? (
                                     <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real breakdowns...</p>
                                 ) : complaints.length === 0 ? (
-                                    <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No breakdowns found. Use Add to create the first ticket.</p>
+                                    complaintViewMode === "month" ? (
+                                        // This Month only covers tickets logged this month — say so,
+                                        // and offer the full history, instead of implying none exist.
+                                        <div className="rounded-3xl border border-slate-100 bg-white p-6 text-center">
+                                            <p className="text-xs font-bold text-slate-400">
+                                                {searchQuery.trim() ? "No breakdowns logged this month match your search." : "No breakdowns logged this month in this list."}
+                                            </p>
+                                            <button
+                                                type="button"
+                                                onClick={() => setComplaintViewMode("all")}
+                                                className="mt-3 h-9 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white"
+                                            >
+                                                Search All Breakdowns
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">No breakdowns found. Use Add to create the first ticket.</p>
+                                    )
                                 ) : complaints.map(c => {
                                     const duration = formatJobDuration(c.jobCompletion?.durationMinutes);
                                     const isCompleted = ["RESOLVED", "CLOSED"].includes(c.status);
@@ -1869,6 +1894,16 @@ function AdmindashboardShell({ user }) {
                                     </button>
                                     );
                                 })}
+                                {complaints.length > 0 && complaints.length < complaintsTotal && (
+                                    <button
+                                        type="button"
+                                        disabled={complaintsLoading}
+                                        onClick={() => fetchComplaints({ refreshStats: false, page: complaintsPage + 1 })}
+                                        className="w-full rounded-2xl border border-[#cfe8f7] bg-white py-3 text-xs font-black text-[#0a649d] disabled:opacity-60"
+                                    >
+                                        {complaintsLoading ? "Loading…" : `Load more · Showing ${complaints.length} of ${complaintsTotal}`}
+                                    </button>
+                                )}
                             </div>
                         </div>
                     )}
