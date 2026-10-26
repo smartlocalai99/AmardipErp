@@ -47,7 +47,7 @@ export default async function handler(req, res) {
           complaintType: req.query.complaintType,
           excludeComplaintType: includeServiceRequests ? undefined : "SERVICE_REQUEST",
           assignedTechnicianUserId: req.query.assignedTechnicianUserId,
-          loggedThisMonth: req.query.period === "month",
+          month: req.query.month,
         },
       });
       await attachMaterialsToComplaints(result.rows);

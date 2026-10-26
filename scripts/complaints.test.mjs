@@ -3,6 +3,7 @@ import {
   buildComplaintNo,
   buildComplaintWhere,
   normalizeComplaintInput,
+  parseComplaintMonth,
   normalizeComplaintRow,
 } from "../lib/complaints.js";
 
@@ -87,13 +88,18 @@ assert.deepEqual(
   }
 );
 
-// Breakdowns "This Month" filters on the IST month start, computed in SQL
-// (no client clock involved) and only when asked for.
+// Breakdowns month dropdown: "YYYY-MM" becomes an IST [start, next month)
+// range on created_at; anything else is ignored rather than sent to SQL.
 {
-  const month = buildComplaintWhere({ actor: null, filters: { loggedThisMonth: true, status: "UNASSIGNED" } });
-  assert.match(month.whereSql, /created_at >= \(date_trunc\('month', NOW\(\) AT TIME ZONE 'Asia\/Kolkata'\) AT TIME ZONE 'Asia\/Kolkata'\)/);
-  assert.deepEqual(month.params, ["UNASSIGNED"]);
-  const all = buildComplaintWhere({ actor: null, filters: { loggedThisMonth: false } });
+  assert.equal(parseComplaintMonth("2026-09"), "2026-09-01");
+  assert.equal(parseComplaintMonth("2026-13"), null);
+  assert.equal(parseComplaintMonth("all"), null);
+  assert.equal(parseComplaintMonth("2026-09'; DROP TABLE complaints; --"), null);
+
+  const month = buildComplaintWhere({ actor: null, filters: { status: "UNASSIGNED", month: "2026-09" } });
+  assert.match(month.whereSql, /created_at >= \(\(\$2::date\)::timestamp AT TIME ZONE 'Asia\/Kolkata'\) AND created_at < \(\(\(\$2::date\) \+ interval '1 month'\) AT TIME ZONE 'Asia\/Kolkata'\)/);
+  assert.deepEqual(month.params, ["UNASSIGNED", "2026-09-01"]);
+  const all = buildComplaintWhere({ actor: null, filters: { month: "all" } });
   assert.equal(all.whereSql, "");
 }
 

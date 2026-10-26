@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const stats = await getComplaintStats();
+    const stats = await getComplaintStats({ month: req.query.month });
     return res.status(200).json({ success: true, ...stats });
   } catch (err) {
     console.error("Complaint stats error:", err);

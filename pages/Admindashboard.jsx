@@ -242,6 +242,59 @@ function PlusIcon({ className = "h-5 w-5" }) {
     );
 }
 
+// Month keys are "YYYY-MM" in India time, matching how the server buckets
+// breakdowns and service months.
+function currentIstMonthKey() {
+    const parts = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", year: "numeric", month: "2-digit" }).formatToParts(new Date());
+    const get = (type) => parts.find((p) => p.type === type)?.value;
+    return `${get("year")}-${get("month")}`;
+}
+
+function monthKeyLabel(key) {
+    const [year, month] = key.split("-").map(Number);
+    return new Date(year, month - 1, 1).toLocaleDateString("en-IN", { month: "long", year: "numeric" });
+}
+
+// Newest first, from `last` back to `first` (both "YYYY-MM").
+function monthKeysBetween(first, last) {
+    const keys = [];
+    let [year, month] = last.split("-").map(Number);
+    const [firstYear, firstMonth] = (first && first < last ? first : last).split("-").map(Number);
+    while (year > firstYear || (year === firstYear && month >= firstMonth)) {
+        keys.push(`${year}-${String(month).padStart(2, "0")}`);
+        month -= 1;
+        if (month === 0) { month = 12; year -= 1; }
+    }
+    return keys;
+}
+
+// Month dropdown for the Breakdowns and Service tabs: every month from the
+// first one with data up to this month (or a later month that already has
+// data), plus an "All ..." option for the full history.
+function MonthSelect({ value, onChange, firstMonth, lastMonth, allLabel }) {
+    const current = currentIstMonthKey();
+    const last = lastMonth && lastMonth > current ? lastMonth : current;
+    const months = monthKeysBetween(firstMonth, last);
+    return (
+        <div className="relative">
+            <select
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+                aria-label="Month"
+                className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white pl-4 pr-10 text-base font-bold text-slate-800 shadow-sm focus:border-[#0a649d] focus:outline-none"
+            >
+                {months.map((key) => (
+                    <option key={key} value={key}>{monthKeyLabel(key)}{key === current ? " (This Month)" : ""}</option>
+                ))}
+                <option value="all">{allLabel}</option>
+            </select>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="pointer-events-none absolute right-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[#0a649d]">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 9l6 6 6-6" />
+            </svg>
+        </div>
+    );
+}
+
 function AmcStatStrip({ stats, loading, selectedMode, onSelect }) {
     const cards = [
         {
@@ -616,18 +669,21 @@ function AdmindashboardShell({ user }) {
     // Filter and search states
     const [searchQuery, setSearchQuery] = useState("");
     const [statusFilter, setStatusFilter] = useState("UNASSIGNED");
-    const [complaintViewMode, setComplaintViewMode] = useState("month");
+    // "YYYY-MM" (IST) or "all"; defaults to the current month.
+    const [complaintMonth, setComplaintMonth] = useState(currentIstMonthKey);
     const [moreSubTab, setMoreSubTab] = useState(null);
 
     // Interactive directories
     const [inquiries, setInquiries] = useState([]);
 
     const [scheduleCustomers, setScheduleCustomers] = useState([]);
-    const [serviceViewMode, setServiceViewMode] = useState("month");
+    // "YYYY-MM" (IST) or "all" (the service visits table); defaults to the current month.
+    const [serviceMonth, setServiceMonth] = useState(currentIstMonthKey);
     const [serviceSearch, setServiceSearch] = useState("");
     const [upcomingServiceRows, setUpcomingServiceRows] = useState([]);
     const [upcomingServiceLoading, setUpcomingServiceLoading] = useState(false);
     const [upcomingServiceSummary, setUpcomingServiceSummary] = useState({ unassigned: 0, assigned: 0, completed: 0 });
+    const upcomingServiceRequestRef = useRef(null);
     const [serviceStatusFilter, setServiceStatusFilter] = useState("ALL");
     const [amcStats, setAmcStats] = useState(null);
     const [amcStatsLoading, setAmcStatsLoading] = useState(false);
@@ -790,7 +846,8 @@ function AdmindashboardShell({ user }) {
 
     async function fetchComplaintStats(signal) {
         try {
-            const data = await cachedGetJson("/api/complaints/stats", {
+            const monthQuery = complaintMonth === "all" ? "" : `?month=${complaintMonth}`;
+            const data = await cachedGetJson(`/api/complaints/stats${monthQuery}`, {
                 ttlMs: 0,
                 user,
                 fetchOptions: { signal, cache: "no-store" },
@@ -817,7 +874,7 @@ function AdmindashboardShell({ user }) {
                 pageSize: "50",
             });
             if (searchQuery.trim()) params.set("search", searchQuery.trim());
-            if (complaintViewMode === "month") params.set("period", "month");
+            if (complaintMonth !== "all") params.set("month", complaintMonth);
             if (statusFilter === "ASSIGNED") params.set("statusIn", "ASSIGNED,IN_PROGRESS");
             else if (statusFilter === "COMPLETED") params.set("statusIn", "RESOLVED,CLOSED");
             else if (statusFilter !== "all") params.set("status", statusFilter);
@@ -848,10 +905,10 @@ function AdmindashboardShell({ user }) {
             clearTimeout(timer);
             complaintsRequestRef.current?.abort();
         };
-    }, [activeTab, searchQuery, statusFilter, complaintViewMode, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeTab, searchQuery, statusFilter, complaintMonth, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // Global totals do not change when the list's search/filter changes.
-    // Refresh on tab entry and after mutations instead of on every search.
+    // Totals do not change when the list's search/filter changes. Refresh
+    // on tab entry, on a month change and after mutations — not on every search.
     useEffect(() => {
         if (activeTab !== "complaints" && activeTab !== "dashboard") return;
         const controller = new AbortController();
@@ -860,7 +917,7 @@ function AdmindashboardShell({ user }) {
             clearTimeout(timer);
             controller.abort();
         };
-    }, [activeTab, user?.id, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [activeTab, complaintMonth, user?.id, user?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
     async function fetchQuotationDashboardData() {
         if (["customer", "worker", "storekeeper"].includes(user?.role)) return;
@@ -887,6 +944,12 @@ function AdmindashboardShell({ user }) {
     // waiting to be scheduled — so admin can assign a worker to either kind
     // from one screen.
     async function fetchUpcomingServiceRows(search = "") {
+        if (serviceMonth === "all") return;
+        // A newer month/search supersedes this one — never let a slow
+        // earlier response overwrite the month now selected.
+        upcomingServiceRequestRef.current?.abort();
+        const controller = new AbortController();
+        upcomingServiceRequestRef.current = controller;
         setUpcomingServiceLoading(true);
         try {
             // pageSize must cover every row this month, not just a page of
@@ -896,16 +959,22 @@ function AdmindashboardShell({ user }) {
             // of the page. The Assigned/Completed pill counts (a separate
             // unpaginated COUNT) still looked right while the actual list
             // under them came back empty.
-            const params = new URLSearchParams({ page: "1", pageSize: "1000", mode: "all", status: "ALL" });
+            const params = new URLSearchParams({ page: "1", pageSize: "1000", mode: "all", status: "ALL", month: serviceMonth });
             if (search.trim()) params.set("search", search.trim());
-            const res = await fetch(`/api/service-schedules/upcoming?${params.toString()}`, { cache: "no-store" });
+            const res = await fetch(`/api/service-schedules/upcoming?${params.toString()}`, { cache: "no-store", signal: controller.signal });
             const data = await res.json();
+            if (controller.signal.aborted) return;
             if (data.success) {
                 setUpcomingServiceRows(data.rows || []);
                 setUpcomingServiceSummary(data.summary || { unassigned: 0, assigned: 0, completed: 0 });
             }
         } catch {}
-        finally { setUpcomingServiceLoading(false); }
+        finally {
+            if (upcomingServiceRequestRef.current === controller) {
+                upcomingServiceRequestRef.current = null;
+                setUpcomingServiceLoading(false);
+            }
+        }
     }
 
     async function openAssignForCustomer(row) {
@@ -1075,10 +1144,10 @@ function AdmindashboardShell({ user }) {
     }, [activeTab, moreSubTab]);
 
     useEffect(() => {
-        if (activeTab !== "service" || serviceViewMode !== "month") return;
+        if (activeTab !== "service" || serviceMonth === "all") return;
         const timer = setTimeout(() => fetchUpcomingServiceRows(serviceSearch), 250);
         return () => clearTimeout(timer);
-    }, [activeTab, serviceViewMode, serviceSearch]);
+    }, [activeTab, serviceMonth, serviceSearch]); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (activeTab !== "more") return;
@@ -1736,30 +1805,22 @@ function AdmindashboardShell({ user }) {
                                         className="amardip-search-field w-full"
                                     />
                                 </div>
-                                <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/50 p-1.5">
-                                    {[
-                                        ["month", "This Month"],
-                                        ["all", "All Breakdowns"],
-                                    ].map(([mode, label]) => (
-                                        <button
-                                            key={mode}
-                                            onClick={() => setComplaintViewMode(mode)}
-                                            className={`h-9 rounded-xl text-xs font-bold transition ${complaintViewMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "text-slate-600"}`}
-                                        >
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
-                                {/* "This Month" only lists tickets logged this month, so an
+                                <MonthSelect
+                                    value={complaintMonth}
+                                    onChange={setComplaintMonth}
+                                    firstMonth={complaintStats?.firstMonth}
+                                    allLabel="All Breakdowns"
+                                />
+                                {/* A month view only lists tickets logged in that month, so an
                                     older ticket that's still open would otherwise vanish
                                     from the default view. */}
-                                {complaintViewMode === "month" && complaintStats?.openBeforeThisMonth > 0 && (
+                                {complaintMonth !== "all" && complaintStats?.openBeforeMonth > 0 && (
                                     <button
                                         type="button"
-                                        onClick={() => setComplaintViewMode("all")}
+                                        onClick={() => setComplaintMonth("all")}
                                         className="w-full rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-[11px] font-bold text-amber-800"
                                     >
-                                        {complaintStats.openBeforeThisMonth} open breakdown{complaintStats.openBeforeThisMonth === 1 ? "" : "s"} from earlier months · View in All Breakdowns
+                                        {complaintStats.openBeforeMonth} open breakdown{complaintStats.openBeforeMonth === 1 ? "" : "s"} from earlier months · View in All Breakdowns
                                     </button>
                                 )}
                             </div>
@@ -1770,7 +1831,7 @@ function AdmindashboardShell({ user }) {
 
                             <div className="grid grid-cols-3 gap-2">
                                 {(() => {
-                                    const counts = complaintViewMode === "month" ? complaintStats?.thisMonth : complaintStats;
+                                    const counts = complaintMonth === "all" ? complaintStats : complaintStats?.month;
                                     return [
                                         ["UNASSIGNED", "New", counts?.unassignedComplaints || 0],
                                         ["ASSIGNED", "Assigned", counts?.assignedComplaints || 0],
@@ -1793,16 +1854,18 @@ function AdmindashboardShell({ user }) {
                                 {complaintsLoading && complaints.length === 0 ? (
                                     <p className="rounded-3xl border border-slate-100 bg-white p-8 text-center text-xs font-bold text-slate-400">Loading real breakdowns...</p>
                                 ) : complaints.length === 0 ? (
-                                    complaintViewMode === "month" ? (
-                                        // This Month only covers tickets logged this month — say so,
+                                    complaintMonth !== "all" ? (
+                                        // A month view only covers tickets logged that month — say so,
                                         // and offer the full history, instead of implying none exist.
                                         <div className="rounded-3xl border border-slate-100 bg-white p-6 text-center">
                                             <p className="text-xs font-bold text-slate-400">
-                                                {searchQuery.trim() ? "No breakdowns logged this month match your search." : "No breakdowns logged this month in this list."}
+                                                {searchQuery.trim()
+                                                    ? `No breakdowns logged in ${monthKeyLabel(complaintMonth)} match your search.`
+                                                    : `No breakdowns logged in ${monthKeyLabel(complaintMonth)} in this list.`}
                                             </p>
                                             <button
                                                 type="button"
-                                                onClick={() => setComplaintViewMode("all")}
+                                                onClick={() => setComplaintMonth("all")}
                                                 className="mt-3 h-9 rounded-xl bg-[#0a649d] px-4 text-xs font-black text-white"
                                             >
                                                 Search All Breakdowns
@@ -1916,10 +1979,10 @@ function AdmindashboardShell({ user }) {
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <h1 className="text-2xl font-black tracking-tight text-slate-900">Maintenance & Service</h1>
                                         <span className="rounded-full bg-sky-50 border border-sky-100 px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wide text-[#0a649d]">
-                                            {new Date().toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
+                                            {serviceMonth === "all" ? "All months" : monthKeyLabel(serviceMonth)}
                                         </span>
                                     </div>
-                                    <p className="text-xs text-slate-500 mt-0.5">AMC and warranty customers due for service this month, sourced live from the customer sheet.</p>
+                                    <p className="text-xs text-slate-500 mt-0.5">AMC and warranty customers due for service in the selected month, sourced live from the customer sheet.</p>
                                 </div>
                                 <button
                                     onClick={async () => {
@@ -1949,7 +2012,7 @@ function AdmindashboardShell({ user }) {
                             </p>
 
                             <div className="space-y-3">
-                                {serviceViewMode === "month" && (
+                                {serviceMonth !== "all" && (
                                     <div className="relative">
                                         <input
                                             type="text"
@@ -1960,23 +2023,16 @@ function AdmindashboardShell({ user }) {
                                         />
                                     </div>
                                 )}
-                                <div className="grid grid-cols-2 gap-1.5 rounded-2xl bg-slate-200/50 p-1.5">
-                                    {[
-                                        ["month", "This Month"],
-                                        ["all", "All Services"],
-                                    ].map(([mode, label]) => (
-                                        <button
-                                            key={mode}
-                                            onClick={() => setServiceViewMode(mode)}
-                                            className={`h-9 rounded-xl text-xs font-bold transition ${serviceViewMode === mode ? "bg-[#0a649d] text-white shadow-sm" : "text-slate-600"}`}
-                                        >
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
+                                <MonthSelect
+                                    value={serviceMonth}
+                                    onChange={setServiceMonth}
+                                    firstMonth={upcomingServiceSummary.firstMonth}
+                                    lastMonth={upcomingServiceSummary.lastMonth}
+                                    allLabel="All Services"
+                                />
                             </div>
 
-                            {serviceViewMode === "month" && (
+                            {serviceMonth !== "all" && (
                                 <div className="grid grid-cols-3 gap-2">
                                     {[
                                         ["UNASSIGNED", "Unassigned", upcomingServiceSummary.unassigned],
@@ -1997,7 +2053,7 @@ function AdmindashboardShell({ user }) {
                             )}
 
                             {/* Service schedules */}
-                            {serviceViewMode === "month" ? (
+                            {serviceMonth !== "all" ? (
                                 <div className="space-y-3">
                                     {upcomingServiceLoading ? (
                                         <p className="text-center text-xs text-slate-400 py-6">Loading…</p>
@@ -2011,7 +2067,7 @@ function AdmindashboardShell({ user }) {
                                         if (filteredRows.length === 0) {
                                             return (
                                                 <div className="text-center py-10">
-                                                    <p className="text-sm font-bold text-slate-400">No services due this month</p>
+                                                    <p className="text-sm font-bold text-slate-400">No services in {monthKeyLabel(serviceMonth)}</p>
                                                 </div>
                                             );
                                         }

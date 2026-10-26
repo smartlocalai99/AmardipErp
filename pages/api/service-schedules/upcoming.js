@@ -82,8 +82,20 @@ export default async function handler(req, res) {
       console.error("Failed to fetch service-due customers from sheet, falling back to DB status:", err);
     }
 
-    const params = [serviceDueCodes, serviceDueMobiles];
+    // $1/$2 are only referenced when the sheet returned codes — Postgres
+    // rejects bound parameters the SQL never uses, which used to turn the
+    // DB-status fallback below into a 500 whenever the sheet was down.
+    const params = serviceDueCodes.length > 0 ? [serviceDueCodes, serviceDueMobiles] : [];
     const whereParts = [];
+
+    // The Service tab's month dropdown sends "YYYY-MM"; without it this is
+    // the current month, as before.
+    const monthMatch = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(req.query.month || "").trim());
+    let monthSql = "date_trunc('month', CURRENT_DATE)::date";
+    if (monthMatch) {
+      params.push(`${monthMatch[1]}-${monthMatch[2]}-01`);
+      monthSql = `$${params.length}::date`;
+    }
 
     const searchCondition = buildSearchCondition(params, req.query.search);
     if (searchCondition) whereParts.push(searchCondition);
@@ -155,7 +167,7 @@ export default async function handler(req, res) {
           ORDER BY t.created_at DESC
           LIMIT 1
         ) jc ON co.id IS NOT NULL
-        WHERE s.schedule_month = date_trunc('month', CURRENT_DATE)::date
+        WHERE s.schedule_month = ${monthSql}
           AND s.status IN ('SCHEDULED', 'ASSIGNED', 'IN_PROGRESS', 'MISSED', 'COMPLETED')
       ),
       to_be_scheduled_rows AS (
@@ -177,7 +189,7 @@ export default async function handler(req, res) {
             WHEN lv.last_service_date IS NULL THEN NULL
             ELSE (CURRENT_DATE - lv.last_service_date)::int
           END AS days_since_last_service,
-          date_trunc('month', CURRENT_DATE)::date AS schedule_month,
+          ${monthSql} AS schedule_month,
           NULL::date AS scheduled_date,
           NULL::text AS preferred_time,
           'TO_BE_SCHEDULED'::text AS schedule_status,
@@ -208,14 +220,14 @@ export default async function handler(req, res) {
             SELECT 1
             FROM elevator_service_visits v
             WHERE v.customer_id = c.id
-              AND v.service_date >= date_trunc('month', CURRENT_DATE)::date
-              AND v.service_date < (date_trunc('month', CURRENT_DATE) + interval '1 month')::date
+              AND v.service_date >= ${monthSql}
+              AND v.service_date < (${monthSql} + interval '1 month')::date
           )
           AND NOT EXISTS (
             SELECT 1
             FROM service_schedules s
             WHERE s.customer_id = c.id
-              AND s.schedule_month = date_trunc('month', CURRENT_DATE)::date
+              AND s.schedule_month = ${monthSql}
               AND s.status NOT IN ('CANCELLED', 'COMPLETED')
           )
       ),
@@ -245,7 +257,7 @@ export default async function handler(req, res) {
             WHEN lv.last_service_date IS NULL THEN NULL
             ELSE (CURRENT_DATE - lv.last_service_date)::int
           END AS days_since_last_service,
-          date_trunc('month', CURRENT_DATE)::date AS schedule_month,
+          ${monthSql} AS schedule_month,
           NULL::date AS scheduled_date,
           NULL::text AS preferred_time,
           'TO_BE_SCHEDULED'::text AS schedule_status,
@@ -272,14 +284,14 @@ export default async function handler(req, res) {
             SELECT 1
             FROM elevator_service_visits v
             WHERE v.customer_id = c.id
-              AND v.service_date >= date_trunc('month', CURRENT_DATE)::date
-              AND v.service_date < (date_trunc('month', CURRENT_DATE) + interval '1 month')::date
+              AND v.service_date >= ${monthSql}
+              AND v.service_date < (${monthSql} + interval '1 month')::date
           )
           AND NOT EXISTS (
             SELECT 1
             FROM service_schedules s
             WHERE s.customer_id = c.id
-              AND s.schedule_month = date_trunc('month', CURRENT_DATE)::date
+              AND s.schedule_month = ${monthSql}
               AND s.status NOT IN ('CANCELLED', 'COMPLETED')
           )
       ),
@@ -306,7 +318,10 @@ export default async function handler(req, res) {
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND schedule_status != 'COMPLETED')::int AS assigned,
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND schedule_status = 'COMPLETED')::int AS completed,
         COUNT(*) FILTER (WHERE row_type = 'SCHEDULED' AND scheduled_date = CURRENT_DATE)::int AS today,
-        COUNT(*)::int AS total
+        COUNT(*)::int AS total,
+        -- Month dropdown range (index lookups on schedule_month).
+        (SELECT to_char(MIN(schedule_month), 'YYYY-MM') FROM service_schedules) AS first_month,
+        (SELECT to_char(MAX(schedule_month), 'YYYY-MM') FROM service_schedules) AS last_month
       FROM filtered_rows
       `,
       params
@@ -365,7 +380,7 @@ export default async function handler(req, res) {
           address: customer?.address || sheetRow.address,
           customer_status: sheetRow.status,
           amc_warranty_due: sheetRow.amcWarrantyDueText,
-          schedule_month: new Date().toISOString().slice(0, 7) + "-01",
+          schedule_month: monthMatch ? `${monthMatch[1]}-${monthMatch[2]}-01` : new Date().toISOString().slice(0, 7) + "-01",
           scheduled_date: null,
           preferred_time: null,
           schedule_status: "TO_BE_SCHEDULED",
@@ -420,6 +435,8 @@ export default async function handler(req, res) {
         completed: fallbackUnassigned ? 0 : summaryResult.rows[0]?.completed || 0,
         today: summaryResult.rows[0]?.today || 0,
         total,
+        firstMonth: summaryResult.rows[0]?.first_month || null,
+        lastMonth: summaryResult.rows[0]?.last_month || null,
       },
       pagination: {
         page,
