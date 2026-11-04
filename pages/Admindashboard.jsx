@@ -2086,6 +2086,10 @@ function AdmindashboardShell({ user }) {
                                                         <p className="text-[11px] font-semibold text-slate-500">{row.mobileNo || "-"} · {row.city || "-"}</p>
                                                         <p className="text-[10px] font-bold text-slate-500">
                                                             {row.lastServiceDate ? `Last visit: ${new Date(row.lastServiceDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}` : "No service history"}
+                                                            {/* Planning a future month: list is in this order (same day as last service). */}
+                                                            {row.plannedDate && serviceMonth > currentIstMonthKey() && (
+                                                                <span className="text-[#0a649d]"> · Plan: {new Date(row.plannedDate).toLocaleDateString("en-IN", { day: "numeric", month: "short" })}</span>
+                                                            )}
                                                         </p>
                                                     </div>
                                                     <button

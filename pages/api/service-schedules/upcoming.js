@@ -96,6 +96,13 @@ export default async function handler(req, res) {
       params.push(`${monthMatch[1]}-${monthMatch[2]}-01`);
       monthSql = `$${params.length}::date`;
     }
+    // Planned visit day in the selected month: the same day of the month
+    // as the customer's last service (clamped to the month's last day), so
+    // next month's visits keep each customer's usual cadence.
+    const plannedDateSql = `CASE WHEN lv.last_service_date IS NULL THEN NULL ELSE LEAST(
+            ${monthSql} + (EXTRACT(DAY FROM lv.last_service_date)::int - 1),
+            (${monthSql} + interval '1 month' - interval '1 day')::date
+          ) END`;
 
     const searchCondition = buildSearchCondition(params, req.query.search);
     if (searchCondition) whereParts.push(searchCondition);
@@ -155,7 +162,8 @@ export default async function handler(req, res) {
           jc.duration_minutes,
           jc.completed_at,
           s.created_at,
-          FALSE AS matched_via_search
+          FALSE AS matched_via_search,
+          COALESCE(s.scheduled_date, ${plannedDateSql}) AS planned_date
         FROM service_schedules s
         JOIN elevator_service_customers c ON c.id = s.customer_id
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
@@ -201,7 +209,8 @@ export default async function handler(req, res) {
           NULL::integer AS duration_minutes,
           NULL::timestamptz AS completed_at,
           NULL::timestamptz AS created_at,
-          FALSE AS matched_via_search
+          FALSE AS matched_via_search,
+          ${plannedDateSql} AS planned_date
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
         WHERE ${
@@ -269,7 +278,8 @@ export default async function handler(req, res) {
           NULL::integer AS duration_minutes,
           NULL::timestamptz AS completed_at,
           NULL::timestamptz AS created_at,
-          TRUE AS matched_via_search
+          TRUE AS matched_via_search,
+          ${plannedDateSql} AS planned_date
         FROM elevator_service_customers c
         LEFT JOIN last_visits lv ON lv.customer_id = c.id
         WHERE ${searchCondition ? searchCondition : "FALSE"}
@@ -339,6 +349,10 @@ export default async function handler(req, res) {
       FROM filtered_rows
       ORDER BY
         CASE WHEN row_type = 'TO_BE_SCHEDULED' THEN 0 ELSE 1 END,
+        -- Future months only (planning ahead): unassigned customers in
+        -- planned-day order, customers with no service history last.
+        -- The current and past months keep their existing order.
+        CASE WHEN row_type = 'TO_BE_SCHEDULED' AND ${monthSql} > date_trunc('month', CURRENT_DATE)::date THEN COALESCE(planned_date, 'infinity'::date) END ASC,
         CASE WHEN row_type = 'TO_BE_SCHEDULED' THEN last_service_date END ASC NULLS FIRST,
         CASE
           WHEN row_type != 'TO_BE_SCHEDULED' AND schedule_status = 'COMPLETED' THEN completed_at
@@ -426,6 +440,7 @@ export default async function handler(req, res) {
         checkedInAt: row.checked_in_at,
         durationMinutes: row.duration_minutes,
         completedAt: row.completed_at,
+        plannedDate: row.planned_date || null,
       })),
       summary: {
         scheduled: summaryResult.rows[0]?.scheduled || 0,
