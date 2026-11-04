@@ -96,10 +96,12 @@ export default async function handler(req, res) {
       params.push(`${monthMatch[1]}-${monthMatch[2]}-01`);
       monthSql = `$${params.length}::date`;
     }
-    // Planned visit day in the selected month: the same day of the month
-    // as the customer's last service (clamped to the month's last day), so
-    // next month's visits keep each customer's usual cadence.
-    const plannedDateSql = `CASE WHEN lv.last_service_date IS NULL THEN NULL ELSE LEAST(
+    // Planned visit day in the selected month, only for customers serviced
+    // in the month before it: the same day of the month as that service
+    // (clamped to the month's last day), so visits keep their cadence.
+    // NULL means "not serviced last month".
+    const plannedDateSql = `CASE WHEN lv.last_service_date >= (${monthSql} - interval '1 month')::date
+               AND lv.last_service_date < ${monthSql} THEN LEAST(
             ${monthSql} + (EXTRACT(DAY FROM lv.last_service_date)::int - 1),
             (${monthSql} + interval '1 month' - interval '1 day')::date
           ) END`;
@@ -349,10 +351,12 @@ export default async function handler(req, res) {
       FROM filtered_rows
       ORDER BY
         CASE WHEN row_type = 'TO_BE_SCHEDULED' THEN 0 ELSE 1 END,
-        -- Future months only (planning ahead): unassigned customers in
-        -- planned-day order, customers with no service history last.
-        -- The current and past months keep their existing order.
-        CASE WHEN row_type = 'TO_BE_SCHEDULED' AND ${monthSql} > date_trunc('month', CURRENT_DATE)::date THEN COALESCE(planned_date, 'infinity'::date) END ASC,
+        -- Current and future months: unassigned customers NOT serviced last
+        -- month first (oldest last service first, via the next key), then
+        -- those serviced last month in the order of that service day.
+        -- Past months keep their existing order.
+        CASE WHEN row_type = 'TO_BE_SCHEDULED' AND ${monthSql} >= date_trunc('month', CURRENT_DATE)::date THEN planned_date IS NOT NULL END ASC,
+        CASE WHEN row_type = 'TO_BE_SCHEDULED' AND ${monthSql} >= date_trunc('month', CURRENT_DATE)::date THEN planned_date END ASC,
         CASE WHEN row_type = 'TO_BE_SCHEDULED' THEN last_service_date END ASC NULLS FIRST,
         CASE
           WHEN row_type != 'TO_BE_SCHEDULED' AND schedule_status = 'COMPLETED' THEN completed_at
