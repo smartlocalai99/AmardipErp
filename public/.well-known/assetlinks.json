@@ -5,6 +5,9 @@
       "namespace": "android_app",
       "package_name": "com.amardipelevators.customer",
       "sha256_cert_fingerprints": [
+        "F8:36:F3:2E:30:75:CE:6E:3D:E3:F4:3B:FB:7A:E5:1F:6E:42:F2:EF:9C:8F:7F:6D:2C:95:FC:57:FF:1C:C9:9F",
+        "61:B6:92:7A:37:DA:76:2F:5E:0C:3E:F2:9F:C5:7C:B6:53:18:03:44:9E:EE:77:C6:C1:C8:53:FD:F7:9F:BA:71",
+        "51:E7:E6:FC:DA:7E:C3:94:6E:4A:21:0D:5F:3E:6E:D7:D1:ED:32:88:01:1F:F6:54:93:6D:C2:48:11:0C:41:AE",
         "42:CB:9B:41:6F:AE:C4:D7:C0:C4:A8:F6:2B:CA:72:CE:6D:63:1D:CA:75:93:98:3B:E5:88:0A:03:33:16:E4:A8"
       ]
     }
