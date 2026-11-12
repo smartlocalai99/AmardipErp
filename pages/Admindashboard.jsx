@@ -14,6 +14,8 @@ import CustomerSearchSelect from "@/components/admin/CustomerSearchSelect";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import { canDeleteJobAssignment } from "@/lib/jobAssignmentPermissions";
 import { subscribeToPush } from "@/lib/pushClient";
+import { formatJobDuration } from "@/lib/jobDuration";
+import { readableLocation } from "@/lib/location";
 import {
     buildAdminKpiCounts,
     buildStaffFromUsers,
@@ -485,16 +487,6 @@ function formatComplaintDate(value) {
     return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-// "1h 24m" / "45m" — how long a technician was actually on site, from GPS
-// check-in to job completion.
-function formatJobDuration(minutes) {
-    if (!Number.isFinite(minutes) || minutes < 0) return null;
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hrs === 0) return `${mins}m`;
-    if (mins === 0) return `${hrs}h`;
-    return `${hrs}h ${mins}m`;
-}
 
 
 function AdmindashboardShell({ user }) {
@@ -1877,6 +1869,10 @@ function AdmindashboardShell({ user }) {
                                 ) : complaints.map(c => {
                                     const duration = formatJobDuration(c.jobCompletion?.durationMinutes);
                                     const isCompleted = ["RESOLVED", "CLOSED"].includes(c.status);
+                                    // Not Resolved last visit: time on site is paused until a
+                                    // technician checks in again, which shows as "Back on site".
+                                    const isPaused = !isCompleted && Boolean(c.jobCompletion) && !c.visitStartedAt;
+                                    const isRevisit = !isCompleted && Boolean(c.jobCompletion) && Boolean(c.visitStartedAt);
                                     return (
                                     <button
                                         key={c.id}
@@ -1922,14 +1918,19 @@ function AdmindashboardShell({ user }) {
                                                             Arrived {new Date(c.checkedInAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
                                                         </span>
                                                     )}
+                                                    {isRevisit && (
+                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-[#0a649d]">
+                                                            Back on site {new Date(c.visitStartedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
+                                                        </span>
+                                                    )}
                                                     {isCompleted && c.resolvedAt && (
                                                         <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-emerald-700">
                                                             Completed {new Date(c.resolvedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}
                                                         </span>
                                                     )}
                                                     {duration && (
-                                                        <span className="rounded-lg border border-[#cfe8f7] bg-white/70 px-2 py-1 text-[10px] font-bold text-slate-600">
-                                                            Time on site: {duration}
+                                                        <span className={`rounded-lg border px-2 py-1 text-[10px] font-bold ${isPaused ? "border-amber-200 bg-amber-50 text-amber-700" : "border-[#cfe8f7] bg-white/70 text-slate-600"}`}>
+                                                            Time on site: {duration}{isPaused ? " · Paused" : ""}
                                                         </span>
                                                     )}
                                                 </div>
@@ -3818,7 +3819,7 @@ function AdmindashboardShell({ user }) {
                                                     rel="noreferrer"
                                                     className="font-extrabold text-[#0a649d] underline"
                                                 >
-                                                    {selectedComplaint.jobCompletion.gpsAddress || "View on map"}
+                                                    {readableLocation(selectedComplaint.jobCompletion.gpsAddress) || "View on map"}
                                                 </a>
                                             </div>
                                         )}
@@ -4086,7 +4087,7 @@ function AdmindashboardShell({ user }) {
                                                     rel="noreferrer"
                                                     className="font-extrabold text-[#0a649d] underline"
                                                 >
-                                                    {selectedSchedule.jobCompletion.gpsAddress || "View on map"}
+                                                    {readableLocation(selectedSchedule.jobCompletion.gpsAddress) || "View on map"}
                                                 </a>
                                             </div>
                                         )}

@@ -85,6 +85,7 @@ assert.deepEqual(
     checkInLongitude: null,
     checkInAccuracyMeters: null,
     checkInAddress: null,
+    visitStartedAt: null,
   }
 );
 

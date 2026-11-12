@@ -60,6 +60,11 @@ export default async function handler(req, res) {
     // admin's list reflects "worker is on site" in real time instead of
     // still showing ASSIGNED until the whole job is closed out — but only
     // from ASSIGNED, so it never resurrects an already-terminal job.
+    // visit_started_at is the current visit's start: set on the first
+    // check-in and again on the next visit after a Not Resolved submit
+    // cleared it (resuming the time-on-site clock); a repeat tap mid-visit
+    // keeps it. NOW() is fixed for the statement, so "= NOW()" tells whether
+    // this call is what set it.
     const updated = await query(
       `UPDATE complaints
           SET checked_in_at = COALESCE(checked_in_at, NOW()),
@@ -67,22 +72,25 @@ export default async function handler(req, res) {
               check_in_longitude = COALESCE(check_in_longitude, $3),
               check_in_accuracy_meters = COALESCE(check_in_accuracy_meters, $4),
               check_in_address = COALESCE(check_in_address, $5),
+              visit_started_at = CASE WHEN status IN ('RESOLVED', 'CLOSED', 'CANCELLED') THEN visit_started_at
+                                      ELSE COALESCE(visit_started_at, NOW()) END,
               status = CASE WHEN status = 'ASSIGNED' THEN 'IN_PROGRESS' ELSE status END,
               updated_at = NOW()
         WHERE id = $1
-        RETURNING checked_in_at`,
+        RETURNING checked_in_at, visit_started_at,
+                  (checked_in_at = NOW()) AS first_arrival,
+                  COALESCE(visit_started_at = NOW(), false) AS started_visit`,
       [jobDbId, latitude, longitude, accuracyMeters, address]
     );
-    const checkedInAt = updated.rows[0].checked_in_at;
-    const isFirstCheckIn = new Date(checkedInAt).getTime() > Date.now() - 5000;
+    const { checked_in_at: checkedInAt, visit_started_at: visitStartedAt, first_arrival: isFirstCheckIn, started_visit: startedVisit } = updated.rows[0];
 
-    if (isFirstCheckIn) {
-      const arrivalTime = formatArrivalTime(new Date(checkedInAt));
+    if (startedVisit) {
+      const arrivalTime = formatArrivalTime(new Date(visitStartedAt));
       const adminTab = complaint.complaint_type === "SERVICE_REQUEST" ? "service" : "complaints";
       await safeSendPush(
         { roles: ["superadmin", "admin", "manager", "front_office"] },
         {
-          title: "Technician arrived on site",
+          title: isFirstCheckIn ? "Technician arrived on site" : "Technician back on site",
           body: `${actor.name || actor.username} arrived at ${complaint.customer_name || "the customer site"} for ${complaint.complaint_no || "a job"} at ${arrivalTime}.`,
           data: { url: `/Admindashboard?tab=${adminTab}`, complaintId: jobDbId },
         }
@@ -120,6 +128,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       checkedInAt,
+      visitStartedAt,
       checkInAddress: address,
     });
   } catch (err) {

@@ -34,6 +34,7 @@ test("a repeated concurrent completion cannot write another completion, visit or
     createCustomerNotification: async () => { notifications++; },
     getComplaintAssignees: async () => [],
     ensureAssigneeTables: async () => {},
+    ensureComplaintsTable: async () => {},
     reverseGeocode: async () => null,
     appendServiceCompletionToSheet: async () => {},
     buildCustomerDateSql: (column) => column,

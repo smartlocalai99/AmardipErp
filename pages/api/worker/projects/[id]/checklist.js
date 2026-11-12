@@ -5,6 +5,13 @@ import { setProjectChecklistItem } from "@/lib/projectChecklistStore";
 import { appendErectionSheetCompletion } from "@/lib/erectionSheet";
 import { updateCustomerListHandoverStatus } from "@/lib/customerAutomationSheet";
 import { safeSendPush } from "@/lib/pushNotifications";
+import { reverseGeocode } from "@/lib/reverseGeocode";
+
+function coordinate(value) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ success: false, message: "Method not allowed." });
@@ -13,7 +20,7 @@ export default async function handler(req, res) {
     return res.status(403).json({ success: false, message: "Worker access required." });
   }
 
-  const { itemKey, completed } = req.body || {};
+  const { itemKey, completed, gpsLatitude, gpsLongitude, gpsAccuracyMeters } = req.body || {};
   if (!isValidChecklistItem(itemKey)) {
     return res.status(400).json({ success: false, message: "Unknown checklist item." });
   }
@@ -28,11 +35,18 @@ export default async function handler(req, res) {
       return res.status(403).json({ success: false, message: "You're not assigned to this project, or it doesn't exist." });
     }
 
+    // Where the worker's phone was when they ticked the step, labelled
+    // "Area, City" — geocoded before the write so no DB work waits on it.
+    const latitude = completed ? coordinate(gpsLatitude) : null;
+    const longitude = completed ? coordinate(gpsLongitude) : null;
+    const gpsAddress = latitude !== null && longitude !== null ? await reverseGeocode(latitude, longitude) : null;
+
     const checklistCompletions = await setProjectChecklistItem({
       projectId: req.query.id,
       itemKey,
       completed: Boolean(completed),
       actor,
+      gps: { latitude, longitude, accuracy: gpsAccuracyMeters, address: gpsAddress },
     });
 
     // Only log/notify for marking a step done — un-checking one has no
@@ -52,6 +66,7 @@ export default async function handler(req, res) {
           crewNames: summary.crewNames,
           completedItem: itemKey,
           actorUsername: actor.username,
+          location: gpsAddress,
         }).catch((err) => console.error("Failed to log completion to Erection Sheet:", err));
       }
 

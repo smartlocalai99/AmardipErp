@@ -2,6 +2,8 @@ import { getUserFromRequest } from "@/lib/auth";
 import { listQuotations } from "@/lib/quotations";
 import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
 import PhaseIcon from "@/components/PhaseIcon";
+import { formatJobDuration, erectionStepMinutes } from "@/lib/jobDuration";
+import { readableLocation } from "@/lib/location";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
@@ -1372,8 +1374,18 @@ function EditProjectModal({ project, onClose, onSuccess }) {
 // Read-only for admin — the assigned technicians are the ones who mark
 // steps done on site, from their own app. This just shows where things
 // stand and who did what.
+const shortDateTime = (value) => new Date(value).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
+const mapLink = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+const hasCoords = (row) => Number.isFinite(Number(row?.gpsLatitude)) && Number.isFinite(Number(row?.gpsLongitude)) && row.gpsLatitude !== null && row.gpsLongitude !== null;
+
 function ProjectChecklistModal({ project, onClose }) {
   const completions = project.checklistCompletions || [];
+  const siteCheckIns = project.siteCheckIns || [];
+  const firstCheckIn = siteCheckIns.reduce(
+    (first, c) => (!first || new Date(c.checkedInAt) < new Date(first.checkedInAt) ? c : first),
+    null
+  );
+  const stepMinutes = erectionStepMinutes(completions, firstCheckIn?.checkedInAt);
   const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
   const completedCount = completedByKey.size;
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
@@ -1400,6 +1412,33 @@ function ProjectChecklistModal({ project, onClose }) {
             />
           </div>
           <p className="mt-2 text-[9.5px] font-semibold text-slate-400">Marked done by the crew on site — view only here.</p>
+        </div>
+
+        <div className="rounded-2xl border border-slate-100 bg-white p-3">
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Site check-ins (GPS)</p>
+          {siteCheckIns.length === 0 ? (
+            <p className="mt-1 text-[11px] font-semibold text-slate-400">No crew member has checked in at site yet.</p>
+          ) : (
+            <div className="mt-1.5 space-y-1">
+              {siteCheckIns.map((c) => (
+                <p key={c.userId} className="text-[11px] font-semibold text-slate-600">
+                  <span className="font-black text-slate-800">{c.name || "Technician"}</span>
+                  {` · ${shortDateTime(c.checkedInAt)}`}
+                  {hasCoords(c) && (
+                    <>
+                      {" · "}
+                      <a href={mapLink(c.gpsLatitude, c.gpsLongitude)} target="_blank" rel="noreferrer" className="font-bold text-[#0a649d] underline">
+                        {readableLocation(c.gpsAddress) || "View on map"}
+                      </a>
+                    </>
+                  )}
+                  {firstCheckIn && c.userId === firstCheckIn.userId && siteCheckIns.length > 1 && (
+                    <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black text-emerald-700">Work started</span>
+                  )}
+                </p>
+              ))}
+            </div>
+          )}
         </div>
 
         {PROJECT_CHECKLIST_PHASES.map((phase, phaseIndex) => {
@@ -1457,7 +1496,16 @@ function ProjectChecklistModal({ project, onClose }) {
                         {checked && (
                           <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
                             {completion.completedByName || (completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician")}
-                            {completion.completedAt && ` · ${new Date(completion.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}`}
+                            {completion.completedAt && ` · ${shortDateTime(completion.completedAt)}`}
+                            {hasCoords(completion) && (
+                              <>
+                                {" · "}
+                                <a href={mapLink(completion.gpsLatitude, completion.gpsLongitude)} target="_blank" rel="noreferrer" className="font-bold text-[#0a649d] underline">
+                                  {readableLocation(completion.gpsAddress) || "View on map"}
+                                </a>
+                              </>
+                            )}
+                            {formatJobDuration(stepMinutes.get(item)) && ` · took ${formatJobDuration(stepMinutes.get(item))}`}
                           </span>
                         )}
                       </span>

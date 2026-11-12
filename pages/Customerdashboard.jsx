@@ -7,6 +7,8 @@ import Image from "next/image";
 import { subscribeToPush } from "@/lib/pushClient";
 import { acknowledgeTicketNotification, clearAppBadgeCount } from "@/lib/appBadge";
 import CustomerDocumentsPanel from "@/components/customer/CustomerDocumentsPanel";
+import { formatJobDuration } from "@/lib/jobDuration";
+import { readableLocation } from "@/lib/location";
 import Swal from "sweetalert2";
 
 const AMARDIP_SUPPORT_PHONE = "+918562359223";
@@ -189,16 +191,6 @@ const CHECKLIST_LABELS = [
     { key: "sensors", label: "Sensors" },
     { key: "osg", label: "OSG Condition" },
 ];
-
-// "1h 24m" / "45m" — how long the technician was actually on site.
-function formatJobDuration(minutes) {
-    if (!Number.isFinite(minutes) || minutes < 0) return null;
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hrs === 0) return `${mins}m`;
-    if (mins === 0) return `${hrs}h`;
-    return `${hrs}h ${mins}m`;
-}
 
 function mapComplaintForCustomer(complaint) {
     const jc = complaint.jobCompletion || null;
@@ -1671,7 +1663,7 @@ export default function Customerdashboard({
                                                         rel="noreferrer"
                                                         className="font-extrabold text-[#0a649d] underline"
                                                     >
-                                                        {selectedTrackComplaint.gps.address || "View on map"}
+                                                        {readableLocation(selectedTrackComplaint.gps.address) || "View on map"}
                                                     </a>
                                                 </div>
                                             )}

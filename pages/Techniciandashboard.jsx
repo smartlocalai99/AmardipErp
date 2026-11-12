@@ -11,6 +11,8 @@ import { acknowledgeTicketNotification } from "@/lib/appBadge";
 import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
 import PhaseIcon from "@/components/PhaseIcon";
 import Swal from "sweetalert2";
+import { formatJobDuration, erectionStepMinutes } from "@/lib/jobDuration";
+import { readableLocation } from "@/lib/location";
 
 // The 11-item lift inspection checklist a technician fills in on-site,
 // matching CHECK POINTS.pdf exactly. Keys match the elevator_service_visits
@@ -102,16 +104,6 @@ function ProjectsIcon({ className = "h-5 w-5" }) {
     );
 }
 
-// "1h 24m" / "45m" — how long the technician was actually on site.
-function formatJobDuration(minutes) {
-    if (!Number.isFinite(minutes) || minutes < 0) return null;
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    if (hrs === 0) return `${mins}m`;
-    if (mins === 0) return `${hrs}h`;
-    return `${hrs}h ${mins}m`;
-}
-
 function ProfileIcon({ className = "h-5 w-5" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={className}>
@@ -173,12 +165,48 @@ function BackIcon({ className = "h-5 w-5" }) {
 // same 52 steps, same phase grouping, but a project list first (a worker
 // can be crewed on more than one at once) and larger touch targets since
 // this gets used on site, often one-handed.
-function TechnicianProjectsView({ projects, loading, checklistProject, onOpenProject, onBack, onProjectUpdated }) {
+// One GPS reading for the erection checklist. Inside a lift shaft a
+// satellite fix often times out, so after a timeout it settles for the
+// phone's network/Wi-Fi position, which still places the worker on site.
+function readDevicePosition() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+        return Promise.reject(Object.assign(new Error("This device/browser doesn't support location. GPS is required."), { code: "UNSUPPORTED" }));
+    }
+    const attempt = (options) => new Promise((resolve, reject) => navigator.geolocation.getCurrentPosition(resolve, reject, options));
+    return attempt({ enableHighAccuracy: true, timeout: 15000, maximumAge: 0 })
+        .catch((err) => {
+            if (err?.code === 1) throw err;
+            return attempt({ enableHighAccuracy: false, timeout: 15000, maximumAge: 120000 });
+        })
+        .then((position) => ({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+        }));
+}
+
+function gpsErrorMessage(err) {
+    if (err?.code === 1) return "Location permission denied. Enable location access for this site and try again.";
+    if (err?.code === "UNSUPPORTED") return err.message;
+    return "Couldn't get a GPS fix. Move to an open area and try again.";
+}
+
+const shortDateTime = (value) => new Date(value).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
+
+function TechnicianProjectsView({ userId, projects, loading, checklistProject, onOpenProject, onBack, onProjectUpdated }) {
     const [pendingKey, setPendingKey] = useState("");
     const [error, setError] = useState("");
+    const [checkingIn, setCheckingIn] = useState(false);
 
     if (checklistProject) {
         const completions = checklistProject.checklistCompletions || [];
+        const siteCheckIns = checklistProject.siteCheckIns || [];
+        const myCheckIn = siteCheckIns.find((c) => Number(c.userId) === Number(userId)) || null;
+        const firstCheckIn = siteCheckIns.reduce(
+            (first, c) => (!first || new Date(c.checkedInAt) < new Date(first.checkedInAt) ? c : first),
+            null
+        );
+        const stepMinutes = erectionStepMinutes(completions, firstCheckIn?.checkedInAt);
         const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
         const completedKeys = completedByKey;
         const completedCount = completedByKey.size;
@@ -187,14 +215,55 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
         const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
         const isComplete = completedCount >= totalSteps;
 
+        async function checkInAtSite() {
+            setCheckingIn(true);
+            setError("");
+            try {
+                let coords;
+                try {
+                    coords = await readDevicePosition();
+                } catch (err) {
+                    throw new Error(gpsErrorMessage(err));
+                }
+                const res = await fetch(`/api/worker/projects/${checklistProject.id}/check-in`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ gpsLatitude: coords.latitude, gpsLongitude: coords.longitude, gpsAccuracyMeters: coords.accuracy }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || "Failed to check in");
+                onProjectUpdated({ ...checklistProject, siteCheckIns: data.siteCheckIns });
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setCheckingIn(false);
+            }
+        }
+
         async function toggle(itemKey, nextCompleted) {
             setPendingKey(itemKey);
             setError("");
             try {
+                // Marking a step done saves where and when it happened, like
+                // the service check-in; un-ticking a mistake needs no GPS.
+                let coords = null;
+                if (nextCompleted) {
+                    try {
+                        coords = await readDevicePosition();
+                    } catch (err) {
+                        throw new Error(gpsErrorMessage(err));
+                    }
+                }
                 const res = await fetch(`/api/worker/projects/${checklistProject.id}/checklist`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ itemKey, completed: nextCompleted }),
+                    body: JSON.stringify({
+                        itemKey,
+                        completed: nextCompleted,
+                        gpsLatitude: coords?.latitude ?? null,
+                        gpsLongitude: coords?.longitude ?? null,
+                        gpsAccuracyMeters: coords?.accuracy ?? null,
+                    }),
                 });
                 const data = await res.json();
                 if (!res.ok || !data.success) throw new Error(data.message || "Failed to update step");
@@ -235,6 +304,38 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                         />
                     </div>
                 </div>
+
+                {myCheckIn ? (
+                    <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-xs text-emerald-800 space-y-1">
+                        <p className="font-black">Checked in at site · {shortDateTime(myCheckIn.checkedInAt)}</p>
+                        {readableLocation(myCheckIn.gpsAddress) && (
+                            <p className="font-semibold">Location: {readableLocation(myCheckIn.gpsAddress)}</p>
+                        )}
+                        {firstCheckIn && Number(firstCheckIn.userId) !== Number(userId) && (
+                            <p className="text-[10px] font-semibold text-emerald-700">
+                                Work started {shortDateTime(firstCheckIn.checkedInAt)} by {firstCheckIn.name || "crew"}
+                            </p>
+                        )}
+                        <p className="text-[10px] font-semibold text-emerald-700">Each step you tick saves your GPS location and time.</p>
+                    </div>
+                ) : (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                        <div>
+                            <p className="text-xs font-black text-slate-800">Start work at site</p>
+                            <p className="mt-0.5 text-[11px] font-semibold text-slate-500 leading-relaxed">
+                                Capture your GPS location once when you start on this project. Steps unlock after you check in, and each tick saves your location and time.
+                            </p>
+                        </div>
+                        <button
+                            type="button"
+                            onClick={checkInAtSite}
+                            disabled={checkingIn}
+                            className="h-12 w-full rounded-xl bg-[#0a649d] text-xs font-black uppercase tracking-wider text-white disabled:opacity-50 active:scale-95 transition"
+                        >
+                            {checkingIn ? "Getting location..." : "Check in at site (GPS)"}
+                        </button>
+                    </div>
+                )}
 
                 {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
 
@@ -278,16 +379,21 @@ function TechnicianProjectsView({ projects, loading, checklistProject, onOpenPro
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
-                                                disabled={pendingKey === item}
+                                                disabled={pendingKey !== "" || !myCheckIn}
                                                 onChange={() => toggle(item, !checked)}
                                                 className="mt-0.5 h-5 w-5 shrink-0 accent-[#0a649d] disabled:opacity-50"
                                             />
                                             <span className="min-w-0 flex-1 text-xs font-bold leading-snug">
                                                 <span className={checked ? "text-emerald-800" : "text-slate-700"}>{item}</span>
+                                                {pendingKey === item && (
+                                                    <span className="mt-0.5 block text-[10px] font-semibold text-[#0a649d]">Getting location...</span>
+                                                )}
                                                 {checked && (
                                                     <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
                                                         {completion.completedByName || (completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician")}
-                                                        {completion.completedAt && ` · ${new Date(completion.completedAt).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true })}`}
+                                                        {completion.completedAt && ` · ${shortDateTime(completion.completedAt)}`}
+                                                        {readableLocation(completion.gpsAddress) && ` · ${readableLocation(completion.gpsAddress)}`}
+                                                        {formatJobDuration(stepMinutes.get(item)) && ` · took ${formatJobDuration(stepMinutes.get(item))}`}
                                                     </span>
                                                 )}
                                             </span>
@@ -548,6 +654,10 @@ export default function Techniciandashboard({ user }) {
         // both for a fresh open and for browsing completed history.
         const jc = c.jobCompletion || null;
         const hasGps = jc && Number.isFinite(Number(jc.gpsLatitude)) && Number.isFinite(Number(jc.gpsLongitude));
+        const isDone = ["RESOLVED", "CLOSED"].includes(c.status);
+        // Submitted as Not Resolved and nobody has checked in since: the
+        // time-on-site clock is stopped until the next visit's GPS check-in.
+        const isPaused = !isDone && Boolean(jc) && !c.visitStartedAt;
 
         return {
             id: c.complaintNo,
@@ -590,15 +700,18 @@ export default function Techniciandashboard({ user }) {
             // before job completion, so reopening the app after closing it
             // mid-job still shows "already on site" instead of asking the
             // worker to check in again.
-            gpsCheckedIn: Boolean(c.checkedInAt) || Boolean(jc),
-            checkInTime: c.checkedInAt
-                ? new Date(c.checkedInAt).toLocaleString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })
+            // A paused job (Not Resolved last visit) asks for a fresh check-in,
+            // which resumes its clock.
+            gpsCheckedIn: isDone || (!isPaused && (Boolean(c.checkedInAt) || Boolean(jc))),
+            isPaused,
+            checkInTime: (c.visitStartedAt || c.checkedInAt)
+                ? new Date(c.visitStartedAt || c.checkedInAt).toLocaleString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true, day: "numeric", month: "short" })
                 : (jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null),
             gpsCoords: Number.isFinite(Number(c.checkInLatitude)) && Number.isFinite(Number(c.checkInLongitude))
                 ? { latitude: Number(c.checkInLatitude), longitude: Number(c.checkInLongitude), accuracy: c.checkInAccuracyMeters }
                 : (hasGps ? { latitude: Number(jc.gpsLatitude), longitude: Number(jc.gpsLongitude), accuracy: jc.gpsAccuracyMeters } : null),
             signature: jc?.customerRepName ? { customerName: jc.customerRepName, image: jc.signatureImage || null } : null,
-            gpsAddress: c.checkInAddress || jc?.gpsAddress || null,
+            gpsAddress: readableLocation(c.checkInAddress || jc?.gpsAddress),
             completeTime: jc?.completedAt ? new Date(jc.completedAt).toLocaleString("en-IN") : null,
             materials: c.materials || [],
             durationMinutes: jc?.durationMinutes ?? null,
@@ -719,9 +832,9 @@ export default function Techniciandashboard({ user }) {
             const timeNow = new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
             setGpsCoords(coords);
             setJobs(prev => prev.map(job => job.id === activeJob.id
-                ? { ...job, gpsCheckedIn: true, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }
+                ? { ...job, gpsCheckedIn: true, isPaused: false, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }
                 : job));
-            setActiveJob(prev => ({ ...prev, gpsCheckedIn: true, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }));
+            setActiveJob(prev => ({ ...prev, gpsCheckedIn: true, isPaused: false, checkInTime: timeNow, gpsCoords: coords, status: "Arrived" }));
 
             // Tells the server the moment arrival actually happens — previously
             // this was purely local state and the backend never learned about
@@ -940,10 +1053,15 @@ export default function Techniciandashboard({ user }) {
         resetVoiceNote();
         setSubmittingJob(false);
 
+        const submittedAsResolved = activeJob.isService
+            ? ["Completed", "Resolved"].includes(activeJob.workReport.status)
+            : activeJob.resolved;
         Swal.fire({
             icon: "success",
-            title: "Job completed",
-            html: `Ticket <strong>${activeJob.id}</strong> has been resolved.<br/>The office and the customer have both been notified.`,
+            title: submittedAsResolved ? "Job completed" : "Visit saved — timer paused",
+            html: submittedAsResolved
+                ? `Ticket <strong>${activeJob.id}</strong> has been resolved.<br/>The office and the customer have both been notified.`
+                : `Ticket <strong>${activeJob.id}</strong> still needs work, so its time on site is paused.<br/>It resumes when a technician captures GPS location on the next visit.`,
             confirmButtonColor: "#0a649d",
         });
 
@@ -1659,6 +1777,12 @@ export default function Techniciandashboard({ user }) {
 
                                         {!activeJob.gpsCheckedIn ? (
                                             <div className="space-y-4">
+                                                {activeJob.isPaused && (
+                                                    <div className="rounded-2xl border border-amber-100 bg-amber-50 p-3.5 text-[11px] font-semibold text-amber-800 leading-relaxed">
+                                                        Timer paused{formatJobDuration(activeJob.durationMinutes) ? ` at ${formatJobDuration(activeJob.durationMinutes)}` : ""} — the last visit was marked Not Resolved.
+                                                        Capture GPS location when you reach the site to resume it.
+                                                    </div>
+                                                )}
                                                 <button
                                                     onClick={triggerGPSCheckIn}
                                                     disabled={checkingIn || activeJob.status === "Assigned" || !activeJob.isPrimary}
@@ -2085,6 +2209,7 @@ export default function Techniciandashboard({ user }) {
                     {/* VIEW: PROJECTS TAB */}
                     {activeTab === "projects" && (
                         <TechnicianProjectsView
+                            userId={user.id}
                             projects={myProjects}
                             loading={myProjectsLoading}
                             checklistProject={checklistProject}

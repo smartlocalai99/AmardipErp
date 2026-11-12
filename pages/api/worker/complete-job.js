@@ -7,6 +7,7 @@ import { reverseGeocode } from "@/lib/reverseGeocode";
 import { appendServiceCompletionToSheet } from "@/lib/serviceHistorySheetWriter";
 import { buildCustomerDateSql } from "@/lib/customerDates";
 import { resolveComplaintNotificationRecipients } from "@/lib/customerAccounts";
+import { ensureComplaintsTable } from "@/lib/complaints";
 
 let tableReady = false;
 
@@ -88,9 +89,10 @@ async function ensureJobCompletionsTable() {
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS gps_address TEXT;
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS signature_image TEXT;
   `);
-  // How long the visit actually took, measured from the worker's GPS
-  // check-in (complaints.checked_in_at) to this completion — not asked for
-  // at checklist time, computed once here so it can't drift from reality.
+  // Total time on site for the job up to this completion: earlier visits'
+  // total plus this visit (from its GPS check-in, complaints.visit_started_at)
+  // — not asked for at checklist time, computed once here so it can't drift
+  // from reality.
   await query(`
     ALTER TABLE technician_job_completions ADD COLUMN IF NOT EXISTS duration_minutes INTEGER;
   `);
@@ -143,6 +145,7 @@ export default async function handler(req, res) {
   const accuracyMeters = Number.isFinite(Number(gpsAccuracyMeters)) ? Number(gpsAccuracyMeters) : null;
 
   try {
+    await ensureComplaintsTable();
     await ensureJobCompletionsTable();
     await ensureAssigneeTables();
 
@@ -152,12 +155,21 @@ export default async function handler(req, res) {
          co.id, co.complaint_no, co.customer_name, co.customer_user_id,
          co.assigned_technician_user_id, co.status, co.complaint_type,
          co.customer_id, co.customer_code, co.mobile_no, co.city, co.address,
-         co.checked_in_at,
+         co.checked_in_at, co.visit_started_at,
+         prev.duration_minutes AS previous_duration_minutes,
+         (prev.complaint_id IS NOT NULL) AS has_previous_visit,
          cust.customer_status AS customer_status_snapshot,
          (${buildCustomerDateSql("cust.amc_warranty_due")}) AS amc_warranty_due_snapshot,
          (${buildCustomerDateSql("cust.hoc_date")}) AS hoc_date_snapshot
        FROM complaints co
        LEFT JOIN elevator_service_customers cust ON cust.id = co.customer_id
+       LEFT JOIN LATERAL (
+         SELECT t.complaint_id, t.duration_minutes
+         FROM technician_job_completions t
+         WHERE t.complaint_id = co.id
+         ORDER BY t.completed_at DESC
+         LIMIT 1
+       ) prev ON true
        WHERE co.id = $1`,
       [jobDbId]
     );
@@ -180,9 +192,24 @@ export default async function handler(req, res) {
 
     const complaint = check.rows[0];
     const provider = process.env.VOICE_NOTES_PROVIDER || null;
-    const durationMinutes = complaint.checked_in_at
-      ? Math.max(0, Math.round((Date.now() - new Date(complaint.checked_in_at).getTime()) / 60000))
+    // Time on site only. A visit submitted as Not Resolved pauses the clock
+    // (visit_started_at is cleared below); the next check-in resumes it. Each
+    // completion stores the running total: the previous visits' total plus
+    // this visit, so nights and days between visits never count.
+    // Fallback for a job checked in before visit_started_at existed: a first
+    // visit runs from checked_in_at; a later one without a fresh check-in adds
+    // nothing rather than counting the time the job sat paused.
+    const visitStart = complaint.visit_started_at
+      || (complaint.has_previous_visit ? null : complaint.checked_in_at);
+    const visitMinutes = visitStart
+      ? Math.max(0, Math.round((Date.now() - new Date(visitStart).getTime()) / 60000))
       : null;
+    const previousMinutes = Number.isFinite(complaint.previous_duration_minutes)
+      ? complaint.previous_duration_minutes
+      : null;
+    const durationMinutes = visitMinutes === null && previousMinutes === null
+      ? null
+      : (previousMinutes || 0) + (visitMinutes || 0);
     const isResolved = !statusResolution || RESOLVED_STATUS_RESOLUTIONS.has(statusResolution);
 
     // Was this job dispatched from the AMC/EMC/Warranty monthly service planner
@@ -204,6 +231,7 @@ export default async function handler(req, res) {
         `UPDATE complaints
          SET status       = CASE WHEN $4::boolean THEN 'RESOLVED' ELSE 'IN_PROGRESS' END,
              resolved_at  = CASE WHEN $4::boolean THEN NOW() ELSE resolved_at END,
+             visit_started_at = NULL,
              updated_at   = NOW(),
              office_notes = COALESCE($2, office_notes)
          WHERE id = $1
