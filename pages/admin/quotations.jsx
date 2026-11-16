@@ -2,7 +2,7 @@ import { getUserFromRequest } from "@/lib/auth";
 import { listQuotations } from "@/lib/quotations";
 import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
 import PhaseIcon from "@/components/PhaseIcon";
-import { formatJobDuration, erectionStepMinutes } from "@/lib/jobDuration";
+import { formatJobDuration, erectionStepMinutes, crewAssignedAt, minutesBetween } from "@/lib/jobDuration";
 import { readableLocation } from "@/lib/location";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -1379,13 +1379,18 @@ const mapLink = (lat, lng) => `https://www.google.com/maps/search/?api=1&query=$
 const hasCoords = (row) => Number.isFinite(Number(row?.gpsLatitude)) && Number.isFinite(Number(row?.gpsLongitude)) && row.gpsLatitude !== null && row.gpsLongitude !== null;
 
 function ProjectChecklistModal({ project, onClose }) {
+  // "So far" crew time, refreshed every minute while the checklist is open.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
   const completions = project.checklistCompletions || [];
-  const siteCheckIns = project.siteCheckIns || [];
-  const firstCheckIn = siteCheckIns.reduce(
-    (first, c) => (!first || new Date(c.checkedInAt) < new Date(first.checkedInAt) ? c : first),
-    null
-  );
-  const stepMinutes = erectionStepMinutes(completions, firstCheckIn?.checkedInAt);
+  // Each worker's erection time runs from when admin assigned them.
+  const crew = project.assignees || [];
+  const assignedAtByUser = crewAssignedAt(crew);
+  const stepMinutes = erectionStepMinutes(completions, { assignedAtByUser, projectStartAt: project.startedAt });
+  const lastTickAt = completions.reduce((latest, c) => (c.completedAt && (!latest || new Date(c.completedAt) > new Date(latest)) ? c.completedAt : latest), null);
   const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
   const completedCount = completedByKey.size;
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
@@ -1415,28 +1420,21 @@ function ProjectChecklistModal({ project, onClose }) {
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-3">
-          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Site check-ins (GPS)</p>
-          {siteCheckIns.length === 0 ? (
-            <p className="mt-1 text-[11px] font-semibold text-slate-400">No crew member has checked in at site yet.</p>
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Crew time (from assignment)</p>
+          {crew.length === 0 ? (
+            <p className="mt-1 text-[11px] font-semibold text-slate-400">No crew assigned yet.</p>
           ) : (
             <div className="mt-1.5 space-y-1">
-              {siteCheckIns.map((c) => (
-                <p key={c.userId} className="text-[11px] font-semibold text-slate-600">
-                  <span className="font-black text-slate-800">{c.name || "Technician"}</span>
-                  {` · ${shortDateTime(c.checkedInAt)}`}
-                  {hasCoords(c) && (
-                    <>
-                      {" · "}
-                      <a href={mapLink(c.gpsLatitude, c.gpsLongitude)} target="_blank" rel="noreferrer" className="font-bold text-[#0a649d] underline">
-                        {readableLocation(c.gpsAddress) || "View on map"}
-                      </a>
-                    </>
-                  )}
-                  {firstCheckIn && c.userId === firstCheckIn.userId && siteCheckIns.length > 1 && (
-                    <span className="ml-1 rounded bg-emerald-50 px-1.5 py-0.5 text-[9px] font-black text-emerald-700">Work started</span>
-                  )}
-                </p>
-              ))}
+              {crew.map((worker) => {
+                const elapsed = formatJobDuration(minutesBetween(worker.assignedAt, isComplete && lastTickAt ? lastTickAt : now));
+                return (
+                  <p key={worker.id} className="text-[11px] font-semibold text-slate-600">
+                    <span className="font-black text-slate-800">{worker.name || "Technician"}</span>
+                    {worker.assignedAt && ` · assigned ${shortDateTime(worker.assignedAt)}`}
+                    {elapsed && ` · ${isComplete ? "total" : "so far"} ${elapsed}`}
+                  </p>
+                );
+              })}
             </div>
           )}
         </div>

@@ -11,7 +11,7 @@ import { acknowledgeTicketNotification } from "@/lib/appBadge";
 import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
 import PhaseIcon from "@/components/PhaseIcon";
 import Swal from "sweetalert2";
-import { formatJobDuration, erectionStepMinutes } from "@/lib/jobDuration";
+import { formatJobDuration, erectionStepMinutes, crewAssignedAt, minutesBetween } from "@/lib/jobDuration";
 import { readableLocation } from "@/lib/location";
 
 // The 11-item lift inspection checklist a technician fills in on-site,
@@ -196,17 +196,19 @@ const shortDateTime = (value) => new Date(value).toLocaleString("en-IN", { day: 
 function TechnicianProjectsView({ userId, projects, loading, checklistProject, onOpenProject, onBack, onProjectUpdated }) {
     const [pendingKey, setPendingKey] = useState("");
     const [error, setError] = useState("");
-    const [checkingIn, setCheckingIn] = useState(false);
+    // "Time so far" on erection projects, refreshed every minute.
+    const [now, setNow] = useState(() => Date.now());
+    useEffect(() => {
+        const timer = setInterval(() => setNow(Date.now()), 60000);
+        return () => clearInterval(timer);
+    }, []);
 
     if (checklistProject) {
         const completions = checklistProject.checklistCompletions || [];
-        const siteCheckIns = checklistProject.siteCheckIns || [];
-        const myCheckIn = siteCheckIns.find((c) => Number(c.userId) === Number(userId)) || null;
-        const firstCheckIn = siteCheckIns.reduce(
-            (first, c) => (!first || new Date(c.checkedInAt) < new Date(first.checkedInAt) ? c : first),
-            null
-        );
-        const stepMinutes = erectionStepMinutes(completions, firstCheckIn?.checkedInAt);
+        // Erection time for each worker runs from when the admin assigned them.
+        const assignedAtByUser = crewAssignedAt(checklistProject.assignees);
+        const myAssignedAt = assignedAtByUser.get(String(userId)) || null;
+        const stepMinutes = erectionStepMinutes(completions, { assignedAtByUser, projectStartAt: checklistProject.startedAt });
         const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
         const completedKeys = completedByKey;
         const completedCount = completedByKey.size;
@@ -214,31 +216,6 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
         const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
         const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
         const isComplete = completedCount >= totalSteps;
-
-        async function checkInAtSite() {
-            setCheckingIn(true);
-            setError("");
-            try {
-                let coords;
-                try {
-                    coords = await readDevicePosition();
-                } catch (err) {
-                    throw new Error(gpsErrorMessage(err));
-                }
-                const res = await fetch(`/api/worker/projects/${checklistProject.id}/check-in`, {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ gpsLatitude: coords.latitude, gpsLongitude: coords.longitude, gpsAccuracyMeters: coords.accuracy }),
-                });
-                const data = await res.json();
-                if (!res.ok || !data.success) throw new Error(data.message || "Failed to check in");
-                onProjectUpdated({ ...checklistProject, siteCheckIns: data.siteCheckIns });
-            } catch (err) {
-                setError(err.message);
-            } finally {
-                setCheckingIn(false);
-            }
-        }
 
         async function toggle(itemKey, nextCompleted) {
             setPendingKey(itemKey);
@@ -305,37 +282,18 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                     </div>
                 </div>
 
-                {myCheckIn ? (
-                    <div className="rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-xs text-emerald-800 space-y-1">
-                        <p className="font-black">Checked in at site · {shortDateTime(myCheckIn.checkedInAt)}</p>
-                        {readableLocation(myCheckIn.gpsAddress) && (
-                            <p className="font-semibold">Location: {readableLocation(myCheckIn.gpsAddress)}</p>
-                        )}
-                        {firstCheckIn && Number(firstCheckIn.userId) !== Number(userId) && (
-                            <p className="text-[10px] font-semibold text-emerald-700">
-                                Work started {shortDateTime(firstCheckIn.checkedInAt)} by {firstCheckIn.name || "crew"}
-                            </p>
-                        )}
-                        <p className="text-[10px] font-semibold text-emerald-700">Each step you tick saves your GPS location and time.</p>
-                    </div>
-                ) : (
-                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-                        <div>
-                            <p className="text-xs font-black text-slate-800">Start work at site</p>
-                            <p className="mt-0.5 text-[11px] font-semibold text-slate-500 leading-relaxed">
-                                Capture your GPS location once when you start on this project. Steps unlock after you check in, and each tick saves your location and time.
-                            </p>
+                {myAssignedAt && (() => {
+                    // Until all steps are done the clock is still running.
+                    const lastTickAt = completions.reduce((latest, c) => (c.completedAt && (!latest || new Date(c.completedAt) > new Date(latest)) ? c.completedAt : latest), null);
+                    const elapsed = formatJobDuration(minutesBetween(myAssignedAt, isComplete && lastTickAt ? lastTickAt : now));
+                    return (
+                        <div className="rounded-3xl border border-sky-100 bg-sky-50 p-4 text-xs text-[#0a649d] space-y-1">
+                            <p className="font-black">Assigned to you · {shortDateTime(myAssignedAt)}</p>
+                            {elapsed && <p className="font-semibold">{isComplete ? `Total time: ${elapsed}` : `Time so far: ${elapsed}`}</p>}
+                            <p className="text-[10px] font-semibold text-slate-500">Each step you tick saves your GPS location and time.</p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={checkInAtSite}
-                            disabled={checkingIn}
-                            className="h-12 w-full rounded-xl bg-[#0a649d] text-xs font-black uppercase tracking-wider text-white disabled:opacity-50 active:scale-95 transition"
-                        >
-                            {checkingIn ? "Getting location..." : "Check in at site (GPS)"}
-                        </button>
-                    </div>
-                )}
+                    );
+                })()}
 
                 {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
 
@@ -379,7 +337,7 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                                             <input
                                                 type="checkbox"
                                                 checked={checked}
-                                                disabled={pendingKey !== "" || !myCheckIn}
+                                                disabled={pendingKey !== ""}
                                                 onChange={() => toggle(item, !checked)}
                                                 className="mt-0.5 h-5 w-5 shrink-0 accent-[#0a649d] disabled:opacity-50"
                                             />
@@ -439,6 +397,9 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                         const activePhaseIndex = PROJECT_CHECKLIST_PHASES.findIndex((phase) => !phase.items.every((item) => completedKeys.has(item)));
                         const currentPhase = PROJECT_CHECKLIST_PHASES[activePhaseIndex === -1 ? PROJECT_CHECKLIST_PHASES.length - 1 : activePhaseIndex];
                         const currentPhaseIconKey = PHASE_ICON_KEYS[activePhaseIndex === -1 ? PHASE_ICON_KEYS.length - 1 : activePhaseIndex];
+                        const myAssignedAt = crewAssignedAt(project.assignees).get(String(userId)) || null;
+                        const lastTickAt = (project.checklistCompletions || []).reduce((latest, c) => (c.completedAt && (!latest || new Date(c.completedAt) > new Date(latest)) ? c.completedAt : latest), null);
+                        const myElapsed = formatJobDuration(minutesBetween(myAssignedAt, isComplete && lastTickAt ? lastTickAt : now));
                         return (
                             <button
                                 key={project.id}
@@ -474,6 +435,9 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                                     <p className="truncate"><span className="text-slate-400">Mobile:</span> {project.mobileNo || "Not listed"}</p>
                                     <p className="col-span-2 truncate"><span className="text-slate-400">Crew:</span> {crewNames || "—"}</p>
                                     <p className="col-span-2"><span className="text-slate-400">Started:</span> {project.startedAt ? new Date(project.startedAt).toLocaleDateString("en-IN") : "—"}</p>
+                                    {myAssignedAt && (
+                                        <p className="col-span-2 text-[#0a649d]"><span className="text-slate-400">Assigned to you:</span> {shortDateTime(myAssignedAt)}{myElapsed ? ` · ${myElapsed}` : ""}</p>
+                                    )}
                                 </div>
                             </button>
                         );
