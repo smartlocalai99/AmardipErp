@@ -1,7 +1,7 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { isProjectAssignee, getProjectSheetLogSummary, markProjectHandedOver } from "@/lib/quotations";
 import { isValidChecklistItem, PROJECT_CHECKLIST_ITEMS } from "@/lib/projectChecklist";
-import { setProjectChecklistItem } from "@/lib/projectChecklistStore";
+import { recordProjectStepProgress, getProjectChecklistCompletions, getProjectWorkSummary } from "@/lib/projectChecklistStore";
 import { appendErectionSheetCompletion } from "@/lib/erectionSheet";
 import { updateCustomerListHandoverStatus } from "@/lib/customerAutomationSheet";
 import { safeSendPush } from "@/lib/pushNotifications";
@@ -20,9 +20,15 @@ export default async function handler(req, res) {
     return res.status(403).json({ success: false, message: "Worker access required." });
   }
 
-  const { itemKey, completed, gpsLatitude, gpsLongitude, gpsAccuracyMeters } = req.body || {};
+  const { itemKey, percent: rawPercent, completed, gpsLatitude, gpsLongitude, gpsAccuracyMeters } = req.body || {};
   if (!isValidChecklistItem(itemKey)) {
     return res.status(400).json({ success: false, message: "Unknown checklist item." });
+  }
+  // The step's slider: 0, 50 or 100%. An app opened before the slider
+  // existed still sends completed true/false.
+  const percent = rawPercent === undefined || rawPercent === null ? (completed ? 100 : 0) : Number(rawPercent);
+  if (![0, 50, 100].includes(percent)) {
+    return res.status(400).json({ success: false, message: "Progress must be 0%, 50% or 100%." });
   }
 
   try {
@@ -35,25 +41,31 @@ export default async function handler(req, res) {
       return res.status(403).json({ success: false, message: "You're not assigned to this project, or it doesn't exist." });
     }
 
-    // Where the worker's phone was when they ticked the step, labelled
+    // Where the worker's phone was when they saved the step, labelled
     // "Area, City" — geocoded before the write so no DB work waits on it.
-    const latitude = completed ? coordinate(gpsLatitude) : null;
-    const longitude = completed ? coordinate(gpsLongitude) : null;
+    const latitude = coordinate(gpsLatitude);
+    const longitude = coordinate(gpsLongitude);
     const gpsAddress = latitude !== null && longitude !== null ? await reverseGeocode(latitude, longitude) : null;
 
-    const checklistCompletions = await setProjectChecklistItem({
+    // Ends the worker's check-in session (their time stops until they check
+    // in again) and saves the step at this percent, in one transaction.
+    const { newlyCompleted } = await recordProjectStepProgress({
       projectId: req.query.id,
       itemKey,
-      completed: Boolean(completed),
+      percent,
       actor,
       gps: { latitude, longitude, accuracy: gpsAccuracyMeters, address: gpsAddress },
     });
+    const [checklistCompletions, work] = await Promise.all([
+      getProjectChecklistCompletions(req.query.id),
+      getProjectWorkSummary(req.query.id),
+    ]);
 
-    // Only log/notify for marking a step done — un-checking one has no
-    // "form submission" equivalent, and there's nothing worth alerting
-    // admins about. Best-effort throughout: neither a Sheets hiccup nor a
-    // push failure should fail the checklist update itself, already saved.
-    if (completed) {
+    // Only log/notify when a step reaches 100% — partial progress has no
+    // "form submission" equivalent in the Erection Sheet, and there's nothing
+    // worth alerting admins about. Best-effort throughout: neither a Sheets
+    // hiccup nor a push failure should fail the update itself, already saved.
+    if (newlyCompleted) {
       const summary = await getProjectSheetLogSummary(req.query.id).catch((err) => {
         console.error("Failed to load project summary for sheet log / notification:", err);
         return null;
@@ -108,9 +120,9 @@ export default async function handler(req, res) {
     // Only the checklist changed — the rest of the project (name, crew,
     // amounts) didn't, so the client merges this into what it already has
     // instead of us re-fetching and re-sending the whole project again.
-    return res.status(200).json({ success: true, checklistCompletions });
+    return res.status(200).json({ success: true, checklistCompletions, work });
   } catch (err) {
-    console.error("Worker project checklist update error:", err);
-    return res.status(400).json({ success: false, message: err.message || "Failed to update checklist." });
+    if (!err.statusCode) console.error("Worker project checklist update error:", err);
+    return res.status(err.statusCode || 400).json({ success: false, message: err.message || "Failed to update checklist." });
   }
 }

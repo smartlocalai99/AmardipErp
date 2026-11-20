@@ -1,8 +1,8 @@
 import { getUserFromRequest } from "@/lib/auth";
 import { listQuotations } from "@/lib/quotations";
-import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
+import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS, projectStepPercents, projectProgressPercent } from "@/lib/projectChecklist";
 import PhaseIcon from "@/components/PhaseIcon";
-import { formatJobDuration, erectionStepMinutes, crewAssignedAt, minutesBetween } from "@/lib/jobDuration";
+import { formatJobDuration, minutesBetween } from "@/lib/jobDuration";
 import { readableLocation } from "@/lib/location";
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
@@ -1093,10 +1093,11 @@ function EditQuotationModal({ quotation, onClose, onSuccess }) {
 function ProjectCard({ project, onStartProject, onOpenChecklist, onEditProject }) {
   const canStart = project.source !== "google_sheet";
   const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
-  const completedKeys = new Set((project.checklistCompletions || []).map((c) => c.itemKey));
+  const stepPercents = projectStepPercents(project);
+  const completedKeys = new Set([...stepPercents].filter(([, p]) => p >= 100).map(([item]) => item));
   const completedCount = completedKeys.size;
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
-  const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
+  const percent = projectProgressPercent(project);
   const isComplete = completedCount >= totalSteps;
   const isStarted = canStart && Boolean(project.startedAt);
   const activePhaseIndex = PROJECT_CHECKLIST_PHASES.findIndex((phase) => !phase.items.every((item) => completedKeys.has(item)));
@@ -1386,16 +1387,17 @@ function ProjectChecklistModal({ project, onClose }) {
     return () => clearInterval(timer);
   }, []);
   const completions = project.checklistCompletions || [];
-  // Each worker's erection time runs from when admin assigned them.
-  const crew = project.assignees || [];
-  const assignedAtByUser = crewAssignedAt(crew);
-  const stepMinutes = erectionStepMinutes(completions, { assignedAtByUser, projectStartAt: project.startedAt });
-  const lastTickAt = completions.reduce((latest, c) => (c.completedAt && (!latest || new Date(c.completedAt) > new Date(latest)) ? c.completedAt : latest), null);
+  // Erection time: from each worker's GPS check-in until they save a step's
+  // progress slider; summed per worker and per step on the server.
+  const workCrew = project.work?.crew || [];
+  const stepWorkByKey = new Map((project.work?.steps || []).map((step) => [step.itemKey, step]));
+  const stepPercents = projectStepPercents(project);
   const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
-  const completedCount = completedByKey.size;
+  const completedCount = [...stepPercents.values()].filter((p) => p >= 100).length;
+  const halfCount = [...stepPercents.values()].filter((p) => p === 50).length;
   const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
-  const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
-  const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedByKey.has(item)) || null;
+  const percent = projectProgressPercent(project);
+  const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => stepPercents.get(item) < 100) || null;
   const isComplete = completedCount >= totalSteps;
 
   return (
@@ -1406,7 +1408,7 @@ function ProjectChecklistModal({ project, onClose }) {
           <p className="mt-0.5 text-xs font-bold text-slate-500">{project.quotationNo}</p>
           <div className="mt-3 flex items-center justify-between gap-2">
             <span className={`text-[11px] font-black ${isComplete ? "text-emerald-700" : "text-[#0a649d]"}`}>
-              {isComplete ? "All steps complete" : `${completedCount}/${totalSteps} steps done`}
+              {isComplete ? "All steps complete" : `${completedCount}/${totalSteps} steps done${halfCount ? `, ${halfCount} half done` : ""}`}
             </span>
             <span className="text-[11px] font-black text-slate-500">{percent}%</span>
           </div>
@@ -1416,23 +1418,33 @@ function ProjectChecklistModal({ project, onClose }) {
               style={{ width: `${percent}%` }}
             />
           </div>
-          <p className="mt-2 text-[9.5px] font-semibold text-slate-400">Marked done by the crew on site — view only here.</p>
+          <p className="mt-2 text-[9.5px] font-semibold text-slate-400">Saved by the crew on site with GPS — view only here.</p>
         </div>
 
         <div className="rounded-2xl border border-slate-100 bg-white p-3">
-          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">Crew time (from assignment)</p>
-          {crew.length === 0 ? (
-            <p className="mt-1 text-[11px] font-semibold text-slate-400">No crew assigned yet.</p>
+          <p className="text-xs font-black text-slate-700">Time on site</p>
+          <p className="text-[10px] font-semibold text-slate-400">From each GPS check-in until that worker saves a step.</p>
+          {workCrew.length === 0 ? (
+            <p className="mt-2 text-[11px] font-semibold text-slate-400">Nobody has checked in at site yet.</p>
           ) : (
-            <div className="mt-1.5 space-y-1">
-              {crew.map((worker) => {
-                const elapsed = formatJobDuration(minutesBetween(worker.assignedAt, isComplete && lastTickAt ? lastTickAt : now));
+            <div className="mt-2 space-y-1.5">
+              {workCrew.map((worker) => {
+                const running = worker.activeSince ? minutesBetween(worker.activeSince, now) || 0 : 0;
                 return (
-                  <p key={worker.id} className="text-[11px] font-semibold text-slate-600">
-                    <span className="font-black text-slate-800">{worker.name || "Technician"}</span>
-                    {worker.assignedAt && ` · assigned ${shortDateTime(worker.assignedAt)}`}
-                    {elapsed && ` · ${isComplete ? "total" : "so far"} ${elapsed}`}
-                  </p>
+                  <div key={worker.userId} className="flex items-start justify-between gap-3 text-[11px]">
+                    <div className="min-w-0">
+                      <p className="font-black text-slate-800">{worker.name || "Technician"}</p>
+                      {worker.activeSince ? (
+                        <p className="font-semibold text-emerald-700">
+                          On site since {shortDateTime(worker.activeSince)}
+                          {readableLocation(worker.activeAddress) && `, ${readableLocation(worker.activeAddress)}`}
+                        </p>
+                      ) : (
+                        <p className="font-semibold text-slate-400">Not checked in</p>
+                      )}
+                    </div>
+                    <p className="shrink-0 font-black tabular-nums text-slate-700">{formatJobDuration(worker.minutes + running) || "0m"}</p>
+                  </div>
                 );
               })}
             </div>
@@ -1463,54 +1475,55 @@ function ProjectChecklistModal({ project, onClose }) {
               <div className="space-y-1">
                 {phase.items.map((item) => {
                   const completion = completedByKey.get(item);
-                  const checked = Boolean(completion);
+                  const stepPercent = stepPercents.get(item);
+                  const stepWork = stepWorkByKey.get(item);
+                  const checked = stepPercent >= 100;
                   const isNext = item === nextItemKey;
+                  const who = stepWork?.updatedByName
+                    || completion?.completedByName
+                    || (completion?.completedByUsername ? `@${completion.completedByUsername}` : null);
+                  const when = stepWork?.updatedAt || completion?.completedAt || null;
+                  const place = stepWork && hasCoords(stepWork) ? stepWork : completion && hasCoords(completion) ? completion : null;
+                  const worked = formatJobDuration(stepWork?.minutes);
                   return (
                     <div
                       key={item}
-                      className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 ${
+                      className={`rounded-xl border px-3 py-2.5 ${
                         checked
                           ? "border-emerald-100 bg-emerald-50/60"
+                          : stepPercent === 50
+                          ? "border-amber-100 bg-amber-50/60"
                           : isNext
                           ? "border-[#0a649d] bg-sky-50/60"
                           : "border-slate-100 bg-white"
                       }`}
                     >
-                      <span
-                        className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
-                          checked ? "border-emerald-500 bg-emerald-500 text-white" : "border-slate-300"
-                        }`}
-                      >
-                        {checked && (
-                          <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className={`block text-xs font-bold ${checked ? "text-emerald-800" : "text-slate-700"}`}>
-                          {item}
+                      <div className="flex items-start justify-between gap-3">
+                        <span className={`min-w-0 text-xs font-bold ${checked ? "text-emerald-800" : "text-slate-700"}`}>{item}</span>
+                        <span
+                          className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-black tabular-nums ${
+                            checked ? "bg-emerald-100 text-emerald-800" : stepPercent === 50 ? "bg-amber-100 text-amber-800" : isNext ? "bg-[#0a649d] text-white" : "bg-slate-100 text-slate-500"
+                          }`}
+                        >
+                          {isNext && stepPercent === 0 ? "Next" : `${stepPercent}%`}
                         </span>
-                        {checked && (
-                          <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
-                            {completion.completedByName || (completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician")}
-                            {completion.completedAt && ` · ${shortDateTime(completion.completedAt)}`}
-                            {hasCoords(completion) && (
-                              <>
-                                {" · "}
-                                <a href={mapLink(completion.gpsLatitude, completion.gpsLongitude)} target="_blank" rel="noreferrer" className="font-bold text-[#0a649d] underline">
-                                  {readableLocation(completion.gpsAddress) || "View on map"}
-                                </a>
-                              </>
-                            )}
-                            {formatJobDuration(stepMinutes.get(item)) && ` · took ${formatJobDuration(stepMinutes.get(item))}`}
-                          </span>
-                        )}
-                      </span>
-                      {isNext && !checked && (
-                        <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
-                          Next
-                        </span>
+                      </div>
+                      <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-200/70">
+                        <div className={`h-full rounded-full ${checked ? "bg-emerald-500" : "bg-amber-400"}`} style={{ width: `${stepPercent}%` }} />
+                      </div>
+                      {who && when && (
+                        <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                          {who}, {shortDateTime(when)}
+                          {place && (
+                            <>
+                              {" · "}
+                              <a href={mapLink(place.gpsLatitude, place.gpsLongitude)} target="_blank" rel="noreferrer" className="font-bold text-[#0a649d] underline">
+                                {readableLocation(place.gpsAddress) || "View on map"}
+                              </a>
+                            </>
+                          )}
+                          {worked && ` · ${worked} worked`}
+                        </p>
                       )}
                     </div>
                   );

@@ -8,10 +8,10 @@ import Image from "next/image";
 import QRCode from "qrcode";
 import PushNotificationCard from "@/components/ui/PushNotificationCard";
 import { acknowledgeTicketNotification } from "@/lib/appBadge";
-import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS } from "@/lib/projectChecklist";
+import { PROJECT_CHECKLIST_PHASES, PROJECT_CHECKLIST_ITEMS, PHASE_ICON_KEYS, projectStepPercents, projectProgressPercent } from "@/lib/projectChecklist";
 import PhaseIcon from "@/components/PhaseIcon";
 import Swal from "sweetalert2";
-import { formatJobDuration, erectionStepMinutes, crewAssignedAt, minutesBetween } from "@/lib/jobDuration";
+import { formatJobDuration, minutesBetween } from "@/lib/jobDuration";
 import { readableLocation } from "@/lib/location";
 
 // The 11-item lift inspection checklist a technician fills in on-site,
@@ -193,61 +193,123 @@ function gpsErrorMessage(err) {
 
 const shortDateTime = (value) => new Date(value).toLocaleString("en-IN", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", hour12: true });
 
+function stepAccent(percent) {
+    if (percent >= 100) return { row: "border-emerald-100 bg-emerald-50/60", pill: "bg-emerald-100 text-emerald-800", slider: "accent-emerald-600" };
+    if (percent >= 50) return { row: "border-amber-100 bg-amber-50/60", pill: "bg-amber-100 text-amber-800", slider: "accent-amber-500" };
+    return { row: "border-slate-100 bg-white", pill: "bg-slate-100 text-slate-500", slider: "accent-[#0a649d]" };
+}
+
 function TechnicianProjectsView({ userId, projects, loading, checklistProject, onOpenProject, onBack, onProjectUpdated }) {
     const [pendingKey, setPendingKey] = useState("");
     const [error, setError] = useState("");
-    // "Time so far" on erection projects, refreshed every minute.
+    const [checkingIn, setCheckingIn] = useState(false);
+    // The slider position while a worker is dragging / confirming, before it's
+    // saved. Mirrored in a ref so the release handler always sees the latest
+    // value; committingRef stops pointer + touch release events saving twice.
+    const [draft, setDraft] = useState(null);
+    const draftRef = useRef(null);
+    const committingRef = useRef(false);
+    // Running visit time, refreshed every minute.
     const [now, setNow] = useState(() => Date.now());
     useEffect(() => {
         const timer = setInterval(() => setNow(Date.now()), 60000);
         return () => clearInterval(timer);
     }, []);
 
+    const myWork = (project) => (project?.work?.crew || []).find((c) => Number(c.userId) === Number(userId)) || null;
+
     if (checklistProject) {
         const completions = checklistProject.checklistCompletions || [];
-        // Erection time for each worker runs from when the admin assigned them.
-        const assignedAtByUser = crewAssignedAt(checklistProject.assignees);
-        const myAssignedAt = assignedAtByUser.get(String(userId)) || null;
-        const stepMinutes = erectionStepMinutes(completions, { assignedAtByUser, projectStartAt: checklistProject.startedAt });
         const completedByKey = new Map(completions.map((c) => [c.itemKey, c]));
-        const completedKeys = completedByKey;
-        const completedCount = completedByKey.size;
+        const stepPercents = projectStepPercents(checklistProject);
+        const stepWorkByKey = new Map((checklistProject.work?.steps || []).map((step) => [step.itemKey, step]));
         const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
-        const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
-        const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => !completedKeys.has(item)) || null;
-        const isComplete = completedCount >= totalSteps;
+        const doneCount = [...stepPercents.values()].filter((p) => p >= 100).length;
+        const halfCount = [...stepPercents.values()].filter((p) => p === 50).length;
+        const percent = projectProgressPercent(checklistProject);
+        const nextItemKey = PROJECT_CHECKLIST_ITEMS.find((item) => stepPercents.get(item) < 100) || null;
+        const isComplete = doneCount >= totalSteps;
+        const mine = myWork(checklistProject);
+        const activeSince = mine?.activeSince || null;
+        const visitMinutes = activeSince ? minutesBetween(activeSince, now) : null;
+        const totalMinutes = (mine?.minutes || 0) + (visitMinutes || 0);
 
-        async function toggle(itemKey, nextCompleted) {
+        async function checkInAtSite() {
+            setCheckingIn(true);
+            setError("");
+            try {
+                let coords;
+                try {
+                    coords = await readDevicePosition();
+                } catch (err) {
+                    throw new Error(gpsErrorMessage(err));
+                }
+                const res = await fetch(`/api/worker/projects/${checklistProject.id}/check-in`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ gpsLatitude: coords.latitude, gpsLongitude: coords.longitude, gpsAccuracyMeters: coords.accuracy }),
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.message || "Failed to check in");
+                onProjectUpdated({ ...checklistProject, work: data.work });
+            } catch (err) {
+                setError(err.message);
+            } finally {
+                setCheckingIn(false);
+            }
+        }
+
+        // Runs when the worker lets go of a step's slider. Saving progress
+        // stops their time (like completing a service visit), so confirm first.
+        async function commitStep(itemKey) {
+            const current = draftRef.current;
+            if (!current || current.itemKey !== itemKey || committingRef.current) return;
+            const value = current.value;
+            if (value === stepPercents.get(itemKey)) {
+                draftRef.current = null;
+                setDraft(null);
+                return;
+            }
+            committingRef.current = true;
             setPendingKey(itemKey);
             setError("");
             try {
-                // Marking a step done saves where and when it happened, like
-                // the service check-in; un-ticking a mistake needs no GPS.
-                let coords = null;
-                if (nextCompleted) {
-                    try {
-                        coords = await readDevicePosition();
-                    } catch (err) {
-                        throw new Error(gpsErrorMessage(err));
-                    }
+                const answer = await Swal.fire({
+                    title: `Save at ${value}%?`,
+                    text: `${itemKey}. Saving stops your time — check in again when you start the next piece of work.`,
+                    showCancelButton: true,
+                    confirmButtonText: "Save progress",
+                    cancelButtonText: "Keep working",
+                    confirmButtonColor: "#0a649d",
+                    reverseButtons: true,
+                });
+                if (!answer.isConfirmed) return;
+                let coords;
+                try {
+                    coords = await readDevicePosition();
+                } catch (err) {
+                    throw new Error(gpsErrorMessage(err));
                 }
                 const res = await fetch(`/api/worker/projects/${checklistProject.id}/checklist`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify({
                         itemKey,
-                        completed: nextCompleted,
-                        gpsLatitude: coords?.latitude ?? null,
-                        gpsLongitude: coords?.longitude ?? null,
-                        gpsAccuracyMeters: coords?.accuracy ?? null,
+                        percent: value,
+                        gpsLatitude: coords.latitude,
+                        gpsLongitude: coords.longitude,
+                        gpsAccuracyMeters: coords.accuracy,
                     }),
                 });
                 const data = await res.json();
-                if (!res.ok || !data.success) throw new Error(data.message || "Failed to update step");
-                onProjectUpdated({ ...checklistProject, checklistCompletions: data.checklistCompletions });
+                if (!res.ok || !data.success) throw new Error(data.message || "Failed to save progress");
+                onProjectUpdated({ ...checklistProject, checklistCompletions: data.checklistCompletions, work: data.work });
             } catch (err) {
                 setError(err.message);
             } finally {
+                committingRef.current = false;
+                draftRef.current = null;
+                setDraft(null);
                 setPendingKey("");
             }
         }
@@ -270,7 +332,7 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                 <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
                     <div className="flex items-center justify-between gap-2">
                         <span className={`text-xs font-black ${isComplete ? "text-emerald-700" : "text-[#0a649d]"}`}>
-                            {isComplete ? "All steps complete" : `${completedCount}/${totalSteps} steps done`}
+                            {isComplete ? "All steps complete" : `${doneCount}/${totalSteps} steps done${halfCount ? `, ${halfCount} half done` : ""}`}
                         </span>
                         <span className="text-xs font-black text-slate-500">{percent}%</span>
                     </div>
@@ -282,23 +344,52 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                     </div>
                 </div>
 
-                {myAssignedAt && (() => {
-                    // Until all steps are done the clock is still running.
-                    const lastTickAt = completions.reduce((latest, c) => (c.completedAt && (!latest || new Date(c.completedAt) > new Date(latest)) ? c.completedAt : latest), null);
-                    const elapsed = formatJobDuration(minutesBetween(myAssignedAt, isComplete && lastTickAt ? lastTickAt : now));
-                    return (
-                        <div className="rounded-3xl border border-sky-100 bg-sky-50 p-4 text-xs text-[#0a649d] space-y-1">
-                            <p className="font-black">Assigned to you · {shortDateTime(myAssignedAt)}</p>
-                            {elapsed && <p className="font-semibold">{isComplete ? `Total time: ${elapsed}` : `Time so far: ${elapsed}`}</p>}
-                            <p className="text-[10px] font-semibold text-slate-500">Each step you tick saves your GPS location and time.</p>
+                {activeSince ? (
+                    <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+                        <p className="text-sm font-black">On site since {new Date(activeSince).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true })}</p>
+                        {readableLocation(mine.activeAddress) && (
+                            <p className="mt-0.5 text-xs font-semibold text-emerald-800">{readableLocation(mine.activeAddress)}</p>
+                        )}
+                        <div className="mt-3 flex gap-6">
+                            <div>
+                                <p className="text-[10px] font-bold text-emerald-700">This visit</p>
+                                <p className="text-lg font-black tabular-nums">{formatJobDuration(visitMinutes) || "0m"}</p>
+                            </div>
+                            <div>
+                                <p className="text-[10px] font-bold text-emerald-700">Your total here</p>
+                                <p className="text-lg font-black tabular-nums">{formatJobDuration(totalMinutes) || "0m"}</p>
+                            </div>
                         </div>
-                    );
-                })()}
+                        <p className="mt-2 text-[11px] font-semibold text-emerald-800 leading-relaxed">
+                            When you stop for now, move the step&apos;s slider to 0%, 50% or 100%. That saves your progress and stops your time.
+                        </p>
+                    </div>
+                ) : (
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+                        <div>
+                            <p className="text-sm font-black text-slate-800">Check in to start your time</p>
+                            <p className="mt-0.5 text-[11px] font-semibold text-slate-500 leading-relaxed">
+                                Your time runs from check-in until you save a step&apos;s progress. After a break, check in again to continue.
+                            </p>
+                            {totalMinutes > 0 && (
+                                <p className="mt-1.5 text-[11px] font-bold text-[#0a649d]">Your total here: {formatJobDuration(totalMinutes)}</p>
+                            )}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={checkInAtSite}
+                            disabled={checkingIn}
+                            className="h-12 w-full rounded-xl bg-[#0a649d] text-sm font-black text-white disabled:opacity-50 active:scale-95 transition"
+                        >
+                            {checkingIn ? "Getting your location..." : "Check in at site"}
+                        </button>
+                    </div>
+                )}
 
                 {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
 
                 {PROJECT_CHECKLIST_PHASES.map((phase, phaseIndex) => {
-                    const phaseDone = phase.items.filter((item) => completedKeys.has(item)).length;
+                    const phaseDone = phase.items.filter((item) => stepPercents.get(item) >= 100).length;
                     const phaseState = phaseDone >= phase.items.length ? "done" : phase.items.includes(nextItemKey) ? "active" : "locked";
                     return (
                         <div key={phase.phase}>
@@ -320,47 +411,63 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                             </div>
                             <div className="space-y-1.5">
                                 {phase.items.map((item) => {
+                                    const saved = stepPercents.get(item);
+                                    const value = draft?.itemKey === item ? draft.value : saved;
+                                    const accent = stepAccent(value);
+                                    const stepWork = stepWorkByKey.get(item);
                                     const completion = completedByKey.get(item);
-                                    const checked = Boolean(completion);
                                     const isNext = item === nextItemKey;
+                                    const locked = !activeSince || (pendingKey !== "" && pendingKey !== item);
+                                    const who = stepWork?.updatedByName
+                                        || completion?.completedByName
+                                        || (completion?.completedByUsername ? `@${completion.completedByUsername}` : null);
+                                    const when = stepWork?.updatedAt || completion?.completedAt || null;
+                                    const where = readableLocation(stepWork?.gpsAddress || completion?.gpsAddress);
+                                    const worked = formatJobDuration(stepWork?.minutes);
                                     return (
-                                        <label
+                                        <div
                                             key={item}
-                                            className={`flex items-start gap-3 rounded-2xl border px-3.5 py-3.5 transition ${
-                                                checked
-                                                    ? "border-emerald-100 bg-emerald-50/60"
-                                                    : isNext
-                                                    ? "border-[#0a649d] bg-sky-50/60"
-                                                    : "border-slate-100 bg-white"
-                                            }`}
+                                            className={`rounded-2xl border px-3.5 pt-3 pb-2.5 transition ${isNext && saved < 50 ? "border-[#0a649d] bg-sky-50/60" : accent.row}`}
                                         >
+                                            <div className="flex items-start justify-between gap-2">
+                                                <span className={`min-w-0 text-xs font-bold leading-snug ${saved >= 100 ? "text-emerald-800" : "text-slate-700"}`}>{item}</span>
+                                                <span className={`shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-black tabular-nums ${accent.pill}`}>{value}%</span>
+                                            </div>
                                             <input
-                                                type="checkbox"
-                                                checked={checked}
-                                                disabled={pendingKey !== ""}
-                                                onChange={() => toggle(item, !checked)}
-                                                className="mt-0.5 h-5 w-5 shrink-0 accent-[#0a649d] disabled:opacity-50"
+                                                type="range"
+                                                min={0}
+                                                max={100}
+                                                step={50}
+                                                value={value}
+                                                disabled={locked}
+                                                aria-label={`${item} progress`}
+                                                aria-valuetext={`${value}%`}
+                                                onChange={(e) => {
+                                                    draftRef.current = { itemKey: item, value: Number(e.target.value) };
+                                                    setDraft(draftRef.current);
+                                                }}
+                                                onPointerUp={() => commitStep(item)}
+                                                onPointerCancel={() => commitStep(item)}
+                                                onTouchEnd={() => commitStep(item)}
+                                                onKeyUp={() => commitStep(item)}
+                                                className={`mt-2 h-8 w-full cursor-pointer disabled:cursor-not-allowed disabled:opacity-40 ${accent.slider}`}
                                             />
-                                            <span className="min-w-0 flex-1 text-xs font-bold leading-snug">
-                                                <span className={checked ? "text-emerald-800" : "text-slate-700"}>{item}</span>
-                                                {pendingKey === item && (
-                                                    <span className="mt-0.5 block text-[10px] font-semibold text-[#0a649d]">Getting location...</span>
-                                                )}
-                                                {checked && (
-                                                    <span className="mt-0.5 block text-[10px] font-semibold text-slate-400">
-                                                        {completion.completedByName || (completion.completedByUsername ? `@${completion.completedByUsername}` : "Technician")}
-                                                        {completion.completedAt && ` · ${shortDateTime(completion.completedAt)}`}
-                                                        {readableLocation(completion.gpsAddress) && ` · ${readableLocation(completion.gpsAddress)}`}
-                                                        {formatJobDuration(stepMinutes.get(item)) && ` · took ${formatJobDuration(stepMinutes.get(item))}`}
-                                                    </span>
-                                                )}
-                                            </span>
-                                            {isNext && !checked && (
-                                                <span className="shrink-0 rounded-lg bg-[#0a649d] px-2 py-0.5 text-[9px] font-black uppercase text-white">
-                                                    Next
-                                                </span>
+                                            <div className="flex justify-between px-0.5 text-[10px] font-bold text-slate-400">
+                                                <span>0%</span>
+                                                <span>50%</span>
+                                                <span>100%</span>
+                                            </div>
+                                            {pendingKey === item && (
+                                                <p className="mt-1 text-[10px] font-semibold text-[#0a649d]">Saving...</p>
                                             )}
-                                        </label>
+                                            {pendingKey !== item && who && when && (
+                                                <p className="mt-1 text-[10px] font-semibold text-slate-400">
+                                                    {who}, {shortDateTime(when)}
+                                                    {where && ` · ${where}`}
+                                                    {worked && ` · ${worked} worked`}
+                                                </p>
+                                            )}
+                                        </div>
                                     );
                                 })}
                             </div>
@@ -388,18 +495,17 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
             ) : (
                 <div className="space-y-3">
                     {projects.map((project) => {
-                        const completedKeys = new Set((project.checklistCompletions || []).map((c) => c.itemKey));
-                        const completedCount = completedKeys.size;
+                        const stepPercents = projectStepPercents(project);
                         const totalSteps = PROJECT_CHECKLIST_ITEMS.length;
-                        const percent = totalSteps ? Math.round((completedCount / totalSteps) * 100) : 0;
+                        const completedCount = [...stepPercents.values()].filter((p) => p >= 100).length;
+                        const percent = projectProgressPercent(project);
                         const isComplete = completedCount >= totalSteps;
                         const crewNames = (project.assignees || []).map((a) => a.name).join(" & ");
-                        const activePhaseIndex = PROJECT_CHECKLIST_PHASES.findIndex((phase) => !phase.items.every((item) => completedKeys.has(item)));
+                        const activePhaseIndex = PROJECT_CHECKLIST_PHASES.findIndex((phase) => !phase.items.every((item) => stepPercents.get(item) >= 100));
                         const currentPhase = PROJECT_CHECKLIST_PHASES[activePhaseIndex === -1 ? PROJECT_CHECKLIST_PHASES.length - 1 : activePhaseIndex];
                         const currentPhaseIconKey = PHASE_ICON_KEYS[activePhaseIndex === -1 ? PHASE_ICON_KEYS.length - 1 : activePhaseIndex];
-                        const myAssignedAt = crewAssignedAt(project.assignees).get(String(userId)) || null;
-                        const lastTickAt = (project.checklistCompletions || []).reduce((latest, c) => (c.completedAt && (!latest || new Date(c.completedAt) > new Date(latest)) ? c.completedAt : latest), null);
-                        const myElapsed = formatJobDuration(minutesBetween(myAssignedAt, isComplete && lastTickAt ? lastTickAt : now));
+                        const mine = myWork(project);
+                        const myMinutes = (mine?.minutes || 0) + (mine?.activeSince ? minutesBetween(mine.activeSince, now) || 0 : 0);
                         return (
                             <button
                                 key={project.id}
@@ -429,14 +535,19 @@ function TechnicianProjectsView({ userId, projects, loading, checklistProject, o
                                     </div>
                                 </div>
                                 <p className="mt-2 text-[10px] font-bold text-slate-400">{completedCount}/{totalSteps} steps done</p>
+                                {mine?.activeSince && (
+                                    <p className="mt-1.5 inline-block rounded-lg bg-emerald-50 px-2 py-0.5 text-[10px] font-black text-emerald-700">
+                                        On site since {new Date(mine.activeSince).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", hour12: true })}
+                                    </p>
+                                )}
 
                                 <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 border-t border-slate-100 pt-3 text-[10.5px] font-semibold text-slate-500">
                                     <p className="truncate"><span className="text-slate-400">Site:</span> {project.address || project.city || "Not listed"}</p>
                                     <p className="truncate"><span className="text-slate-400">Mobile:</span> {project.mobileNo || "Not listed"}</p>
                                     <p className="col-span-2 truncate"><span className="text-slate-400">Crew:</span> {crewNames || "—"}</p>
                                     <p className="col-span-2"><span className="text-slate-400">Started:</span> {project.startedAt ? new Date(project.startedAt).toLocaleDateString("en-IN") : "—"}</p>
-                                    {myAssignedAt && (
-                                        <p className="col-span-2 text-[#0a649d]"><span className="text-slate-400">Assigned to you:</span> {shortDateTime(myAssignedAt)}{myElapsed ? ` · ${myElapsed}` : ""}</p>
+                                    {myMinutes > 0 && (
+                                        <p className="col-span-2 text-[#0a649d]"><span className="text-slate-400">Your time here:</span> {formatJobDuration(myMinutes)}</p>
                                     )}
                                 </div>
                             </button>

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { formatJobDuration, erectionStepMinutes, crewAssignedAt, minutesBetween } from "../lib/jobDuration.js";
+import { formatJobDuration, minutesBetween } from "../lib/jobDuration.js";
+import { projectStepPercents, projectProgressPercent, PROJECT_CHECKLIST_ITEMS } from "../lib/projectChecklist.js";
 import { areaLabelFromAddress, readableLocation } from "../lib/location.js";
 
 test("durations read in hours under a day and in days + hours after", () => {
@@ -16,49 +17,39 @@ test("durations read in hours under a day and in days + hours after", () => {
   assert.equal(formatJobDuration(3 * 24 * 60 + 5 * 60 + 10), "3d 5h");
 });
 
-test("erection step time runs from the worker's assignment, then from the previous tick", () => {
-  const assignedAtByUser = new Map([["7", "2026-11-10T04:00:00Z"], ["8", "2026-11-11T03:00:00Z"]]);
-  const minutes = erectionStepMinutes(
-    [
-      { itemKey: "B", completedByUserId: 7, completedAt: "2026-11-10T07:30:00Z" },
-      { itemKey: "A", completedByUserId: 7, completedAt: "2026-11-10T05:00:00Z" },
-      // Worker 8 joins the next morning; their first step counts from their own assignment.
-      { itemKey: "C", completedByUserId: 8, completedAt: "2026-11-11T05:00:00Z" },
-      { itemKey: "D", completedByUserId: 7, completedAt: "2026-11-11T06:15:00Z" },
-    ],
-    { assignedAtByUser, projectStartAt: "2026-11-09T12:00:00Z" }
-  );
-  assert.equal(minutes.get("A"), 60); // 04:00 assignment -> 05:00
-  assert.equal(minutes.get("B"), 150); // previous tick 05:00 -> 07:30
-  assert.equal(minutes.get("C"), 120); // worker 8 assigned 03:00 -> 05:00
-  assert.equal(minutes.get("D"), 75); // previous tick 05:00 -> 06:15
-
-  // Worker no longer on the crew: falls back to the project's start date.
-  const removed = erectionStepMinutes(
-    [{ itemKey: "A", completedByUserId: 9, completedAt: "2026-11-10T05:00:00Z" }],
-    { assignedAtByUser, projectStartAt: "2026-11-10T02:00:00Z" }
-  );
-  assert.equal(removed.get("A"), 180);
-
-  // A known assignment time always wins over the project's start date.
-  const known = erectionStepMinutes(
-    [{ itemKey: "A", completedByUserId: 7, completedAt: "2026-11-10T05:00:00Z" }],
-    { assignedAtByUser, projectStartAt: "2026-11-10T04:30:00Z" }
-  );
-  assert.equal(known.get("A"), 60);
-
-  // Nothing known before the first tick.
-  assert.equal(erectionStepMinutes([{ itemKey: "A", completedAt: "2026-11-10T05:00:00Z" }]).get("A"), null);
-});
-
-test("crew assignment times and elapsed minutes", () => {
-  const map = crewAssignedAt([{ id: 7, assignedAt: "2026-11-10T04:00:00Z" }, { id: 8 }]);
-  assert.equal(map.get("7"), "2026-11-10T04:00:00Z");
-  assert.equal(map.has("8"), false);
+test("elapsed minutes between two times", () => {
   assert.equal(minutesBetween("2026-11-10T04:00:00Z", "2026-11-11T06:30:00Z"), 26 * 60 + 30);
   assert.equal(formatJobDuration(minutesBetween("2026-11-10T04:00:00Z", "2026-11-11T06:30:00Z")), "1d 2h");
+  assert.equal(minutesBetween("2026-11-10T04:00:00Z", new Date("2026-11-10T04:45:00Z").getTime()), 45);
   assert.equal(minutesBetween(null), null);
   assert.equal(minutesBetween("2026-11-12T00:00:00Z", "2026-11-11T00:00:00Z"), null);
+});
+
+test("erection step progress: completed steps are 100%, saved halves 50%, the rest 0%", () => {
+  const project = {
+    checklistCompletions: [{ itemKey: "SITE PREPARATION" }, { itemKey: "TEMPLATE PREPARATION" }],
+    work: {
+      steps: [
+        { itemKey: "HOLE MARKING FOR MOTOR CHANNELS", percent: 50 },
+        // Saved back down to 0 after a mistake.
+        { itemKey: "TEMPLATE FIXING AT SITE", percent: 0 },
+        // Completion row is the source of truth for 100%.
+        { itemKey: "TEMPLATE PREPARATION", percent: 50 },
+      ],
+    },
+  };
+  const percents = projectStepPercents(project);
+  assert.equal(percents.size, PROJECT_CHECKLIST_ITEMS.length);
+  assert.equal(percents.get("SITE PREPARATION"), 100);
+  assert.equal(percents.get("TEMPLATE PREPARATION"), 100);
+  assert.equal(percents.get("HOLE MARKING FOR MOTOR CHANNELS"), 50);
+  assert.equal(percents.get("TEMPLATE FIXING AT SITE"), 0);
+  assert.equal(percents.get("LIFT NORMAL"), 0);
+  // (100 + 100 + 50) / 52 steps
+  assert.equal(projectProgressPercent(project), Math.round(250 / PROJECT_CHECKLIST_ITEMS.length));
+  assert.equal(projectProgressPercent({}), 0);
+  const all = { checklistCompletions: PROJECT_CHECKLIST_ITEMS.map((itemKey) => ({ itemKey })) };
+  assert.equal(projectProgressPercent(all), 100);
 });
 
 test("new GPS labels are 'Area, City' without route codes or generic blocks", () => {
