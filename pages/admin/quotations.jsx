@@ -439,6 +439,8 @@ export default function QuotationsPage({ user, initialData }) {
 
         {error && <p className="rounded-2xl border border-red-100 bg-red-50 p-3 text-xs font-bold text-red-700">{error}</p>}
 
+        {activeTab === "projects" && canGenerate && <LegacyCustomerIdsNotice />}
+
         {activeTab === "projects" ? (
           projectsLoading ? (
             <p className="rounded-3xl bg-white p-8 text-center text-xs font-bold text-slate-400">Loading ongoing projects…</p>
@@ -1669,6 +1671,83 @@ function SelectField({ fieldKey, required = false, form, errors, registerField, 
       </select>
       {errors[fieldKey] && <span className="mt-1 block text-[10px] font-bold text-red-600">{errors[fieldKey]}</span>}
     </label>
+  );
+}
+
+// Customers onboarded before the client's ID format (e.g. 2620AG2) still
+// carry the quotation number as their ID. Shows the planned new IDs and
+// renames them in the ERP and the CUSTOMER_LIST sheet on request; hidden
+// once there's nothing left to rename.
+function LegacyCustomerIdsNotice() {
+  const [renames, setRenames] = useState([]);
+  const [status, setStatus] = useState("loading");
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/quotations/customer-ids")
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active) return;
+        if (data.success) {
+          setRenames(data.renames || []);
+          setStatus("ready");
+        } else {
+          setStatus("hidden");
+        }
+      })
+      .catch(() => active && setStatus("hidden"));
+    return () => { active = false; };
+  }, []);
+
+  async function apply() {
+    if (!window.confirm(`Change ${renames.length} customer IDs in the ERP and the CUSTOMER_LIST sheet? Breakdown tickets and service visits keep their link.`)) return;
+    setStatus("saving");
+    try {
+      const res = await fetch("/api/quotations/customer-ids", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || "Failed to update customer IDs");
+      setMessage(data.sheetError || `Updated ${data.renames.length} customer IDs in the ERP and ${data.sheetCellsUpdated} in the sheet.`);
+      setRenames([]);
+      setStatus("done");
+    } catch (err) {
+      setMessage(err.message);
+      setStatus("ready");
+    }
+  }
+
+  if (status === "done") {
+    return <p className="rounded-2xl border border-emerald-100 bg-emerald-50 p-3 text-xs font-bold text-emerald-800">{message}</p>;
+  }
+  if (status === "loading" || status === "hidden" || renames.length === 0) return null;
+
+  return (
+    <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+      <div>
+        <p className="text-sm font-black text-amber-900">{renames.length} customers still use a quotation number as their ID</p>
+        <p className="mt-0.5 text-[11px] font-semibold text-amber-800">They&apos;ll get IDs in your format: year, lift number, door, motor, floors.</p>
+      </div>
+      <ul className="space-y-1 text-[11px] font-semibold text-slate-700">
+        {renames.map((r) => (
+          <li key={r.customerId} className="flex flex-wrap items-baseline justify-between gap-x-3">
+            <span className="min-w-0 truncate">{r.customerName}</span>
+            <span className="tabular-nums">
+              <span className="text-slate-400 line-through">{r.oldCode}</span>
+              <span className="ml-2 font-black text-[#0a649d]">{r.newCode}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {message && <p className="text-[11px] font-bold text-red-700">{message}</p>}
+      <button
+        type="button"
+        onClick={apply}
+        disabled={status === "saving"}
+        className="h-10 w-full rounded-xl bg-[#0a649d] text-xs font-black text-white disabled:opacity-50"
+      >
+        {status === "saving" ? "Updating…" : "Update customer IDs"}
+      </button>
+    </div>
   );
 }
 

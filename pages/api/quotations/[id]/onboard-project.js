@@ -4,7 +4,7 @@ import { createAuditLog } from "@/lib/auditLog";
 import { canGenerateBoq, isBoqAdmin } from "@/lib/quotationPermissions";
 import { appendOngoingProjectRow } from "@/lib/googleSheets";
 import { markProjectSheetRow, onboardQuotationAsProject } from "@/lib/quotations";
-import { appendCustomerListRow } from "@/lib/customerAutomationSheet";
+import { appendCustomerListRow, getCustomerListCodes } from "@/lib/customerAutomationSheet";
 
 async function safeAudit(args) {
   try {
@@ -53,7 +53,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    // The new customer's ID continues this year's lift numbering from the
+    // master sheet too (read before the DB transaction; best-effort).
+    const sheetCodes = await getCustomerListCodes().catch((err) => {
+      console.error("Failed to read CUSTOMER_LIST codes for the new customer ID:", err);
+      return [];
+    });
     const result = await onboardQuotationAsProject({
+      sheetCodes,
       quotationId: req.query.id,
       agreedAmount: req.body?.agreedAmount,
       advanceAmount: req.body?.advanceAmount,
